@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "avid-life-502508-t9",
+  "private_key_id": "e7f185a79af736635fc217f5201e156fdc0526b3",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQDEWkEsgmYD2kr9\ncw/5X8Zar7GEp2dNDRJKhv22vHRpVaKa4yb/3mkkrfh7QxOfuT4X1j4l/pDrw1KD\nIJxWqZAeRja2HiuWMtlPcAqmzrKSHtCZU2ZQYkA9dCc/zoG+mUsvBV+NXDkCIXAP\nlXkEJwkHAxjAmycsoVMWLRea8zPxHUKM4Ib3pu21sHEzrL7KO9H7m+G9pW7sBubh\npLJporFdEaeF7B9WhEFEUgQaNV+RUxtOvqkt6/Bvz1nDu7hZj429mqcQJ3axP7ap\nZYFcYQCQOOCsYgT+D0s231sCsBd7Njw1/BoOsH8B9fkQ5SQDCemCuT31qo4+Nkuo\nJlF2tgX/AgMBAAECggEABvEd7sHpc2drUUyZGvrs21Xs08DLYSj+JY5iN+yvvO2f\nIxS200L8uqQ/7bOwZOw6qsMTTWqTmxI7v5EOle3Gv5tB4extJBFGJ43RgpY6L/pQ\n66rMKjlfBg0uOg5F/gQTaWUqPKgvB8lA2fwx3Bi5M/tDC8QwfV5yvoz3ka3Zf0O2\nrg/fvP4U29UUcTxOaxQpm56WL2F1J7FHjTGkmzISDE3JFevbQf2Oe88BCy5NcKuU\niUxmKoPGStTvUqlwc7OoJZI7CNIytsujWcxjlKLGQqemd1usDK+fVIP9QTkGUXyz\nUIxOntUI3ZRDKCHrgRKPzhQoe25pnnXD5hKccUioGQKBgQDt7Ax4/U9lat1f10wH\nQAWERTrIhptcXAkX5sGeKd7rbH+kSQoREj04D8eQG+E821SGez2vBBRWdPW+Dp0V\nYcbcTQoesWdPlzm77264mTVHIW4HbNsCY76m1+Ue2izsUpxPoj4+jnsymobGb1Ok\ngPSrl1kDhKE50IG4YrKg4AkG2wKBgQDTRZ1ioFB6RRX+Ni1ElxMz/iy/uTu7l5Es\nEaBBkR6RMhujJVsFHPbhR2FeNPtYaTQI2gecQifyhiZhTdcHKieCIDLFr2GEIgzQ\nQDw9NrOivEEOnN/MF8E6LVVNXvOyHjaeGnfKI4wQj/gfB/tiq/NV71uGnOlkry6f\n4oJT5qhsrQKBgDtkeZiaY3+Ftc1/CVOl/7qNLadxMsdTklGNIThCa4uJgjOYqBKq\n4u1jwwWOcCOo/Oi1SyitdAZBHDddnoj/54yHDseqsYeE0LzBgHpEhLBFABqKagGm\ntKkhq+iPvjcgSDT442DqYIa5XHucvtyJ9IoBNg9SxIySKE/HE6BlTNuRAoGARgGH\nSSr9/8Xsp7OkBFpbDptmkJD8bginHgcpJxDDJDGKXuD97A/Q7o0Mgn7j2kPh7hzw\n8KIrQn2ZMhzs537cYI3yxPZ8RaBSxp7CVzZNB9uBYyowLhyg9noXDfAsqBTC3FjA\n4MYunz5VZVLrxaJcm1kY5t4PqEE0Hd6ceNixbnECgYBLYXxApZyNqAYyF1XnuGrH\ncqA3VESYRg/hQvi2wwcCO+35Lri7sAY3hv8pdeUGZVj6gj+QZomPID8bdz6Fplrs\n/T9AWCCm0ka1lOT1EmonXJ325wmeKxem3XAEhZap86OVg2ny0sKABDAiMihNP9w5\ne+a0hN6cXrGF8XXmuIloYQ==\n-----END PRIVATE KEY-----\n",
+  "client_email": "map-access@avid-life-502508-t9.iam.gserviceaccount.com",
+  "client_id": "112048902797347044857",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/map-access%40avid-life-502508-t9.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
