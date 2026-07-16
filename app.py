@@ -96,7 +96,7 @@ encoded = base64.b64encode(
 PAGE_URL = "https://k958677wpal-oss.github.io/rest-area-map/"
 
 # --- 4. 탭 분리 (지도 vs 데이터) ---
-tab_map, tab_data = st.tabs(["🗺️ 카카오맵 지도 보기", "📊 상세 데이터 및 필터"])
+tab_map, tab_data = st.tabs(["🛣️ 고속도로 뷰", "📊 상세 데이터 및 필터"])
 
 with tab_map:
     # 검색창: 입력값을 iframe URL 파라미터(q)로 전달
