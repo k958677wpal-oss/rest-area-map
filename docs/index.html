@@ -17,7 +17,6 @@
       background: rgba(0,0,0,.8); color: #0f0; font: 12px monospace;
       padding: 6px; display: none; white-space: pre-wrap;
     }
-    /* 고속도로명 라벨(CustomOverlay) 디자인 */
     .highway-label {
       background: #2F5597;
       color: #fff;
@@ -28,6 +27,7 @@
       box-shadow: 0 2px 6px rgba(0,0,0,.25);
       white-space: nowrap;
       transform: translate(-50%, -130%);
+      transition: opacity .2s ease;
     }
   </style>
 </head>
@@ -58,7 +58,35 @@
       ]
     };
 
+    /* =========================================================
+       브랜드별 커스텀 마커 이미지 (Placeholder)
+       - 나중에 각 url 값만 실제 이미지 주소로 교체하세요.
+       - size: 마커 이미지 크기(px)
+       ========================================================= */
+    var BRAND_MARKERS = {
+      "GS25":   { url: "https://via.placeholder.com/32/00A651/ffffff?text=GS", size: [32, 32] },
+      "CU":     { url: "https://via.placeholder.com/32/6F2C91/ffffff?text=CU", size: [32, 32] },
+      "7-11":   { url: "https://via.placeholder.com/32/EE1C25/ffffff?text=7", size: [32, 32] },
+      "이마트24": { url: "https://via.placeholder.com/32/FFB81C/000000?text=E24", size: [32, 32] },
+      "기타":    { url: "https://via.placeholder.com/32/888888/ffffff?text=%E2%80%A2", size: [32, 32] }
+    };
+
+    // 브랜드 값 → MarkerImage 생성 (매칭 실패 시 '기타'로 폴백)
+    var _markerImageCache = {};
+    function getMarkerImage(brand) {
+      var key = BRAND_MARKERS[brand] ? brand : "기타";
+      if (_markerImageCache[key]) return _markerImageCache[key];
+      var cfg = BRAND_MARKERS[key];
+      var img = new kakao.maps.MarkerImage(
+        cfg.url,
+        new kakao.maps.Size(cfg.size[0], cfg.size[1])
+      );
+      _markerImageCache[key] = img;
+      return img;
+    }
+
     var map, currentPolyline = null, currentLabel = null, infowindow = null, allMarkers = [];
+    var activeRoutePath = null, activeRouteName = "";   // 동적 라벨 추적용
     var DEBUG = false;
 
     function log(msg) {
@@ -79,12 +107,14 @@
     })();
 
     function buildContent(p) {
+      // 순서: 휴게소명 → 연매출액 → 브랜드 → 운영사 → 계약기간 → 계약차수 → 담당자
       return '<div style="padding:8px;font-size:13px;line-height:1.6;min-width:160px;">' +
                '<b style="font-size:14px;">' + p.name + '</b><br>' +
+               '연매출액: ' + p.revenue + '<br>' +
                '브랜드: ' + p.brand + '<br>' +
                '운영사: ' + p.operator + '<br>' +
-               '연매출액: ' + p.revenue + '<br>' +
                '계약기간: ' + p.contract + '<br>' +
+               '계약차수: ' + (p.contract_step != null ? p.contract_step : '') + '<br>' +
                '담당자: ' + p.manager +
              '</div>';
     }
@@ -92,6 +122,8 @@
     function clearRoute() {
       if (currentPolyline) { currentPolyline.setMap(null); currentPolyline = null; }
       if (currentLabel) { currentLabel.setMap(null); currentLabel = null; }
+      activeRoutePath = null;
+      activeRouteName = "";
     }
 
     function drawRoute(highway) {
@@ -105,38 +137,67 @@
 
       var path = entry.path.map(function (c) { return new kakao.maps.LatLng(c[0], c[1]); });
 
-      // --- 노선 디자인: 세련된 남색 계열 + 얇은 실선 ---
       currentPolyline = new kakao.maps.Polyline({
         path: path,
-        strokeWeight: 4,             // 기존 7 → 4, 더 깔끔하게
-        strokeColor: '#2F5597',      // 세련된 남색 (다른 후보: 다크그레이 '#4A4A4A')
+        strokeWeight: 4,
+        strokeColor: '#2F5597',
         strokeOpacity: 0.9,
-        strokeStyle: 'solid'         // 굵은 도로망 강조는 실선이 더 안정적/신뢰감 있음
-        // 점선을 원하시면 아래처럼 교체:
-        // strokeStyle: 'shortdash'
+        strokeStyle: 'solid'
       });
       currentPolyline.setMap(map);
 
-      // --- 고속도로명 라벨(CustomOverlay): 경로 중앙 지점에 표시 ---
-      var midIdx = Math.floor(path.length / 2);
-      var midPos = path[midIdx];
+      // 동적 라벨 추적을 위해 현재 경로/이름 저장
+      activeRoutePath = path;
+      activeRouteName = entry.name;
 
+      // 라벨 생성(초기 위치는 idle 로직으로 곧바로 갱신됨)
       currentLabel = new kakao.maps.CustomOverlay({
-        position: midPos,
+        position: path[Math.floor(path.length / 2)],
         content: '<div class="highway-label">' + entry.name + '</div>',
         yAnchor: 1,
         zIndex: 15
       });
       currentLabel.setMap(map);
+
+      updateLabelPosition();   // 즉시 한 번 화면 기준으로 재배치
+    }
+
+    /* [동적 라벨] 현재 화면(bounds) 안에 보이는 노선 좌표 중
+       화면 중심에 가장 가까운 점으로 라벨을 이동. 화면 밖이면 숨김. */
+    function updateLabelPosition() {
+      if (!currentLabel || !activeRoutePath || !activeRoutePath.length) return;
+
+      var bounds = map.getBounds();
+      var center = map.getCenter();
+      var cLat = center.getLat(), cLng = center.getLng();
+
+      var best = null, bestDist = Infinity;
+      for (var i = 0; i < activeRoutePath.length; i++) {
+        var pt = activeRoutePath[i];
+        if (!bounds.contain(pt)) continue;   // 화면 밖 좌표는 제외
+        var dLat = pt.getLat() - cLat;
+        var dLng = pt.getLng() - cLng;
+        var dist = dLat * dLat + dLng * dLng;
+        if (dist < bestDist) { bestDist = dist; best = pt; }
+      }
+
+      var labelEl = currentLabel.getContent();
+      if (best) {
+        currentLabel.setPosition(best);
+        currentLabel.setMap(map);   // 다시 표시
+      } else {
+        // 노선이 현재 화면에 하나도 안 보이면 라벨 숨김
+        currentLabel.setMap(null);
+      }
     }
 
     function highlightMarkers(highway) {
       var target = normalize(highway);
       allMarkers.forEach(function (item) {
         if (normalize(item.point.highway) === target) {
-          item.marker.setOpacity(1.0); item.marker.setZIndex(10);   // 같은 노선: 선명
+          item.marker.setOpacity(1.0); item.marker.setZIndex(10);
         } else {
-          item.marker.setOpacity(0.3); item.marker.setZIndex(1);    // 다른 노선: 흐림
+          item.marker.setOpacity(0.3); item.marker.setZIndex(1);
         }
       });
     }
@@ -172,7 +233,12 @@
 
       points.forEach(function (p) {
         var pos = new kakao.maps.LatLng(p.lat, p.lng);
-        var marker = new kakao.maps.Marker({ position: pos, map: map });
+        // 브랜드별 커스텀 마커 이미지 적용
+        var marker = new kakao.maps.Marker({
+          position: pos,
+          map: map,
+          image: getMarkerImage(p.brand)
+        });
         allMarkers.push({ marker: marker, point: p });
         var content = buildContent(p);
 
@@ -182,7 +248,6 @@
         kakao.maps.event.addListener(marker, 'mouseout', function () {
           infowindow.close();
         });
-
         kakao.maps.event.addListener(marker, 'click', function () {
           log('🖱 marker click: ' + p.name);
           activate(marker, p, content);
@@ -193,8 +258,10 @@
         });
       });
 
-      // 초기화는 명시적 버튼으로만 (마커 이벤트와 경쟁하지 않도록)
       document.getElementById('resetBtn').addEventListener('click', resetAll);
+
+      // 지도가 멈출 때마다(이동/줌 종료) 라벨 위치 재계산 → 화면을 따라오게
+      kakao.maps.event.addListener(map, 'idle', updateLabelPosition);
 
       if (query) {
         var nq = query.toLowerCase();
