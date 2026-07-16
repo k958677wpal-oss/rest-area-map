@@ -3,8 +3,6 @@ import pandas as pd
 import gspread
 import json
 import streamlit.components.v1 as components
-import base64
-import urllib.parse
 
 # --- 페이지 기본 설정 ---
 st.set_page_config(page_title="전국 휴게소 통합 관리", layout="wide")
@@ -70,7 +68,7 @@ except Exception as e:
     st.stop()
 
 
-# --- 3. 위도/경도 값 검증 함수 ---
+# --- 3. 위도/경도 값 검증 함수 (기존 로직 그대로 유지) ---
 def parse_coordinate(value):
     """
     위도/경도 값을 안전하게 float으로 변환합니다.
@@ -79,7 +77,6 @@ def parse_coordinate(value):
     """
     if value is None:
         return None
-    # 빈 문자열, 공백만 있는 문자열도 걸러냄
     if isinstance(value, str) and value.strip() == "":
         return None
     try:
@@ -88,9 +85,9 @@ def parse_coordinate(value):
         return None
 
 
-# --- 4. 지도용 데이터 인코딩 (좌표 검증 포함) ---
+# --- 4. 지도용 데이터 구성 (좌표 검증 포함, 기존 스킵 로직 유지) ---
 points = []
-skipped_rows = []  # 어떤 행이 왜 제외됐는지 기록 (화면에 안내용)
+skipped_rows = []  # 어떤 행이 왜 제외됐는지 기록 (화면 안내용)
 
 for idx, r in df.iterrows():
     name = r.get("휴게소명", f"{idx}행")
@@ -98,7 +95,6 @@ for idx, r in df.iterrows():
     lat = parse_coordinate(r.get("위도"))
     lng = parse_coordinate(r.get("경도"))
 
-    # 위도 또는 경도가 유효하지 않으면 이 행은 조용히 건너뜀 (앱은 멈추지 않음)
     if lat is None or lng is None:
         skipped_rows.append({
             "휴게소명": name,
@@ -122,7 +118,6 @@ for idx, r in df.iterrows():
             "highway": r.get("고속도로명", ""),
         })
     except Exception as e:
-        # 예상치 못한 다른 오류가 나도 전체 앱이 죽지 않도록 방어
         skipped_rows.append({
             "휴게소명": name,
             "위도_원본값": r.get("위도"),
@@ -131,11 +126,11 @@ for idx, r in df.iterrows():
         })
         continue
 
-encoded = base64.b64encode(
-    urllib.parse.quote(json.dumps(points, ensure_ascii=False)).encode()
-).decode()
-
+# GitHub Pages 주소와, postMessage 수신 검증에 쓸 출처(origin)
 PAGE_URL = "https://k958677wpal-oss.github.io/rest-area-map/"
+TARGET_ORIGIN = "https://k958677wpal-oss.github.io"
+
+MAP_HEIGHT = 560
 
 # --- 5. 탭 분리 (지도 vs 데이터) ---
 tab_map, tab_data = st.tabs(["🗺️ 카카오맵 지도 보기", "📊 상세 데이터 및 필터"])
@@ -143,13 +138,50 @@ tab_map, tab_data = st.tabs(["🗺️ 카카오맵 지도 보기", "📊 상세 
 with tab_map:
     query = st.text_input("🔍 휴게소 검색", placeholder="휴게소명을 입력하세요")
 
-    map_url = f"{PAGE_URL}?data={encoded}"
-    if query:
-        map_url += "&q=" + urllib.parse.quote(query)
+    # [핵심 변경] URL 파라미터(base64 인코딩) 방식을 완전히 제거했습니다.
+    # 대신 points 데이터를 이 컴포넌트 HTML 안에 JS 변수로 직접 심어두고,
+    # iframe이 로드되면 postMessage로 자식(GitHub Pages) 창에 통째로 전달합니다.
+    # 이 방식은 URL 길이 제한(브라우저마다 대략 2000~8000자 수준)의 영향을 받지 않으므로
+    # 데이터가 수백~수천 건으로 늘어나도 'I/O error'가 발생하지 않습니다.
+    points_json = json.dumps(points, ensure_ascii=False)
+    query_json = json.dumps(query if query else "")
 
-    components.iframe(src=map_url, height=560, scrolling=False)
+    component_html = f"""
+    <iframe
+        id="kakaoMapFrame"
+        src="{PAGE_URL}"
+        style="width:100%; height:{MAP_HEIGHT}px; border:none;"
+        scrolling="no"
+    ></iframe>
+    <script>
+      (function () {{
+        // Streamlit 쪽에서 준비한 실제 데이터 (URL이 아니라 JS 변수로 직접 전달)
+        var mapPoints = {points_json};
+        var searchQuery = {query_json};
+        var iframe = document.getElementById('kakaoMapFrame');
 
-    # 좌표 문제로 지도에서 제외된 행이 있으면 안내 (앱이 멈추지 않고 무엇이 빠졌는지 투명하게 보여줌)
+        function sendData() {{
+          iframe.contentWindow.postMessage(
+            {{
+              type: 'INIT_MAP_DATA',
+              points: mapPoints,
+              query: searchQuery
+            }},
+            '{TARGET_ORIGIN}'   // 데이터를 받을 자식(GitHub Pages) 출처를 명시해 보안 확보
+          );
+        }}
+
+        // iframe이 로드되면 즉시 데이터를 전달합니다.
+        iframe.onload = function () {{
+          sendData();
+        }};
+      }})();
+    </script>
+    """
+
+    components.html(component_html, height=MAP_HEIGHT, scrolling=False)
+
+    # 좌표 문제로 지도에서 제외된 행이 있으면 안내 (기존 로직 유지)
     if skipped_rows:
         with st.expander(f"⚠️ 좌표 오류로 지도에 표시되지 않은 휴게소 {len(skipped_rows)}건 (클릭하여 확인)"):
             st.dataframe(pd.DataFrame(skipped_rows), use_container_width=True)
