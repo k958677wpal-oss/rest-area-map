@@ -7,7 +7,7 @@ import base64
 import urllib.parse
 
 # --- 페이지 기본 설정 ---
-st.set_page_config(page_title="전국 휴게소 통합 관리", layout="wide")
+st.set_page_config(page_title="특수개발팀 휴게소Map Pro", layout="wide")
 
 # --- 모바일 헤더 최적화 CSS ---
 st.markdown(
