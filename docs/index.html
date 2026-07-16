@@ -29,7 +29,6 @@
       transform: translate(-50%, -130%);
       transition: opacity .2s ease;
     }
-
     .marker-pin {
       position: relative;
       display: flex;
@@ -69,7 +68,6 @@
     }
     .marker-pin.is-dim { opacity: 0.3; }
     .marker-pin.is-small { transform: scale(0.55); }
-
     /* =========================================================
        [근본 해결] 호버 툴팁을 핀의 "자식 요소"로 직접 삽입.
        - kakao.maps.InfoWindow(별개 객체)를 hover에 쓰지 않습니다.
@@ -102,7 +100,6 @@
       opacity: 1;
       visibility: visible;
     }
-
     /* 클릭 시 뜨는 상세 정보창(카카오 InfoWindow) - 기존 그대로 유지 */
     .iw-wrap {
       pointer-events: none;
@@ -139,7 +136,6 @@
   <div id="map"></div>
   <button id="resetBtn">전체 보기</button>
   <div id="debugPanel"></div>
-
   <script src="//dapi.kakao.com/v2/maps/sdk.js?appkey=fbd1e96068b754f1939c7e11a2790ce1&autoload=false"></script>
   <script>
     var HIGHWAY_ROUTES = {
@@ -161,7 +157,6 @@
         [37.2000, 127.8000]
       ]
     };
-
     var BRAND_IMAGES = {
       "GS25": "images/GS25.PNG",
       "CU": "images/CU.PNG",
@@ -169,33 +164,41 @@
       "이마트24": "images/emart24.PNG",
       "기타": "images/ect.PNG"
     };
-
     function resolveBrandImage(brand) {
       if (brand === "세븐일레븐") return BRAND_IMAGES["7-11"];
       if (BRAND_IMAGES[brand]) return BRAND_IMAGES[brand];
       return BRAND_IMAGES["기타"];
     }
 
-    var SMALL_MARKER_ZOOM_LEVEL = 10;
+    // [추가] 브랜드명 → 테두리/꼬리 색상 반환 (매칭 실패 시 '기타' 색상으로 폴백)
+    var BRAND_COLORS = {
+      "GS25": "#2770BF",
+      "CU": "#710E82",
+      "세븐일레븐": "#FF6C00",
+      "7-11": "#FF6C00",     // 시트 표기가 '7-11'인 경우도 동일 색상 처리
+      "이마트24": "#FFC000",
+      "기타": "#BFBFBF"
+    };
+    function resolveBrandColor(brand) {
+      if (BRAND_COLORS[brand]) return BRAND_COLORS[brand];
+      return BRAND_COLORS["기타"];
+    }
 
+    var SMALL_MARKER_ZOOM_LEVEL = 10;
     var map, currentPolyline = null, currentLabel = null, infowindow = null, allMarkers = [];
     var activeRoutePath = null, activeRouteName = "";
     var DEBUG = false;
-
     var mapReady = false;
     var pendingMapData = null;
-
     window.closeInfoWindow = function () {
       if (infowindow) infowindow.close();
     };
-
     function log(msg) {
       if (!DEBUG) return;
       var el = document.getElementById('debugPanel');
       el.textContent += msg + "\n";
       el.scrollTop = el.scrollHeight;
     }
-
     function normalize(s) {
       return (s == null ? "" : String(s)).replace(/\s+/g, "").trim();
     }
@@ -205,7 +208,6 @@
         if (HIGHWAY_ROUTES.hasOwnProperty(k)) ROUTE_LOOKUP[normalize(k)] = { name: k, path: HIGHWAY_ROUTES[k] };
       }
     })();
-
     // 클릭 시 뜨는 상세 정보창 내용 (기존과 동일)
     function buildContent(p) {
       return '<div class="iw-wrap">' +
@@ -219,47 +221,40 @@
                '담당자: ' + p.manager +
              '</div>';
     }
-
     // [핵심] 호버 시 보여줄 간단 툴팁 - 핀의 자식 DOM으로 삽입될 내용
     function buildTooltipContent(p) {
       return '<b>' + p.name + '</b><br>' +
              '브랜드: ' + p.brand + '<br>' +
              '연매출액: ' + p.revenue;
     }
-
     function createPinElement(p) {
       var wrap = document.createElement('div');
       wrap.className = 'marker-pin';
-
       var circle = document.createElement('div');
       circle.className = 'pin-circle';
-
+      circle.style.borderColor = resolveBrandColor(p.brand);   // [추가] 브랜드별 원 테두리 색상
       var img = document.createElement('img');
       img.src = resolveBrandImage(p.brand);
       img.alt = p.brand || '';
       circle.appendChild(img);
-
       var tail = document.createElement('div');
       tail.className = 'pin-tail';
-
+      tail.style.borderTopColor = resolveBrandColor(p.brand);  // [추가] 브랜드별 꼬리 색상
       // [핵심] 툴팁을 핀의 자식 요소로 직접 삽입 (별개 객체 아님)
       var tooltip = document.createElement('div');
       tooltip.className = 'pin-tooltip';
       tooltip.innerHTML = buildTooltipContent(p);
-
       wrap.appendChild(tooltip);
       wrap.appendChild(circle);
       wrap.appendChild(tail);
       return wrap;
     }
-
     function clearRoute() {
       if (currentPolyline) { currentPolyline.setMap(null); currentPolyline = null; }
       if (currentLabel) { currentLabel.setMap(null); currentLabel = null; }
       activeRoutePath = null;
       activeRouteName = "";
     }
-
     function drawRoute(highway) {
       clearRoute();
       var entry = ROUTE_LOOKUP[normalize(highway)];
@@ -268,9 +263,7 @@
         return;
       }
       log('✅ 노선 그림: "' + highway + '" (' + entry.path.length + '개 좌표)');
-
       var path = entry.path.map(function (c) { return new kakao.maps.LatLng(c[0], c[1]); });
-
       currentPolyline = new kakao.maps.Polyline({
         path: path,
         strokeWeight: 4,
@@ -279,10 +272,8 @@
         strokeStyle: 'solid'
       });
       currentPolyline.setMap(map);
-
       activeRoutePath = path;
       activeRouteName = entry.name;
-
       currentLabel = new kakao.maps.CustomOverlay({
         position: path[Math.floor(path.length / 2)],
         content: '<div class="highway-label">' + entry.name + '</div>',
@@ -290,17 +281,13 @@
         zIndex: 15
       });
       currentLabel.setMap(map);
-
       updateLabelPosition();
     }
-
     function updateLabelPosition() {
       if (!currentLabel || !activeRoutePath || !activeRoutePath.length) return;
-
       var bounds = map.getBounds();
       var center = map.getCenter();
       var cLat = center.getLat(), cLng = center.getLng();
-
       var best = null, bestDist = Infinity;
       for (var i = 0; i < activeRoutePath.length; i++) {
         var pt = activeRoutePath[i];
@@ -310,7 +297,6 @@
         var dist = dLat * dLat + dLng * dLng;
         if (dist < bestDist) { bestDist = dist; best = pt; }
       }
-
       if (best) {
         currentLabel.setPosition(best);
         currentLabel.setMap(map);
@@ -318,7 +304,6 @@
         currentLabel.setMap(null);
       }
     }
-
     function highlightMarkers(highway) {
       var target = normalize(highway);
       allMarkers.forEach(function (item) {
@@ -332,7 +317,6 @@
         }
       });
     }
-
     function resetAll() {
       clearRoute();
       if (infowindow) infowindow.close();
@@ -342,20 +326,17 @@
       });
       log('↺ 전체 초기화');
     }
-
     function selectHighway(p) {
       log('👉 selectHighway 실행: ' + p.name + ' / highway=' + p.highway);
       drawRoute(p.highway);
       highlightMarkers(p.highway);
     }
-
     function activate(pos, p, content) {
       infowindow.setContent(content);
       infowindow.setPosition(pos);
       infowindow.open(map);
       selectHighway(p);
     }
-
     function applyMarkerScale() {
       if (!map) return;
       var level = map.getLevel();
@@ -368,19 +349,15 @@
         }
       });
     }
-
     function initMap(points, query) {
       log('총 마커 수: ' + (points ? points.length : 0));
-
       var container = document.getElementById('map');
-
       if (!map) {
         var center = (points && points.length)
           ? new kakao.maps.LatLng(points[0].lat, points[0].lng)
           : new kakao.maps.LatLng(36.5, 127.8);
         map = new kakao.maps.Map(container, { center: center, level: 8 });
         infowindow = new kakao.maps.InfoWindow({ zIndex: 20 });
-
         document.getElementById('resetBtn').addEventListener('click', resetAll);
         kakao.maps.event.addListener(map, 'idle', updateLabelPosition);
         kakao.maps.event.addListener(map, 'zoom_changed', applyMarkerScale);
@@ -389,14 +366,11 @@
         allMarkers = [];
         resetAll();
       }
-
       (points || []).forEach(function (p) {
         var pos = new kakao.maps.LatLng(p.lat, p.lng);
         var content = buildContent(p);
-
         var pinEl = createPinElement(p);
         pinEl.style.zIndex = 2;
-
         var overlay = new kakao.maps.CustomOverlay({
           position: pos,
           content: pinEl,
@@ -405,15 +379,11 @@
           clickable: true
         });
         overlay.setMap(map);
-
         kakao.maps.event.preventMap(pinEl);
-
         allMarkers.push({ overlay: overlay, el: pinEl, point: p });
-
         // [변경] 더 이상 mouseenter/mouseleave 로 InfoWindow를 열지 않습니다.
         // 호버 미리보기는 위에서 만든 순수 CSS 툴팁(.pin-tooltip)이 전담합니다.
         // (JS 이벤트 기반 열기/닫기 경쟁이 사라져 깜빡임이 구조적으로 불가능해집니다.)
-
         pinEl.addEventListener('click', function () {
           log('🖱 marker click: ' + p.name);
           activate(pos, p, content);
@@ -428,9 +398,7 @@
           activate(pos, p, content);
         }, { passive: false });
       });
-
       applyMarkerScale();
-
       if (query) {
         var hit = null;
         for (var i = 0; i < allMarkers.length; i++) {
@@ -446,7 +414,6 @@
         }
       }
     }
-
     window.addEventListener('message', function (event) {
       if (event.source !== window.parent) {
         return;
@@ -456,21 +423,17 @@
         return;
       }
       log('📩 postMessage 데이터 수신 (마커 ' + (data.points ? data.points.length : 0) + '건)');
-
       if (mapReady) {
         initMap(data.points, data.query);
       } else {
         pendingMapData = data;
       }
     });
-
     kakao.maps.load(function () {
       var params = new URLSearchParams(window.location.search);
       DEBUG = params.get('debug') === '1';
       if (DEBUG) document.getElementById('debugPanel').style.display = 'block';
-
       mapReady = true;
-
       if (pendingMapData) {
         initMap(pendingMapData.points, pendingMapData.query);
         pendingMapData = null;
