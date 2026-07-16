@@ -136,13 +136,20 @@ MAP_HEIGHT = 560
 tab_map, tab_data = st.tabs(["🗺️ 카카오맵 지도 보기", "📊 상세 데이터 및 필터"])
 
 with tab_map:
-    query = st.text_input("🔍 휴게소 검색", placeholder="휴게소명을 입력하세요")
+    # [변경] text_input → selectbox 로 교체.
+    # 지도에 표시 가능한(좌표가 유효한) 휴게소명만 옵션으로 제공합니다.
+    # 첫 옵션은 빈 문자열("")로 두어 '선택 안 함' 상태를 표현합니다.
+    valid_names = [p["name"] for p in points]
+    name_options = [""] + valid_names
 
-    # [핵심 변경] URL 파라미터(base64 인코딩) 방식을 완전히 제거했습니다.
-    # 대신 points 데이터를 이 컴포넌트 HTML 안에 JS 변수로 직접 심어두고,
-    # iframe이 로드되면 postMessage로 자식(GitHub Pages) 창에 통째로 전달합니다.
-    # 이 방식은 URL 길이 제한(브라우저마다 대략 2000~8000자 수준)의 영향을 받지 않으므로
-    # 데이터가 수백~수천 건으로 늘어나도 'I/O error'가 발생하지 않습니다.
+    query = st.selectbox(
+        "🔍 휴게소 검색",
+        options=name_options,
+        index=0,
+        help="휴게소명을 타이핑하면 자동완성 목록에서 정확한 휴게소를 선택할 수 있습니다.",
+    )
+
+    # [핵심 유지] URL 파라미터 방식이 아니라 postMessage로 데이터를 전달합니다.
     points_json = json.dumps(points, ensure_ascii=False)
     query_json = json.dumps(query if query else "")
 
@@ -155,7 +162,6 @@ with tab_map:
     ></iframe>
     <script>
       (function () {{
-        // Streamlit 쪽에서 준비한 실제 데이터 (URL이 아니라 JS 변수로 직접 전달)
         var mapPoints = {points_json};
         var searchQuery = {query_json};
         var iframe = document.getElementById('kakaoMapFrame');
@@ -167,11 +173,10 @@ with tab_map:
               points: mapPoints,
               query: searchQuery
             }},
-            '{TARGET_ORIGIN}'   // 데이터를 받을 자식(GitHub Pages) 출처를 명시해 보안 확보
+            '{TARGET_ORIGIN}'
           );
         }}
 
-        // iframe이 로드되면 즉시 데이터를 전달합니다.
         iframe.onload = function () {{
           sendData();
         }};
@@ -181,7 +186,7 @@ with tab_map:
 
     components.html(component_html, height=MAP_HEIGHT, scrolling=False)
 
-    # 좌표 문제로 지도에서 제외된 행이 있으면 안내 (기존 로직 유지)
+    # 좌표 문제로 지도에서 제외된 행 안내 (기존 로직 유지)
     if skipped_rows:
         with st.expander(f"⚠️ 좌표 오류로 지도에 표시되지 않은 휴게소 {len(skipped_rows)}건 (클릭하여 확인)"):
             st.dataframe(pd.DataFrame(skipped_rows), use_container_width=True)
