@@ -118,13 +118,7 @@
     var activeRoutePath = null, activeRouteName = "";
     var DEBUG = false;
 
-    // ---------------------------------------------------------
-    // [핵심 변경] postMessage로 데이터를 받기 위한 상태 관리
-    // - mapReady: 카카오맵 SDK 초기화(kakao.maps.load 콜백)가 끝났는지 여부
-    // - pendingMapData: SDK가 준비되기 전에 메시지가 먼저 도착한 경우 임시 보관
-    // 이렇게 두 갈래로 처리해 두면, "메시지가 먼저 오는 경우"와
-    // "SDK 로딩이 먼저 끝나는 경우" 어느 쪽이 발생해도 안전하게 동작합니다.
-    // ---------------------------------------------------------
+    // postMessage 데이터 수신을 위한 상태 관리 (기존 구조 유지)
     var mapReady = false;
     var pendingMapData = null;
 
@@ -146,7 +140,10 @@
     })();
 
     function buildContent(p) {
-      return '<div style="margin-bottom:14px;padding:8px;font-size:13px;line-height:1.6;min-width:160px;background:#fff;border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,.25);">' +
+      // [수정 1] 최상위 래퍼 div에 pointer-events:none 추가.
+      // 정보창이 마우스 이벤트를 전혀 받지 않게 하여, 마커 위에 겹쳐 떠도
+      // mouseleave가 잘못 발생하지 않아 깜빡임이 완전히 사라집니다.
+      return '<div style="pointer-events:none;margin-bottom:14px;padding:8px;font-size:13px;line-height:1.6;min-width:160px;background:#fff;border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,.25);">' +
                '<b style="font-size:14px;">' + p.name + '</b><br>' +
                '연매출액: ' + p.revenue + '<br>' +
                '브랜드: ' + p.brand + '<br>' +
@@ -293,8 +290,6 @@
       });
     }
 
-    // 마커/지도를 아직 만들지 않았다면 새로 만들고, 이미 있다면 마커만 다시 그림
-    // (검색어가 바뀌어 데이터가 다시 전달되는 경우까지 고려)
     function initMap(points, query) {
       log('총 마커 수: ' + (points ? points.length : 0));
 
@@ -311,7 +306,6 @@
         kakao.maps.event.addListener(map, 'idle', updateLabelPosition);
         kakao.maps.event.addListener(map, 'zoom_changed', applyMarkerScale);
       } else {
-        // 기존 마커 정리 (재초기화 대비)
         allMarkers.forEach(function (item) { item.overlay.setMap(null); });
         allMarkers = [];
         resetAll();
@@ -353,52 +347,50 @@
           log('🖱 marker mouseup: ' + p.name);
           activate(pos, p, content);
         });
+
+        // [수정 2] 모바일 터치 호환: touchstart에서 정보창 + 노선 강조 실행.
+        // preventDefault()로 뒤따르는 합성 click(중복 실행)을 억제합니다.
+        pinEl.addEventListener('touchstart', function (e) {
+          e.preventDefault();
+          log('📱 marker touchstart: ' + p.name);
+          activate(pos, p, content);
+        }, { passive: false });
       });
 
       applyMarkerScale();
 
+      // [수정 3] 검색어 처리: 부분 일치(indexOf)가 아니라 완전 일치(===)로 변경.
+      // Streamlit selectbox에서 정확히 선택된 휴게소명과 핀 이름이 똑같을 때만 이동합니다.
       if (query) {
-        var nq = String(query).toLowerCase();
         var hit = null;
         for (var i = 0; i < allMarkers.length; i++) {
-          if (allMarkers[i].point.name.toLowerCase().indexOf(nq) !== -1) { hit = allMarkers[i]; break; }
+          if (allMarkers[i].point.name === query) { hit = allMarkers[i]; break; }
         }
         if (hit) {
           var hitPos = hit.overlay.getPosition();
           map.setLevel(6);
           map.panTo(hitPos);
           activate(hitPos, hit.point, buildContent(hit.point));
+        } else {
+          log('🔎 검색 결과 없음(완전 일치): "' + query + '"');
         }
       }
     }
 
-    // ---------------------------------------------------------
-    // [핵심 변경] URLSearchParams로 data/q를 꺼내던 로직을 완전히 제거하고,
-    // 부모 창(Streamlit)이 보내는 postMessage를 수신하는 방식으로 교체했습니다.
-    // ---------------------------------------------------------
-
-    // 스크립트 최상단에서 즉시 리스너를 등록합니다.
-    // (kakao.maps.load 콜백이 끝나기 전에 메시지가 먼저 도착할 수도 있기 때문)
+    // 부모(Streamlit)로부터 postMessage 수신 (기존 구조 유지)
     window.addEventListener('message', function (event) {
-      // 보안 확인: 실제로 나를 감싸고 있는 부모 창에서 온 메시지인지 확인합니다.
-      // (Streamlit Cloud 도메인은 매번 달라질 수 있어 특정 origin 문자열로
-      //  고정하는 대신, event.source가 진짜 window.parent인지로 검증합니다.)
       if (event.source !== window.parent) {
         return;
       }
-
       var data = event.data;
       if (!data || data.type !== 'INIT_MAP_DATA') {
         return;
       }
-
       log('📩 postMessage 데이터 수신 (마커 ' + (data.points ? data.points.length : 0) + '건)');
 
       if (mapReady) {
         initMap(data.points, data.query);
       } else {
-        // 지도 SDK가 아직 준비되지 않았다면 일단 보관해 두고,
-        // kakao.maps.load 콜백에서 이 데이터를 사용해 초기화합니다.
         pendingMapData = data;
       }
     });
@@ -411,12 +403,9 @@
       mapReady = true;
 
       if (pendingMapData) {
-        // 메시지가 SDK 로딩보다 먼저 도착해 있었던 경우
         initMap(pendingMapData.points, pendingMapData.query);
         pendingMapData = null;
       }
-      // 메시지가 아직 도착하지 않았다면, 위의 message 리스너가
-      // 도착 시점에 곧바로 initMap을 호출하므로 여기서는 대기만 합니다.
     });
   </script>
 </body>
