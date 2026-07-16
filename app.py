@@ -3,7 +3,7 @@ import pandas as pd
 import gspread
 import json
 from datetime import datetime, timedelta
-import streamlit.components.v1 as components  # 카카오맵을 불러오기 위한 추가 기능
+import streamlit.components.v1 as components 
 
 # --- 페이지 기본 설정 ---
 st.set_page_config(page_title="전국 휴게소 통합 관리", layout="wide")
@@ -83,15 +83,12 @@ else:
             map_df = df
             
         if '위도' in map_df.columns and '경도' in map_df.columns:
-            # 지도의 중심 좌표 계산 (검색된 데이터의 평균)
             center_lat = map_df['위도'].mean()
             center_lon = map_df['경도'].mean()
             
-            # 좌표가 비어있을 경우 대한민국 중심을 기본값으로 설정
             if pd.isna(center_lat):
                 center_lat, center_lon = 36.5, 127.5
             
-            # '전체보기'일 때는 전국이 다 보이는 레벨(13), 특정 휴게소 검색 시엔 확 줌인되는 레벨(4)
             zoom_level = 4 if search_name != "전체 보기" else 13
             
             map_data = map_df[['휴게소명', '위도', '경도']].to_dict(orient='records')
@@ -100,10 +97,10 @@ else:
             try:
                 kakao_key = st.secrets["kakao_key"]
             except KeyError:
-                st.error("⚠️ 스트림릿 Secrets에 'kakao_key'가 없습니다. 세팅을 확인해주세요!")
+                st.error("⚠️ 스트림릿 Secrets에 'kakao_key'가 없습니다.")
                 st.stop()
 
-            # 카카오맵 HTML 및 자바스크립트 코드
+            # 보안 프로토콜(https) 적용 및 맵 스타일 안정화
             kakao_html = f"""
             <!DOCTYPE html>
             <html>
@@ -111,12 +108,12 @@ else:
                 <meta charset="utf-8">
                 <style>
                     html, body {{width:100%; height:100%; margin:0; padding:0;}} 
-                    #map {{width:100%; height:100%; border-radius: 10px;}}
+                    #map {{width:100%; height:98vh; border-radius: 10px;}}
                 </style>
             </head>
             <body>
             <div id="map"></div>
-            <script type="text/javascript" src="//dapi.kakao.com/v2/maps/sdk.js?appkey={kakao_key}"></script>
+            <script type="text/javascript" src="https://dapi.kakao.com/v2/maps/sdk.js?appkey={kakao_key}"></script>
             <script>
                 var mapContainer = document.getElementById('map');
                 var mapOption = {{
@@ -139,7 +136,6 @@ else:
             </html>
             """
             
-            # 모바일에 딱 맞는 세로 길이(450px)로 콤팩트하게 렌더링
             components.html(kakao_html, height=450)
         else:
             st.info("💡 엑셀(구글 시트)에 '위도'와 '경도' 컬럼이 있어야 지도가 표시됩니다.")
