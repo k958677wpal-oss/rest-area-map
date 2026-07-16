@@ -5,7 +5,7 @@ import json
 from datetime import datetime, timedelta
 import streamlit.components.v1 as components 
 
-# --- 페이지 기본 설정 ---
+# --- 페이지 기본 설정 (무조건 맨 위에) ---
 st.set_page_config(page_title="전국 휴게소 통합 관리", layout="wide")
 
 # --- 1. 구글 시트 연결 ---
@@ -83,15 +83,20 @@ else:
             map_df = df
             
         if '위도' in map_df.columns and '경도' in map_df.columns:
-            center_lat = map_df['위도'].mean()
-            center_lon = map_df['경도'].mean()
-            
-            if pd.isna(center_lat):
+            # 에러 방지: 좌표값이 비어있거나 문자가 섞여있을 때를 대비한 안전장치
+            try:
+                center_lat = float(map_df['위도'].mean())
+                center_lon = float(map_df['경도'].mean())
+                if pd.isna(center_lat) or pd.isna(center_lon):
+                    center_lat, center_lon = 36.5, 127.5
+            except:
                 center_lat, center_lon = 36.5, 127.5
             
             zoom_level = 4 if search_name != "전체 보기" else 13
             
-            map_data = map_df[['휴게소명', '위도', '경도']].to_dict(orient='records')
+            # 결측치(NaN)가 있는 행을 제거하여 카카오맵 자바스크립트 에러 원천 차단
+            safe_map_df = map_df.dropna(subset=['위도', '경도'])
+            map_data = safe_map_df[['휴게소명', '위도', '경도']].to_dict(orient='records')
             map_data_json = json.dumps(map_data, ensure_ascii=False)
             
             try:
@@ -100,15 +105,15 @@ else:
                 st.error("⚠️ 스트림릿 Secrets에 'kakao_key'가 없습니다.")
                 st.stop()
 
-            # 보안 프로토콜(https) 적용 및 맵 스타일 안정화
+            # 지도 높이를 450px로 완전히 고정하여 하얗게 사라지는 현상 해결
             kakao_html = f"""
             <!DOCTYPE html>
             <html>
             <head>
                 <meta charset="utf-8">
                 <style>
-                    html, body {{width:100%; height:100%; margin:0; padding:0;}} 
-                    #map {{width:100%; height:98vh; border-radius: 10px;}}
+                    html, body {{margin:0; padding:0; width:100%; height:100%;}} 
+                    #map {{width:100%; height:450px; border-radius:10px; background-color:#e9e9e9;}}
                 </style>
             </head>
             <body>
@@ -136,7 +141,8 @@ else:
             </html>
             """
             
-            components.html(kakao_html, height=450)
+            # HTML 블록의 전체 높이를 지도 크기보다 20px 넉넉하게 주어 잘림 방지
+            components.html(kakao_html, height=470)
         else:
             st.info("💡 엑셀(구글 시트)에 '위도'와 '경도' 컬럼이 있어야 지도가 표시됩니다.")
             
