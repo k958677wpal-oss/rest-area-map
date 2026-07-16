@@ -30,13 +30,6 @@
       transition: opacity .2s ease;
     }
 
-    /* =========================================================
-       [수정 1] 앵커 이중 적용 문제 해결
-       - CSS transform: translate(-50%,-100%)를 완전히 제거했습니다.
-       - 위치 기준점은 오직 CustomOverlay의 xAnchor:0.5, yAnchor:1 로만 처리합니다.
-       - 대신 transform-origin을 "하단 중앙"으로 고정해 두어,
-         [수정 3]의 확대/축소 scale 애니메이션이 이 기준점을 축으로 일어나게 합니다.
-       ========================================================= */
     .marker-pin {
       position: relative;
       display: flex;
@@ -75,11 +68,7 @@
       pointer-events: none;
     }
     .marker-pin.is-dim { opacity: 0.3; }
-
-    /* [수정 3] 축소 시 마커 크기 자동 축소 (부드러운 전환) */
-    .marker-pin.is-small {
-      transform: scale(0.55);
-    }
+    .marker-pin.is-small { transform: scale(0.55); }
   </style>
 </head>
 <body>
@@ -109,10 +98,6 @@
       ]
     };
 
-    /* =========================================================
-       [수정 4] 실제 업로드된 파일명/확장자를 정확히 반영
-       (대소문자, 'ect.PNG' 오타 포함)
-       ========================================================= */
     var BRAND_IMAGES = {
       "GS25": "images/GS25.PNG",
       "CU": "images/CU.PNG",
@@ -127,12 +112,21 @@
       return BRAND_IMAGES["기타"];
     }
 
-    // [수정 3] 줌 레벨 기준: level이 이 값 이상이면(더 축소된 상태) 마커를 작게
     var SMALL_MARKER_ZOOM_LEVEL = 10;
 
     var map, currentPolyline = null, currentLabel = null, infowindow = null, allMarkers = [];
     var activeRoutePath = null, activeRouteName = "";
     var DEBUG = false;
+
+    // ---------------------------------------------------------
+    // [핵심 변경] postMessage로 데이터를 받기 위한 상태 관리
+    // - mapReady: 카카오맵 SDK 초기화(kakao.maps.load 콜백)가 끝났는지 여부
+    // - pendingMapData: SDK가 준비되기 전에 메시지가 먼저 도착한 경우 임시 보관
+    // 이렇게 두 갈래로 처리해 두면, "메시지가 먼저 오는 경우"와
+    // "SDK 로딩이 먼저 끝나는 경우" 어느 쪽이 발생해도 안전하게 동작합니다.
+    // ---------------------------------------------------------
+    var mapReady = false;
+    var pendingMapData = null;
 
     function log(msg) {
       if (!DEBUG) return;
@@ -152,7 +146,6 @@
     })();
 
     function buildContent(p) {
-      // [수정 2] 정보창을 핀 머리 위로 더 띄우기 위해 margin-bottom 여백을 준 래퍼로 감쌈
       return '<div style="margin-bottom:14px;padding:8px;font-size:13px;line-height:1.6;min-width:160px;background:#fff;border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,.25);">' +
                '<b style="font-size:14px;">' + p.name + '</b><br>' +
                '연매출액: ' + p.revenue + '<br>' +
@@ -195,7 +188,7 @@
       clearRoute();
       var entry = ROUTE_LOOKUP[normalize(highway)];
       if (!entry) {
-        log('❌ 노선 좌표 없음: "' + highway + '" (정규화="' + normalize(highway) + '")');
+        log('❌ 노선 좌표 없음: "' + highway + '"');
         return;
       }
       log('✅ 노선 그림: "' + highway + '" (' + entry.path.length + '개 좌표)');
@@ -266,7 +259,7 @@
 
     function resetAll() {
       clearRoute();
-      infowindow.close();
+      if (infowindow) infowindow.close();
       allMarkers.forEach(function (item) {
         item.el.classList.remove('is-dim');
         item.el.style.zIndex = 2;
@@ -287,7 +280,6 @@
       selectHighway(p);
     }
 
-    // [수정 3] 현재 줌 레벨에 맞춰 모든 마커 크기를 부드럽게 토글
     function applyMarkerScale() {
       if (!map) return;
       var level = map.getLevel();
@@ -301,22 +293,37 @@
       });
     }
 
+    // 마커/지도를 아직 만들지 않았다면 새로 만들고, 이미 있다면 마커만 다시 그림
+    // (검색어가 바뀌어 데이터가 다시 전달되는 경우까지 고려)
     function initMap(points, query) {
-      var container = document.getElementById('map');
-      var center = points.length
-        ? new kakao.maps.LatLng(points[0].lat, points[0].lng)
-        : new kakao.maps.LatLng(36.5, 127.8);
-      map = new kakao.maps.Map(container, { center: center, level: 8 });
-      infowindow = new kakao.maps.InfoWindow({ zIndex: 20 });
+      log('총 마커 수: ' + (points ? points.length : 0));
 
-      points.forEach(function (p) {
+      var container = document.getElementById('map');
+
+      if (!map) {
+        var center = (points && points.length)
+          ? new kakao.maps.LatLng(points[0].lat, points[0].lng)
+          : new kakao.maps.LatLng(36.5, 127.8);
+        map = new kakao.maps.Map(container, { center: center, level: 8 });
+        infowindow = new kakao.maps.InfoWindow({ zIndex: 20 });
+
+        document.getElementById('resetBtn').addEventListener('click', resetAll);
+        kakao.maps.event.addListener(map, 'idle', updateLabelPosition);
+        kakao.maps.event.addListener(map, 'zoom_changed', applyMarkerScale);
+      } else {
+        // 기존 마커 정리 (재초기화 대비)
+        allMarkers.forEach(function (item) { item.overlay.setMap(null); });
+        allMarkers = [];
+        resetAll();
+      }
+
+      (points || []).forEach(function (p) {
         var pos = new kakao.maps.LatLng(p.lat, p.lng);
         var content = buildContent(p);
 
         var pinEl = createPinElement(p);
         pinEl.style.zIndex = 2;
 
-        // 위치 기준점은 xAnchor/yAnchor 만으로 처리 (CSS transform 중복 제거)
         var overlay = new kakao.maps.CustomOverlay({
           position: pos,
           content: pinEl,
@@ -330,8 +337,6 @@
 
         allMarkers.push({ overlay: overlay, el: pinEl, point: p });
 
-        // [수정 2] mouseover/mouseout(버블링됨) 대신
-        // mouseenter/mouseleave(버블링 안 됨)로 교체 → 무한 깜빡임 근본 해결
         pinEl.addEventListener('mouseenter', function () {
           infowindow.setContent(content);
           infowindow.setPosition(pos);
@@ -350,15 +355,10 @@
         });
       });
 
-      document.getElementById('resetBtn').addEventListener('click', resetAll);
-      kakao.maps.event.addListener(map, 'idle', updateLabelPosition);
-
-      // [수정 3] 줌 변경 시 마커 크기 자동 조정
-      kakao.maps.event.addListener(map, 'zoom_changed', applyMarkerScale);
-      applyMarkerScale(); // 초기 레벨 기준으로도 한 번 적용
+      applyMarkerScale();
 
       if (query) {
-        var nq = query.toLowerCase();
+        var nq = String(query).toLowerCase();
         var hit = null;
         for (var i = 0; i < allMarkers.length; i++) {
           if (allMarkers[i].point.name.toLowerCase().indexOf(nq) !== -1) { hit = allMarkers[i]; break; }
@@ -372,20 +372,51 @@
       }
     }
 
+    // ---------------------------------------------------------
+    // [핵심 변경] URLSearchParams로 data/q를 꺼내던 로직을 완전히 제거하고,
+    // 부모 창(Streamlit)이 보내는 postMessage를 수신하는 방식으로 교체했습니다.
+    // ---------------------------------------------------------
+
+    // 스크립트 최상단에서 즉시 리스너를 등록합니다.
+    // (kakao.maps.load 콜백이 끝나기 전에 메시지가 먼저 도착할 수도 있기 때문)
+    window.addEventListener('message', function (event) {
+      // 보안 확인: 실제로 나를 감싸고 있는 부모 창에서 온 메시지인지 확인합니다.
+      // (Streamlit Cloud 도메인은 매번 달라질 수 있어 특정 origin 문자열로
+      //  고정하는 대신, event.source가 진짜 window.parent인지로 검증합니다.)
+      if (event.source !== window.parent) {
+        return;
+      }
+
+      var data = event.data;
+      if (!data || data.type !== 'INIT_MAP_DATA') {
+        return;
+      }
+
+      log('📩 postMessage 데이터 수신 (마커 ' + (data.points ? data.points.length : 0) + '건)');
+
+      if (mapReady) {
+        initMap(data.points, data.query);
+      } else {
+        // 지도 SDK가 아직 준비되지 않았다면 일단 보관해 두고,
+        // kakao.maps.load 콜백에서 이 데이터를 사용해 초기화합니다.
+        pendingMapData = data;
+      }
+    });
+
     kakao.maps.load(function () {
       var params = new URLSearchParams(window.location.search);
       DEBUG = params.get('debug') === '1';
       if (DEBUG) document.getElementById('debugPanel').style.display = 'block';
 
-      var raw = params.get('data');
-      var query = params.get('q');
-      var points = [];
-      if (raw) {
-        try { points = JSON.parse(decodeURIComponent(atob(raw))); }
-        catch (e) { log('데이터 파싱 오류: ' + e); }
+      mapReady = true;
+
+      if (pendingMapData) {
+        // 메시지가 SDK 로딩보다 먼저 도착해 있었던 경우
+        initMap(pendingMapData.points, pendingMapData.query);
+        pendingMapData = null;
       }
-      log('총 마커 수: ' + points.length);
-      initMap(points, query);
+      // 메시지가 아직 도착하지 않았다면, 위의 message 리스너가
+      // 도착 시점에 곧바로 initMap을 호출하므로 여기서는 대기만 합니다.
     });
   </script>
 </body>
