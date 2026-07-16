@@ -105,7 +105,7 @@ else:
                 st.error("⚠️ 스트림릿 Secrets에 'kakao_key'가 없습니다.")
                 st.stop()
 
-            # 카카오맵 공식 권장 방식 (로딩 순서 문제 완벽 해결)
+            # 스트림릿의 숨겨진 도메인을 추적해서 화면에 띄워주는 특수 코드
             kakao_html = f"""
             <!DOCTYPE html>
             <html>
@@ -113,17 +113,35 @@ else:
                 <meta charset="utf-8">
                 <style>
                     html, body {{width:100%; height:100%; margin:0; padding:0; background-color:#f9f9f9;}} 
-                    #map {{width:100%; height:450px; border-radius:10px;}}
+                    #map {{width:100%; height:450px; border-radius:10px; display:none;}} 
+                    #debug-box {{padding:20px; text-align:center; font-family:sans-serif; background-color:white; border:2px solid #ff4b4b; border-radius:10px;}}
                 </style>
             </head>
             <body>
+            
+            <div id="debug-box">
+                <h3 style="color:#ff4b4b;">🚨 카카오맵 로딩 차단됨 (도메인 미등록)</h3>
+                <p>스트림릿 내부에서 지도를 그릴 때 사용하는 <b>숨겨진 주소</b>를 찾아냈습니다.</p>
+                <p>아래 파란색 주소를 복사해서 <b>카카오 디벨로퍼스 'Web 플랫폼'</b>에 추가해주세요!</p>
+                <h2 style="color:blue; user-select:all;" id="hidden-domain">주소 찾는 중...</h2>
+            </div>
+            
             <div id="map"></div>
-            <!-- autoload=false 를 추가하여 카카오 지도가 제멋대로 먼저 켜지는 것을 막습니다 -->
-            <script type="text/javascript" src="https://dapi.kakao.com/v2/maps/sdk.js?appkey={kakao_key}&autoload=false"></script>
+            
             <script>
-                // 카카오 SDK가 100% 준비된 후에만 지도를 그리도록 강제합니다
-                kakao.maps.load(function() {{
-                    try {{
+                // 숨겨진 내부 도메인 가져오기
+                var currentDomain = window.location.protocol + "//" + window.location.hostname;
+                document.getElementById('hidden-domain').innerText = currentDomain;
+
+                var script = document.createElement('script');
+                script.src = "https://dapi.kakao.com/v2/maps/sdk.js?appkey={kakao_key}&autoload=false";
+                
+                script.onload = function() {{
+                    // 카카오가 주소를 허락하여 스크립트가 정상적으로 다운로드 됨
+                    kakao.maps.load(function() {{
+                        document.getElementById('debug-box').style.display = 'none'; 
+                        document.getElementById('map').style.display = 'block'; 
+                        
                         var mapContainer = document.getElementById('map');
                         var mapOption = {{
                             center: new kakao.maps.LatLng({center_lat}, {center_lon}),
@@ -132,18 +150,17 @@ else:
                         var map = new kakao.maps.Map(mapContainer, mapOption);
                         
                         var positions = {map_data_json};
-                        
                         for (var i = 0; i < positions.length; i++) {{
-                            var marker = new kakao.maps.Marker({{
+                            new kakao.maps.Marker({{
                                 map: map,
                                 position: new kakao.maps.LatLng(positions[i]['위도'], positions[i]['경도']),
                                 title : positions[i]['휴게소명']
                             }});
                         }}
-                    }} catch (e) {{
-                        document.getElementById('map').innerHTML = "<div style='padding:20px; color:red; text-align:center;'><h3>지도 생성 중 오류:</h3><p>" + e.message + "</p></div>";
-                    }}
-                }});
+                    }});
+                }};
+                
+                document.head.appendChild(script);
             </script>
             </body>
             </html>
