@@ -83,6 +83,7 @@ for _, r in df.iterrows():
             "revenue": r.get("연매출액", ""),
             "contract": r.get("계약기간", ""),
             "manager": r.get("담당자", ""),
+            "contract_step": r.get("계약차수", ""),
             "highway": r.get("고속도로명", ""),   # 노선 그룹핑용
             # "seq": int(r.get("노선순서", 0)),   # 정확한 노선 순서가 있으면 주석 해제
         })
