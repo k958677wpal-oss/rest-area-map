@@ -5,16 +5,27 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
     html, body, #map { width: 100%; height: 100%; margin: 0; padding: 0; }
+    #resetBtn {
+      position: absolute; top: 10px; right: 10px; z-index: 100;
+      padding: 8px 12px; font-size: 13px; border: none; border-radius: 6px;
+      background: #333; color: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.3);
+      cursor: pointer;
+    }
+    #debugPanel {
+      position: absolute; left: 0; bottom: 0; z-index: 100;
+      max-height: 35%; width: 100%; overflow-y: auto;
+      background: rgba(0,0,0,.8); color: #0f0; font: 12px monospace;
+      padding: 6px; display: none; white-space: pre-wrap;
+    }
   </style>
 </head>
 <body>
   <div id="map"></div>
+  <button id="resetBtn">전체 보기</button>
+  <div id="debugPanel"></div>
 
   <script src="//dapi.kakao.com/v2/maps/sdk.js?appkey=fbd1e96068b754f1939c7e11a2790ce1&autoload=false"></script>
   <script>
-    /* =========================================================
-       [1] 고속도로 전체 노선 좌표 (미리 정의하는 상수)
-       ========================================================= */
     var HIGHWAY_ROUTES = {
       "평택영월고속도로": [
         [37.04865840817568, 126.91955476593384],
@@ -35,28 +46,29 @@
       ]
     };
 
-    var map;
-    var currentPolyline = null;
-    var infowindow = null;
-    var allMarkers = [];
+    var map, currentPolyline = null, infowindow = null, allMarkers = [];
+    var DEBUG = false;
 
-    // [핵심] 고정 타이머 대신, "마지막 마커 상호작용 시각"을 기록해
-    // 그 시각으로부터 SUPPRESS_WINDOW_MS 이내의 map click은 무시합니다.
-    // 모바일 탭 지연(탭→클릭 합성 지연)이 기기·브라우저마다 달라
-    // 고정 타이머보다 이 방식이 훨씬 안정적입니다.
-    var lastMarkerInteractionAt = 0;
-    var SUPPRESS_WINDOW_MS = 600;
-
-    function markMarkerInteraction() {
-      lastMarkerInteractionAt = Date.now();
+    function log(msg) {
+      if (!DEBUG) return;
+      var el = document.getElementById('debugPanel');
+      el.textContent += msg + "\n";
+      el.scrollTop = el.scrollHeight;
     }
 
-    function isWithinSuppressWindow() {
-      return (Date.now() - lastMarkerInteractionAt) < SUPPRESS_WINDOW_MS;
+    // 시트 값/코드 키의 공백 차이로 인한 매칭 실패를 줄이기 위한 정규화
+    function normalize(s) {
+      return (s == null ? "" : String(s)).replace(/\s+/g, "").trim();
     }
+    // 정규화 키로 노선을 찾기 위한 사전 구성
+    var ROUTE_LOOKUP = {};
+    (function () {
+      for (var k in HIGHWAY_ROUTES) {
+        if (HIGHWAY_ROUTES.hasOwnProperty(k)) ROUTE_LOOKUP[normalize(k)] = HIGHWAY_ROUTES[k];
+      }
+    })();
 
     function buildContent(p) {
-      // 순서: 휴게소명 → 브랜드 → 운영사 → 연매출액 → 계약기간 → 담당자
       return '<div style="padding:8px;font-size:13px;line-height:1.6;min-width:160px;">' +
                '<b style="font-size:14px;">' + p.name + '</b><br>' +
                '브랜드: ' + p.brand + '<br>' +
@@ -68,55 +80,48 @@
     }
 
     function drawRoute(highway) {
-      if (currentPolyline) {
-        currentPolyline.setMap(null);
-        currentPolyline = null;
-      }
-      var route = HIGHWAY_ROUTES[highway];
+      if (currentPolyline) { currentPolyline.setMap(null); currentPolyline = null; }
+      var route = ROUTE_LOOKUP[normalize(highway)];
       if (!route || !route.length) {
-        console.warn('정의된 노선 좌표가 없습니다: ' + highway);
+        log('❌ 노선 좌표 없음: "' + highway + '" (정규화="' + normalize(highway) + '")');
         return;
       }
-      var path = route.map(function (c) {
-        return new kakao.maps.LatLng(c[0], c[1]);
-      });
+      log('✅ 노선 그림: "' + highway + '" (' + route.length + '개 좌표)');
+      var path = route.map(function (c) { return new kakao.maps.LatLng(c[0], c[1]); });
       currentPolyline = new kakao.maps.Polyline({
-        path: path,
-        strokeWeight: 7,
-        strokeColor: '#FF3B30',
-        strokeOpacity: 0.95,
-        strokeStyle: 'solid'
+        path: path, strokeWeight: 7, strokeColor: '#FF3B30',
+        strokeOpacity: 0.95, strokeStyle: 'solid'
       });
       currentPolyline.setMap(map);
     }
 
     function highlightMarkers(highway) {
+      var target = normalize(highway);
       allMarkers.forEach(function (item) {
-        if (item.point.highway === highway) {
-          item.marker.setOpacity(1.0);
-          item.marker.setZIndex(10);
+        if (normalize(item.point.highway) === target) {
+          item.marker.setOpacity(1.0); item.marker.setZIndex(10);
         } else {
-          item.marker.setOpacity(0.25);
-          item.marker.setZIndex(1);
+          item.marker.setOpacity(0.25); item.marker.setZIndex(1);
         }
       });
     }
 
-    function resetMarkers() {
+    function resetAll() {
+      if (currentPolyline) { currentPolyline.setMap(null); currentPolyline = null; }
+      infowindow.close();
       allMarkers.forEach(function (item) {
-        item.marker.setOpacity(1.0);
-        item.marker.setZIndex(2);
+        item.marker.setOpacity(1.0); item.marker.setZIndex(2);
       });
+      log('↺ 전체 초기화');
     }
 
     function selectHighway(p) {
+      log('👉 selectHighway 실행: ' + p.name + ' / highway=' + p.highway);
       drawRoute(p.highway);
       highlightMarkers(p.highway);
     }
 
-    // 마커 클릭/터치 시 공통으로 실행되는 핸들러
-    function handleMarkerActivate(marker, p, content) {
-      markMarkerInteraction();          // "방금 마커와 상호작용했다" 기록
+    function activate(marker, p, content) {
       infowindow.setContent(content);
       infowindow.open(map, marker);
       selectHighway(p);
@@ -127,7 +132,6 @@
       var center = points.length
         ? new kakao.maps.LatLng(points[0].lat, points[0].lng)
         : new kakao.maps.LatLng(36.5, 127.8);
-
       map = new kakao.maps.Map(container, { center: center, level: 8 });
       infowindow = new kakao.maps.InfoWindow({ zIndex: 20 });
 
@@ -135,84 +139,63 @@
         var pos = new kakao.maps.LatLng(p.lat, p.lng);
         var marker = new kakao.maps.Marker({ position: pos, map: map });
         allMarkers.push({ marker: marker, point: p });
-
         var content = buildContent(p);
 
-        // PC: 마우스 오버로 정보 미리보기
+        // PC 미리보기
         kakao.maps.event.addListener(marker, 'mouseover', function () {
-          infowindow.setContent(content);
-          infowindow.open(map, marker);
+          infowindow.setContent(content); infowindow.open(map, marker);
         });
         kakao.maps.event.addListener(marker, 'mouseout', function () {
           infowindow.close();
         });
 
-        // 클릭(PC 클릭 + 모바일 탭이 합성 click으로 들어오는 경우)
-        kakao.maps.event.addListener(marker, 'click', function (mouseEvent) {
-          // 이벤트 객체에 stopPropagation이 있으면 방어적으로 호출
-          // (카카오맵 SDK 버전에 따라 존재하지 않을 수 있어 안전하게 체크)
-          if (mouseEvent && typeof mouseEvent.stopPropagation === 'function') {
-            mouseEvent.stopPropagation();
-          }
-          handleMarkerActivate(marker, p, content);
+        // PC 클릭 + 모바일 탭(합성 click): 카카오 마커의 click은 모바일 탭에서도 발생
+        kakao.maps.event.addListener(marker, 'click', function () {
+          log('🖱 marker click: ' + p.name);
+          activate(marker, p, content);
         });
 
-        // 일부 모바일 브라우저 대응: touchstart도 시도
-        // (Marker가 공식 지원하는 이벤트는 아니므로 실패해도 무해하게 무시)
-        try {
-          kakao.maps.event.addListener(marker, 'touchstart', function (mouseEvent) {
-            if (mouseEvent && typeof mouseEvent.stopPropagation === 'function') {
-              mouseEvent.stopPropagation();
-            }
-            handleMarkerActivate(marker, p, content);
-          });
-        } catch (e) {
-          // touchstart 리스너 등록이 지원되지 않는 환경 - 무시
-        }
+        // 모바일 보강: 실제 터치 종료(touchend)를 마커 이미지 DOM에서 직접 감지
+        // 카카오 Marker는 touchend 리스너를 공식 지원하지 않으므로,
+        // 마우스업 이벤트도 함께 걸어 최대한 넓게 커버합니다.
+        kakao.maps.event.addListener(marker, 'mouseup', function () {
+          log('🖱 marker mouseup: ' + p.name);
+          activate(marker, p, content);
+        });
       });
 
-      // 지도 빈 곳 클릭 시 강조 해제
-      // 단, 방금 마커를 클릭/터치한 여파로 발생한 map click이면 무시
-      kakao.maps.event.addListener(map, 'click', function () {
-        if (isWithinSuppressWindow()) return;
-        infowindow.close();
-        if (currentPolyline) { currentPolyline.setMap(null); currentPolyline = null; }
-        resetMarkers();
-      });
+      // 지도 클릭으로 초기화하는 로직은 "제거"했습니다.
+      // → 마커 이벤트와 경쟁할 여지가 원천 차단됩니다.
+      // 초기화는 오직 명시적 버튼으로만 수행합니다.
+      document.getElementById('resetBtn').addEventListener('click', resetAll);
 
-      // 검색어(q): 부분 일치 휴게소로 이동 + 정보창 + 노선 강조
       if (query) {
-        var q = query.toLowerCase();
+        var nq = query.toLowerCase();
         var hit = null;
         for (var i = 0; i < allMarkers.length; i++) {
-          if (allMarkers[i].point.name.toLowerCase().indexOf(q) !== -1) {
-            hit = allMarkers[i];
-            break;
-          }
+          if (allMarkers[i].point.name.toLowerCase().indexOf(nq) !== -1) { hit = allMarkers[i]; break; }
         }
         if (hit) {
-          markMarkerInteraction();
           map.setLevel(6);
           map.panTo(hit.marker.getPosition());
-          infowindow.setContent(buildContent(hit.point));
-          infowindow.open(map, hit.marker);
-          selectHighway(hit.point);
+          activate(hit.marker, hit.point, buildContent(hit.point));
         }
       }
     }
 
     kakao.maps.load(function () {
       var params = new URLSearchParams(window.location.search);
+      DEBUG = params.get('debug') === '1';
+      if (DEBUG) document.getElementById('debugPanel').style.display = 'block';
+
       var raw = params.get('data');
       var query = params.get('q');
       var points = [];
       if (raw) {
-        try {
-          points = JSON.parse(decodeURIComponent(atob(raw)));
-        } catch (e) {
-          console.error('데이터 파싱 오류', e);
-        }
+        try { points = JSON.parse(decodeURIComponent(atob(raw))); }
+        catch (e) { log('데이터 파싱 오류: ' + e); }
       }
+      log('총 마커 수: ' + points.length);
       initMap(points, query);
     });
   </script>
