@@ -30,33 +30,39 @@
       transition: opacity .2s ease;
     }
 
-    /* ===== 브랜드 원형 프로필 핀 디자인 ===== */
+    /* =========================================================
+       [수정 1] 앵커 이중 적용 문제 해결
+       - CSS transform: translate(-50%,-100%)를 완전히 제거했습니다.
+       - 위치 기준점은 오직 CustomOverlay의 xAnchor:0.5, yAnchor:1 로만 처리합니다.
+       - 대신 transform-origin을 "하단 중앙"으로 고정해 두어,
+         [수정 3]의 확대/축소 scale 애니메이션이 이 기준점을 축으로 일어나게 합니다.
+       ========================================================= */
     .marker-pin {
       position: relative;
       display: flex;
       flex-direction: column;
       align-items: center;
-      transform: translate(-50%, -100%);  /* 핀 하단 꼬리 끝이 좌표에 정확히 위치 */
       cursor: pointer;
       opacity: 1;
-      transition: opacity .2s ease;
+      transform-origin: 50% 100%;
+      transition: opacity .2s ease, transform .2s ease;
     }
     .marker-pin .pin-circle {
       width: 42px;
       height: 42px;
-      border-radius: 50%;               /* 완벽한 원형 */
+      border-radius: 50%;
       overflow: hidden;
       background: #fff;
-      border: 3px solid #ffffff;         /* 하얀색 두꺼운 테두리 */
+      border: 3px solid #ffffff;
       box-shadow: 0 3px 8px rgba(0,0,0,.35);
       box-sizing: border-box;
     }
     .marker-pin .pin-circle img {
       width: 100%;
       height: 100%;
-      object-fit: cover;                /* 사각 이미지를 원형에 맞춰 크롭 */
+      object-fit: cover;
       display: block;
-      pointer-events: none;             /* 클릭이 항상 pin 전체로 전달되도록 */
+      pointer-events: none;
     }
     .marker-pin .pin-tail {
       width: 0;
@@ -64,11 +70,16 @@
       margin-top: -3px;
       border-left: 8px solid transparent;
       border-right: 8px solid transparent;
-      border-top: 12px solid #ffffff;    /* 흰 테두리와 색을 맞춘 꼬리 */
+      border-top: 12px solid #ffffff;
       filter: drop-shadow(0 2px 2px rgba(0,0,0,.3));
       pointer-events: none;
     }
     .marker-pin.is-dim { opacity: 0.3; }
+
+    /* [수정 3] 축소 시 마커 크기 자동 축소 (부드러운 전환) */
+    .marker-pin.is-small {
+      transform: scale(0.55);
+    }
   </style>
 </head>
 <body>
@@ -99,9 +110,8 @@
     };
 
     /* =========================================================
-       브랜드별 이미지 경로 매핑 (docs/images/ 기준 상대경로)
-       - "세븐일레븐" 표기도 "7-11" 이미지로 매칭
-       - 매칭 실패 시 "기타" 이미지로 폴백
+       [수정 4] 실제 업로드된 파일명/확장자를 정확히 반영
+       (대소문자, 'ect.PNG' 오타 포함)
        ========================================================= */
     var BRAND_IMAGES = {
       "GS25": "images/GS25.PNG",
@@ -116,6 +126,9 @@
       if (BRAND_IMAGES[brand]) return BRAND_IMAGES[brand];
       return BRAND_IMAGES["기타"];
     }
+
+    // [수정 3] 줌 레벨 기준: level이 이 값 이상이면(더 축소된 상태) 마커를 작게
+    var SMALL_MARKER_ZOOM_LEVEL = 10;
 
     var map, currentPolyline = null, currentLabel = null, infowindow = null, allMarkers = [];
     var activeRoutePath = null, activeRouteName = "";
@@ -139,8 +152,8 @@
     })();
 
     function buildContent(p) {
-      // 순서: 휴게소명 → 연매출액 → 브랜드 → 운영사 → 계약기간 → 계약차수 → 담당자
-      return '<div style="padding:8px;font-size:13px;line-height:1.6;min-width:160px;">' +
+      // [수정 2] 정보창을 핀 머리 위로 더 띄우기 위해 margin-bottom 여백을 준 래퍼로 감쌈
+      return '<div style="margin-bottom:14px;padding:8px;font-size:13px;line-height:1.6;min-width:160px;background:#fff;border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,.25);">' +
                '<b style="font-size:14px;">' + p.name + '</b><br>' +
                '연매출액: ' + p.revenue + '<br>' +
                '브랜드: ' + p.brand + '<br>' +
@@ -151,7 +164,6 @@
              '</div>';
     }
 
-    /* ===== HTML 핀 DOM 생성 (CustomOverlay content로 사용) ===== */
     function createPinElement(p) {
       var wrap = document.createElement('div');
       wrap.className = 'marker-pin';
@@ -238,7 +250,6 @@
       }
     }
 
-    /* ===== 강조/흐림 처리: DOM opacity·zIndex 직접 제어 ===== */
     function highlightMarkers(highway) {
       var target = normalize(highway);
       allMarkers.forEach(function (item) {
@@ -276,6 +287,20 @@
       selectHighway(p);
     }
 
+    // [수정 3] 현재 줌 레벨에 맞춰 모든 마커 크기를 부드럽게 토글
+    function applyMarkerScale() {
+      if (!map) return;
+      var level = map.getLevel();
+      var small = level >= SMALL_MARKER_ZOOM_LEVEL;
+      allMarkers.forEach(function (item) {
+        if (small) {
+          item.el.classList.add('is-small');
+        } else {
+          item.el.classList.remove('is-small');
+        }
+      });
+    }
+
     function initMap(points, query) {
       var container = document.getElementById('map');
       var center = points.length
@@ -288,11 +313,10 @@
         var pos = new kakao.maps.LatLng(p.lat, p.lng);
         var content = buildContent(p);
 
-        // ---- HTML 핀 DOM 생성 ----
         var pinEl = createPinElement(p);
         pinEl.style.zIndex = 2;
 
-        // ---- CustomOverlay로 지도에 얹기 ----
+        // 위치 기준점은 xAnchor/yAnchor 만으로 처리 (CSS transform 중복 제거)
         var overlay = new kakao.maps.CustomOverlay({
           position: pos,
           content: pinEl,
@@ -302,18 +326,18 @@
         });
         overlay.setMap(map);
 
-        // 오버레이 위에서의 제스처가 지도 드래그로 새어나가지 않도록 방지
         kakao.maps.event.preventMap(pinEl);
 
         allMarkers.push({ overlay: overlay, el: pinEl, point: p });
 
-        // ---- 기존과 동일한 이벤트: 오버레이 DOM에 직접 부착 ----
-        pinEl.addEventListener('mouseover', function () {
+        // [수정 2] mouseover/mouseout(버블링됨) 대신
+        // mouseenter/mouseleave(버블링 안 됨)로 교체 → 무한 깜빡임 근본 해결
+        pinEl.addEventListener('mouseenter', function () {
           infowindow.setContent(content);
           infowindow.setPosition(pos);
           infowindow.open(map);
         });
-        pinEl.addEventListener('mouseout', function () {
+        pinEl.addEventListener('mouseleave', function () {
           infowindow.close();
         });
         pinEl.addEventListener('click', function () {
@@ -328,6 +352,10 @@
 
       document.getElementById('resetBtn').addEventListener('click', resetAll);
       kakao.maps.event.addListener(map, 'idle', updateLabelPosition);
+
+      // [수정 3] 줌 변경 시 마커 크기 자동 조정
+      kakao.maps.event.addListener(map, 'zoom_changed', applyMarkerScale);
+      applyMarkerScale(); // 초기 레벨 기준으로도 한 번 적용
 
       if (query) {
         var nq = query.toLowerCase();
