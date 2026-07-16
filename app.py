@@ -83,7 +83,6 @@ else:
             map_df = df
             
         if '위도' in map_df.columns and '경도' in map_df.columns:
-            # 안전장치: 결측치 제거 및 데이터 변환
             safe_df = map_df.dropna(subset=['위도', '경도']).copy()
             safe_df['위도'] = pd.to_numeric(safe_df['위도'], errors='coerce')
             safe_df['경도'] = pd.to_numeric(safe_df['경도'], errors='coerce')
@@ -106,29 +105,24 @@ else:
                 st.error("⚠️ 스트림릿 Secrets에 'kakao_key'가 없습니다.")
                 st.stop()
 
-            # 카카오맵 원복 + 회색 화면 원인 분석 및 해결 안내
+            # 카카오맵 공식 권장 방식 (로딩 순서 문제 완벽 해결)
             kakao_html = f"""
             <!DOCTYPE html>
             <html>
             <head>
                 <meta charset="utf-8">
                 <style>
-                    html, body {{width:100%; height:100%; margin:0; padding:0; background-color:#f0f0f0;}} 
+                    html, body {{width:100%; height:100%; margin:0; padding:0; background-color:#f9f9f9;}} 
                     #map {{width:100%; height:450px; border-radius:10px;}}
-                    #error-msg {{padding:20px; text-align:center; color:#d32f2f; font-family:sans-serif;}}
                 </style>
             </head>
             <body>
             <div id="map"></div>
-            <script type="text/javascript" src="https://dapi.kakao.com/v2/maps/sdk.js?appkey={kakao_key}"></script>
+            <!-- autoload=false 를 추가하여 카카오 지도가 제멋대로 먼저 켜지는 것을 막습니다 -->
+            <script type="text/javascript" src="https://dapi.kakao.com/v2/maps/sdk.js?appkey={kakao_key}&autoload=false"></script>
             <script>
-                window.onload = function() {{
-                    if (typeof kakao === 'undefined' || typeof kakao.maps === 'undefined') {{
-                        var currentDomain = window.location.protocol + "//" + window.location.hostname;
-                        document.getElementById('map').innerHTML = "<div id='error-msg'><h3>🚨 카카오맵 보안 차단됨</h3><p>카카오 디벨로퍼스 'Web 플랫폼'에 아래 주소도 추가로 등록해주세요!</p><h4 style='color:blue;'>" + currentDomain + "</h4></div>";
-                        return;
-                    }}
-                    
+                // 카카오 SDK가 100% 준비된 후에만 지도를 그리도록 강제합니다
+                kakao.maps.load(function() {{
                     try {{
                         var mapContainer = document.getElementById('map');
                         var mapOption = {{
@@ -147,9 +141,9 @@ else:
                             }});
                         }}
                     }} catch (e) {{
-                        document.getElementById('map').innerHTML = "<div id='error-msg'><h3>지도 생성 중 오류:</h3><p>" + e.message + "</p></div>";
+                        document.getElementById('map').innerHTML = "<div style='padding:20px; color:red; text-align:center;'><h3>지도 생성 중 오류:</h3><p>" + e.message + "</p></div>";
                     }}
-                }};
+                }});
             </script>
             </body>
             </html>
