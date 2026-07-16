@@ -7,7 +7,7 @@ import base64
 import urllib.parse
 
 # --- 페이지 기본 설정 ---
-st.set_page_config(page_title="특수개발팀 휴게소Map Pro", layout="wide")
+st.set_page_config(page_title="특수개발팀 휴게소 Map Pro", layout="wide")
 
 # --- 모바일 헤더 최적화 CSS ---
 st.markdown(
@@ -61,7 +61,7 @@ if not st.session_state["logged_in"]:
     st.stop()
 
 # --- 여기부터는 로그인 성공 시에만 실행 ---
-st.markdown('<div class="app-title">🛣️ 전국 휴게소 통합 관리</div>', unsafe_allow_html=True)
+st.markdown('<div class="app-title">🛣️ 특수개발팀 휴게소 Map Pro</div>', unsafe_allow_html=True)
 
 # 데이터 로드
 try:
