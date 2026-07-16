@@ -69,6 +69,44 @@
     }
     .marker-pin.is-dim { opacity: 0.3; }
     .marker-pin.is-small { transform: scale(0.55); }
+
+    /* =========================================================
+       [수정 1+2] 정보창 스타일
+       - .iw-wrap: 정보창 전체 래퍼. pointer-events:none 으로 마우스를 통과시켜
+         핀 호버 판정을 방해하지 않음 → 깜빡임 방지.
+       - margin-bottom 을 크게(34px) 주어 정보창 본문을 핀 머리에서
+         충분히 위로 띄움 → 핀과 정보창 사이에 마우스가 머물 빈 공간 확보.
+       - .iw-close: 닫기 버튼만 pointer-events:auto 로 되살려 클릭 가능하게 함.
+       ========================================================= */
+    .iw-wrap {
+      pointer-events: none;
+      position: relative;
+      margin-bottom: 34px;    /* 핀에서 정보창을 위로 띄우는 핵심 여백 */
+      padding: 10px 12px;
+      font-size: 13px;
+      line-height: 1.6;
+      min-width: 180px;
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,.25);
+    }
+    .iw-close {
+      pointer-events: auto;   /* 정보창은 통과시키되 이 버튼만 클릭 가능 */
+      position: absolute;
+      top: 6px;
+      right: 8px;
+      width: 20px;
+      height: 20px;
+      line-height: 20px;
+      text-align: center;
+      font-size: 15px;
+      font-weight: 700;
+      color: #888;
+      cursor: pointer;
+      border-radius: 50%;
+    }
+    .iw-close:hover { background: #eee; color: #333; }
+    .iw-title { font-size: 14px; font-weight: 700; padding-right: 18px; }
   </style>
 </head>
 <body>
@@ -118,9 +156,14 @@
     var activeRoutePath = null, activeRouteName = "";
     var DEBUG = false;
 
-    // postMessage 데이터 수신을 위한 상태 관리 (기존 구조 유지)
     var mapReady = false;
     var pendingMapData = null;
+
+    // [수정 2] 인라인 onclick="closeInfoWindow()" 에서 호출할 수 있도록
+    // 정보창 닫기 함수를 전역(window)에 등록합니다.
+    window.closeInfoWindow = function () {
+      if (infowindow) infowindow.close();
+    };
 
     function log(msg) {
       if (!DEBUG) return;
@@ -140,11 +183,10 @@
     })();
 
     function buildContent(p) {
-      // [수정 1] 최상위 래퍼 div에 pointer-events:none 추가.
-      // 정보창이 마우스 이벤트를 전혀 받지 않게 하여, 마커 위에 겹쳐 떠도
-      // mouseleave가 잘못 발생하지 않아 깜빡임이 완전히 사라집니다.
-      return '<div style="pointer-events:none;margin-bottom:14px;padding:8px;font-size:13px;line-height:1.6;min-width:160px;background:#fff;border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,.25);">' +
-               '<b style="font-size:14px;">' + p.name + '</b><br>' +
+      // [수정 1+2] .iw-wrap 클래스로 여백/포인터 통과 처리, 우측 상단에 X 닫기 버튼 추가
+      return '<div class="iw-wrap">' +
+               '<span class="iw-close" onclick="closeInfoWindow()">×</span>' +
+               '<div class="iw-title">' + p.name + '</div>' +
                '연매출액: ' + p.revenue + '<br>' +
                '브랜드: ' + p.brand + '<br>' +
                '운영사: ' + p.operator + '<br>' +
@@ -348,8 +390,7 @@
           activate(pos, p, content);
         });
 
-        // [수정 2] 모바일 터치 호환: touchstart에서 정보창 + 노선 강조 실행.
-        // preventDefault()로 뒤따르는 합성 click(중복 실행)을 억제합니다.
+        // 모바일 터치 호환 (합성 클릭 중복 억제)
         pinEl.addEventListener('touchstart', function (e) {
           e.preventDefault();
           log('📱 marker touchstart: ' + p.name);
@@ -359,8 +400,7 @@
 
       applyMarkerScale();
 
-      // [수정 3] 검색어 처리: 부분 일치(indexOf)가 아니라 완전 일치(===)로 변경.
-      // Streamlit selectbox에서 정확히 선택된 휴게소명과 핀 이름이 똑같을 때만 이동합니다.
+      // 검색어 완전 일치(===)로 이동
       if (query) {
         var hit = null;
         for (var i = 0; i < allMarkers.length; i++) {
