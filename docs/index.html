@@ -17,6 +17,18 @@
       background: rgba(0,0,0,.8); color: #0f0; font: 12px monospace;
       padding: 6px; display: none; white-space: pre-wrap;
     }
+    /* 고속도로명 라벨(CustomOverlay) 디자인 */
+    .highway-label {
+      background: #2F5597;
+      color: #fff;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 12px;
+      box-shadow: 0 2px 6px rgba(0,0,0,.25);
+      white-space: nowrap;
+      transform: translate(-50%, -130%);
+    }
   </style>
 </head>
 <body>
@@ -46,7 +58,7 @@
       ]
     };
 
-    var map, currentPolyline = null, infowindow = null, allMarkers = [];
+    var map, currentPolyline = null, currentLabel = null, infowindow = null, allMarkers = [];
     var DEBUG = false;
 
     function log(msg) {
@@ -56,15 +68,13 @@
       el.scrollTop = el.scrollHeight;
     }
 
-    // 시트 값/코드 키의 공백 차이로 인한 매칭 실패를 줄이기 위한 정규화
     function normalize(s) {
       return (s == null ? "" : String(s)).replace(/\s+/g, "").trim();
     }
-    // 정규화 키로 노선을 찾기 위한 사전 구성
     var ROUTE_LOOKUP = {};
     (function () {
       for (var k in HIGHWAY_ROUTES) {
-        if (HIGHWAY_ROUTES.hasOwnProperty(k)) ROUTE_LOOKUP[normalize(k)] = HIGHWAY_ROUTES[k];
+        if (HIGHWAY_ROUTES.hasOwnProperty(k)) ROUTE_LOOKUP[normalize(k)] = { name: k, path: HIGHWAY_ROUTES[k] };
       }
     })();
 
@@ -79,35 +89,60 @@
              '</div>';
     }
 
-    function drawRoute(highway) {
+    function clearRoute() {
       if (currentPolyline) { currentPolyline.setMap(null); currentPolyline = null; }
-      var route = ROUTE_LOOKUP[normalize(highway)];
-      if (!route || !route.length) {
+      if (currentLabel) { currentLabel.setMap(null); currentLabel = null; }
+    }
+
+    function drawRoute(highway) {
+      clearRoute();
+      var entry = ROUTE_LOOKUP[normalize(highway)];
+      if (!entry) {
         log('❌ 노선 좌표 없음: "' + highway + '" (정규화="' + normalize(highway) + '")');
         return;
       }
-      log('✅ 노선 그림: "' + highway + '" (' + route.length + '개 좌표)');
-      var path = route.map(function (c) { return new kakao.maps.LatLng(c[0], c[1]); });
+      log('✅ 노선 그림: "' + highway + '" (' + entry.path.length + '개 좌표)');
+
+      var path = entry.path.map(function (c) { return new kakao.maps.LatLng(c[0], c[1]); });
+
+      // --- 노선 디자인: 세련된 남색 계열 + 얇은 실선 ---
       currentPolyline = new kakao.maps.Polyline({
-        path: path, strokeWeight: 7, strokeColor: '#FF3B30',
-        strokeOpacity: 0.95, strokeStyle: 'solid'
+        path: path,
+        strokeWeight: 4,             // 기존 7 → 4, 더 깔끔하게
+        strokeColor: '#2F5597',      // 세련된 남색 (다른 후보: 다크그레이 '#4A4A4A')
+        strokeOpacity: 0.9,
+        strokeStyle: 'solid'         // 굵은 도로망 강조는 실선이 더 안정적/신뢰감 있음
+        // 점선을 원하시면 아래처럼 교체:
+        // strokeStyle: 'shortdash'
       });
       currentPolyline.setMap(map);
+
+      // --- 고속도로명 라벨(CustomOverlay): 경로 중앙 지점에 표시 ---
+      var midIdx = Math.floor(path.length / 2);
+      var midPos = path[midIdx];
+
+      currentLabel = new kakao.maps.CustomOverlay({
+        position: midPos,
+        content: '<div class="highway-label">' + entry.name + '</div>',
+        yAnchor: 1,
+        zIndex: 15
+      });
+      currentLabel.setMap(map);
     }
 
     function highlightMarkers(highway) {
       var target = normalize(highway);
       allMarkers.forEach(function (item) {
         if (normalize(item.point.highway) === target) {
-          item.marker.setOpacity(1.0); item.marker.setZIndex(10);
+          item.marker.setOpacity(1.0); item.marker.setZIndex(10);   // 같은 노선: 선명
         } else {
-          item.marker.setOpacity(0.25); item.marker.setZIndex(1);
+          item.marker.setOpacity(0.3); item.marker.setZIndex(1);    // 다른 노선: 흐림
         }
       });
     }
 
     function resetAll() {
-      if (currentPolyline) { currentPolyline.setMap(null); currentPolyline = null; }
+      clearRoute();
       infowindow.close();
       allMarkers.forEach(function (item) {
         item.marker.setOpacity(1.0); item.marker.setZIndex(2);
@@ -141,7 +176,6 @@
         allMarkers.push({ marker: marker, point: p });
         var content = buildContent(p);
 
-        // PC 미리보기
         kakao.maps.event.addListener(marker, 'mouseover', function () {
           infowindow.setContent(content); infowindow.open(map, marker);
         });
@@ -149,24 +183,17 @@
           infowindow.close();
         });
 
-        // PC 클릭 + 모바일 탭(합성 click): 카카오 마커의 click은 모바일 탭에서도 발생
         kakao.maps.event.addListener(marker, 'click', function () {
           log('🖱 marker click: ' + p.name);
           activate(marker, p, content);
         });
-
-        // 모바일 보강: 실제 터치 종료(touchend)를 마커 이미지 DOM에서 직접 감지
-        // 카카오 Marker는 touchend 리스너를 공식 지원하지 않으므로,
-        // 마우스업 이벤트도 함께 걸어 최대한 넓게 커버합니다.
         kakao.maps.event.addListener(marker, 'mouseup', function () {
           log('🖱 marker mouseup: ' + p.name);
           activate(marker, p, content);
         });
       });
 
-      // 지도 클릭으로 초기화하는 로직은 "제거"했습니다.
-      // → 마커 이벤트와 경쟁할 여지가 원천 차단됩니다.
-      // 초기화는 오직 명시적 버튼으로만 수행합니다.
+      // 초기화는 명시적 버튼으로만 (마커 이벤트와 경쟁하지 않도록)
       document.getElementById('resetBtn').addEventListener('click', resetAll);
 
       if (query) {
