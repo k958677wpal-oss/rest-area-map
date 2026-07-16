@@ -1,0 +1,61 @@
+<!-- docs/index.html -->
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    html, body, #map { width: 100%; height: 100%; margin: 0; padding: 0; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+
+  <script src="//dapi.kakao.com/v2/maps/sdk.js?appkey=fbd1e96068b754f1939c7e11a2790ce1&autoload=false"></script>
+  <script>
+    function initMap(points) {
+      var container = document.getElementById('map');
+      var center = points.length
+        ? new kakao.maps.LatLng(points[0].lat, points[0].lng)
+        : new kakao.maps.LatLng(36.5, 127.8);
+
+      var map = new kakao.maps.Map(container, { center: center, level: 8 });
+
+      points.forEach(function (p) {
+        var pos = new kakao.maps.LatLng(p.lat, p.lng);
+        var marker = new kakao.maps.Marker({ position: pos, map: map });
+
+        var content = '<div style="padding:8px;font-size:13px;">' +
+          '<b>' + p.name + '</b><br>' +
+          '브랜드: ' + p.brand + '<br>' +
+          '담당자: ' + p.manager + '<br>' +
+          '진척률: ' + p.progress + '%</div>';
+
+        var infowindow = new kakao.maps.InfoWindow({ content: content });
+
+        kakao.maps.event.addListener(marker, 'mouseover', function () {
+          infowindow.open(map, marker);
+        });
+        kakao.maps.event.addListener(marker, 'mouseout', function () {
+          infowindow.close();
+        });
+      });
+    }
+
+    // SDK 로드 완료를 기다린 뒤에만 지도 객체 생성 (LatLng 오류 방지 핵심)
+    kakao.maps.load(function () {
+      var params = new URLSearchParams(window.location.search);
+      var raw = params.get('data');
+      var points = [];
+      if (raw) {
+        try {
+          points = JSON.parse(decodeURIComponent(atob(raw)));
+        } catch (e) {
+          console.error('데이터 파싱 오류', e);
+        }
+      }
+      initMap(points);
+    });
+  </script>
+</body>
+</html>
