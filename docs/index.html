@@ -71,17 +71,43 @@
     .marker-pin.is-small { transform: scale(0.55); }
 
     /* =========================================================
-       [수정 1+2] 정보창 스타일
-       - .iw-wrap: 정보창 전체 래퍼. pointer-events:none 으로 마우스를 통과시켜
-         핀 호버 판정을 방해하지 않음 → 깜빡임 방지.
-       - margin-bottom 을 크게(34px) 주어 정보창 본문을 핀 머리에서
-         충분히 위로 띄움 → 핀과 정보창 사이에 마우스가 머물 빈 공간 확보.
-       - .iw-close: 닫기 버튼만 pointer-events:auto 로 되살려 클릭 가능하게 함.
+       [근본 해결] 호버 툴팁을 핀의 "자식 요소"로 직접 삽입.
+       - kakao.maps.InfoWindow(별개 객체)를 hover에 쓰지 않습니다.
+       - 순수 CSS :hover 로만 표시/숨김을 제어하므로,
+         핀과 툴팁이 항상 같은 DOM 트리 안에 있어 mouseleave 오판정이
+         구조적으로 발생할 수 없습니다. → 깜빡임 원천 차단.
        ========================================================= */
+    .pin-tooltip {
+      position: absolute;
+      bottom: 100%;              /* 핀 바로 위에 배치 */
+      left: 50%;
+      transform: translateX(-50%);
+      margin-bottom: 8px;
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,.25);
+      padding: 8px 12px;
+      font-size: 12px;
+      line-height: 1.5;
+      white-space: nowrap;
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;      /* 툴팁 자체는 항상 마우스를 통과시킴 */
+      transition: opacity .12s ease;
+      z-index: 30;
+    }
+    .pin-tooltip b { font-size: 13px; }
+    /* 핀에 마우스가 올라가 있는 동안에만 툴팁 표시 (순수 CSS, JS 개입 없음) */
+    .marker-pin:hover .pin-tooltip {
+      opacity: 1;
+      visibility: visible;
+    }
+
+    /* 클릭 시 뜨는 상세 정보창(카카오 InfoWindow) - 기존 그대로 유지 */
     .iw-wrap {
       pointer-events: none;
       position: relative;
-      margin-bottom: 34px;    /* 핀에서 정보창을 위로 띄우는 핵심 여백 */
+      margin-bottom: 34px;
       padding: 10px 12px;
       font-size: 13px;
       line-height: 1.6;
@@ -91,7 +117,7 @@
       box-shadow: 0 2px 10px rgba(0,0,0,.25);
     }
     .iw-close {
-      pointer-events: auto;   /* 정보창은 통과시키되 이 버튼만 클릭 가능 */
+      pointer-events: auto;
       position: absolute;
       top: 6px;
       right: 8px;
@@ -159,8 +185,6 @@
     var mapReady = false;
     var pendingMapData = null;
 
-    // [수정 2] 인라인 onclick="closeInfoWindow()" 에서 호출할 수 있도록
-    // 정보창 닫기 함수를 전역(window)에 등록합니다.
     window.closeInfoWindow = function () {
       if (infowindow) infowindow.close();
     };
@@ -182,8 +206,8 @@
       }
     })();
 
+    // 클릭 시 뜨는 상세 정보창 내용 (기존과 동일)
     function buildContent(p) {
-      // [수정 1+2] .iw-wrap 클래스로 여백/포인터 통과 처리, 우측 상단에 X 닫기 버튼 추가
       return '<div class="iw-wrap">' +
                '<span class="iw-close" onclick="closeInfoWindow()">×</span>' +
                '<div class="iw-title">' + p.name + '</div>' +
@@ -194,6 +218,13 @@
                '계약차수: ' + (p.contract_step != null ? p.contract_step : '') + '<br>' +
                '담당자: ' + p.manager +
              '</div>';
+    }
+
+    // [핵심] 호버 시 보여줄 간단 툴팁 - 핀의 자식 DOM으로 삽입될 내용
+    function buildTooltipContent(p) {
+      return '<b>' + p.name + '</b><br>' +
+             '브랜드: ' + p.brand + '<br>' +
+             '연매출액: ' + p.revenue;
     }
 
     function createPinElement(p) {
@@ -211,6 +242,12 @@
       var tail = document.createElement('div');
       tail.className = 'pin-tail';
 
+      // [핵심] 툴팁을 핀의 자식 요소로 직접 삽입 (별개 객체 아님)
+      var tooltip = document.createElement('div');
+      tooltip.className = 'pin-tooltip';
+      tooltip.innerHTML = buildTooltipContent(p);
+
+      wrap.appendChild(tooltip);
       wrap.appendChild(circle);
       wrap.appendChild(tail);
       return wrap;
@@ -373,14 +410,10 @@
 
         allMarkers.push({ overlay: overlay, el: pinEl, point: p });
 
-        pinEl.addEventListener('mouseenter', function () {
-          infowindow.setContent(content);
-          infowindow.setPosition(pos);
-          infowindow.open(map);
-        });
-        pinEl.addEventListener('mouseleave', function () {
-          infowindow.close();
-        });
+        // [변경] 더 이상 mouseenter/mouseleave 로 InfoWindow를 열지 않습니다.
+        // 호버 미리보기는 위에서 만든 순수 CSS 툴팁(.pin-tooltip)이 전담합니다.
+        // (JS 이벤트 기반 열기/닫기 경쟁이 사라져 깜빡임이 구조적으로 불가능해집니다.)
+
         pinEl.addEventListener('click', function () {
           log('🖱 marker click: ' + p.name);
           activate(pos, p, content);
@@ -389,8 +422,6 @@
           log('🖱 marker mouseup: ' + p.name);
           activate(pos, p, content);
         });
-
-        // 모바일 터치 호환 (합성 클릭 중복 억제)
         pinEl.addEventListener('touchstart', function (e) {
           e.preventDefault();
           log('📱 marker touchstart: ' + p.name);
@@ -400,7 +431,6 @@
 
       applyMarkerScale();
 
-      // 검색어 완전 일치(===)로 이동
       if (query) {
         var hit = null;
         for (var i = 0; i < allMarkers.length; i++) {
@@ -417,7 +447,6 @@
       }
     }
 
-    // 부모(Streamlit)로부터 postMessage 수신 (기존 구조 유지)
     window.addEventListener('message', function (event) {
       if (event.source !== window.parent) {
         return;
