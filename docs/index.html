@@ -12,44 +12,122 @@
 
   <script src="//dapi.kakao.com/v2/maps/sdk.js?appkey=fbd1e96068b754f1939c7e11a2790ce1&autoload=false"></script>
   <script>
-    function initMap(points) {
+    var map;
+    var currentPolyline = null;   // 현재 강조된 노선
+    var infowindow = null;        // 정보창 하나를 공유
+
+    function buildContent(p) {
+      // 순서: 휴게소명 → 브랜드 → 운영사 → 연매출액 → 계약기간 → 담당자
+      return '<div style="padding:8px;font-size:13px;line-height:1.6;min-width:160px;">' +
+               '<b style="font-size:14px;">' + p.name + '</b><br>' +
+               '브랜드: ' + p.brand + '<br>' +
+               '운영사: ' + p.operator + '<br>' +
+               '연매출액: ' + p.revenue + '<br>' +
+               '계약기간: ' + p.contract + '<br>' +
+               '담당자: ' + p.manager +
+             '</div>';
+    }
+
+    // 고속도로명별로 휴게소를 묶어 노선(Polyline) 강조
+    function highlightHighway(highway, groups) {
+      if (currentPolyline) {
+        currentPolyline.setMap(null);   // 이전 노선 제거
+        currentPolyline = null;
+      }
+      if (!highway || !groups[highway]) return;
+
+      var group = groups[highway].slice();
+      // 노선순서(seq)가 있으면 그것으로, 없으면 위도 기준 정렬
+      group.sort(function (a, b) {
+        if (a.seq != null && b.seq != null) return a.seq - b.seq;
+        return a.lat - b.lat;
+      });
+
+      var path = group.map(function (p) {
+        return new kakao.maps.LatLng(p.lat, p.lng);
+      });
+
+      currentPolyline = new kakao.maps.Polyline({
+        path: path,
+        strokeWeight: 6,
+        strokeColor: '#FF3B30',
+        strokeOpacity: 0.9,
+        strokeStyle: 'solid'
+      });
+      currentPolyline.setMap(map);
+    }
+
+    function initMap(points, query) {
       var container = document.getElementById('map');
       var center = points.length
         ? new kakao.maps.LatLng(points[0].lat, points[0].lng)
         : new kakao.maps.LatLng(36.5, 127.8);
 
-      var map = new kakao.maps.Map(container, { center: center, level: 8 });
+      map = new kakao.maps.Map(container, { center: center, level: 8 });
+      infowindow = new kakao.maps.InfoWindow({ zIndex: 1 });
+
+      // 고속도로명별 그룹 구성
+      var groups = {};
+      points.forEach(function (p) {
+        if (p.highway) {
+          if (!groups[p.highway]) groups[p.highway] = [];
+          groups[p.highway].push(p);
+        }
+      });
+
+      var markerByName = {};
 
       points.forEach(function (p) {
         var pos = new kakao.maps.LatLng(p.lat, p.lng);
         var marker = new kakao.maps.Marker({ position: pos, map: map });
+        markerByName[p.name] = { marker: marker, point: p };
 
-        // 순서: 휴게소명 → 브랜드 → 운영사 → 연매출액 → 계약기간 → 담당자
-        var content =
-          '<div style="padding:8px;font-size:13px;line-height:1.6;min-width:160px;">' +
-            '<b style="font-size:14px;">' + p.name + '</b><br>' +
-            '브랜드: ' + p.brand + '<br>' +
-            '운영사: ' + p.operator + '<br>' +
-            '연매출액: ' + p.revenue + '<br>' +
-            '계약기간: ' + p.contract + '<br>' +
-            '담당자: ' + p.manager +
-          '</div>';
+        var content = buildContent(p);
 
-        var infowindow = new kakao.maps.InfoWindow({ content: content });
-
-        kakao.maps.event.addListener(marker, 'mouseover', function () {
+        function openInfo() {
+          infowindow.setContent(content);
           infowindow.open(map, marker);
-        });
+        }
+
+        // PC: 마우스 오버 시 열고 나갈 때 닫기
+        kakao.maps.event.addListener(marker, 'mouseover', openInfo);
         kakao.maps.event.addListener(marker, 'mouseout', function () {
           infowindow.close();
         });
+
+        // 클릭(모바일 터치 포함): 정보창 열고 + 노선 강조
+        kakao.maps.event.addListener(marker, 'click', function () {
+          openInfo();
+          highlightHighway(p.highway, groups);
+        });
       });
+
+      // 검색어(q) 처리: 부분 일치 휴게소로 이동 + 정보창 자동 열기
+      if (query) {
+        var q = query.toLowerCase();
+        var hit = null;
+        for (var name in markerByName) {
+          if (name.toLowerCase().indexOf(q) !== -1) {
+            hit = markerByName[name];
+            break;
+          }
+        }
+        if (hit) {
+          var hitPos = hit.marker.getPosition();
+          map.setLevel(5);
+          map.panTo(hitPos);
+          infowindow.setContent(buildContent(hit.point));
+          infowindow.open(map, hit.marker);
+          highlightHighway(hit.point.highway, groups);
+        }
+      }
     }
 
     // SDK 로드 완료 후에만 지도 생성 (LatLng is not a constructor 방지)
     kakao.maps.load(function () {
       var params = new URLSearchParams(window.location.search);
       var raw = params.get('data');
+      var query = params.get('q');
       var points = [];
       if (raw) {
         try {
@@ -58,7 +136,7 @@
           console.error('데이터 파싱 오류', e);
         }
       }
-      initMap(points);
+      initMap(points, query);
     });
   </script>
 </body>
