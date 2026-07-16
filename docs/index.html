@@ -29,6 +29,46 @@
       transform: translate(-50%, -130%);
       transition: opacity .2s ease;
     }
+
+    /* ===== 브랜드 원형 프로필 핀 디자인 ===== */
+    .marker-pin {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      transform: translate(-50%, -100%);  /* 핀 하단 꼬리 끝이 좌표에 정확히 위치 */
+      cursor: pointer;
+      opacity: 1;
+      transition: opacity .2s ease;
+    }
+    .marker-pin .pin-circle {
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;               /* 완벽한 원형 */
+      overflow: hidden;
+      background: #fff;
+      border: 3px solid #ffffff;         /* 하얀색 두꺼운 테두리 */
+      box-shadow: 0 3px 8px rgba(0,0,0,.35);
+      box-sizing: border-box;
+    }
+    .marker-pin .pin-circle img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;                /* 사각 이미지를 원형에 맞춰 크롭 */
+      display: block;
+      pointer-events: none;             /* 클릭이 항상 pin 전체로 전달되도록 */
+    }
+    .marker-pin .pin-tail {
+      width: 0;
+      height: 0;
+      margin-top: -3px;
+      border-left: 8px solid transparent;
+      border-right: 8px solid transparent;
+      border-top: 12px solid #ffffff;    /* 흰 테두리와 색을 맞춘 꼬리 */
+      filter: drop-shadow(0 2px 2px rgba(0,0,0,.3));
+      pointer-events: none;
+    }
+    .marker-pin.is-dim { opacity: 0.3; }
   </style>
 </head>
 <body>
@@ -59,34 +99,26 @@
     };
 
     /* =========================================================
-       브랜드별 커스텀 마커 이미지 (Placeholder)
-       - 나중에 각 url 값만 실제 이미지 주소로 교체하세요.
-       - size: 마커 이미지 크기(px)
+       브랜드별 이미지 경로 매핑 (docs/images/ 기준 상대경로)
+       - "세븐일레븐" 표기도 "7-11" 이미지로 매칭
+       - 매칭 실패 시 "기타" 이미지로 폴백
        ========================================================= */
-    var BRAND_MARKERS = {
-      "GS25":   { url: "https://via.placeholder.com/32/00A651/ffffff?text=GS", size: [32, 32] },
-      "CU":     { url: "https://via.placeholder.com/32/6F2C91/ffffff?text=CU", size: [32, 32] },
-      "7-11":   { url: "https://via.placeholder.com/32/EE1C25/ffffff?text=7", size: [32, 32] },
-      "이마트24": { url: "https://via.placeholder.com/32/FFB81C/000000?text=E24", size: [32, 32] },
-      "기타":    { url: "https://via.placeholder.com/32/888888/ffffff?text=%E2%80%A2", size: [32, 32] }
+    var BRAND_IMAGES = {
+      "GS25": "images/GS25.png",
+      "CU": "images/CU.png",
+      "7-11": "images/7-11.png",
+      "이마트24": "images/emart24.png",
+      "기타": "images/etc.png"
     };
 
-    // 브랜드 값 → MarkerImage 생성 (매칭 실패 시 '기타'로 폴백)
-    var _markerImageCache = {};
-    function getMarkerImage(brand) {
-      var key = BRAND_MARKERS[brand] ? brand : "기타";
-      if (_markerImageCache[key]) return _markerImageCache[key];
-      var cfg = BRAND_MARKERS[key];
-      var img = new kakao.maps.MarkerImage(
-        cfg.url,
-        new kakao.maps.Size(cfg.size[0], cfg.size[1])
-      );
-      _markerImageCache[key] = img;
-      return img;
+    function resolveBrandImage(brand) {
+      if (brand === "세븐일레븐") return BRAND_IMAGES["7-11"];
+      if (BRAND_IMAGES[brand]) return BRAND_IMAGES[brand];
+      return BRAND_IMAGES["기타"];
     }
 
     var map, currentPolyline = null, currentLabel = null, infowindow = null, allMarkers = [];
-    var activeRoutePath = null, activeRouteName = "";   // 동적 라벨 추적용
+    var activeRoutePath = null, activeRouteName = "";
     var DEBUG = false;
 
     function log(msg) {
@@ -119,6 +151,27 @@
              '</div>';
     }
 
+    /* ===== HTML 핀 DOM 생성 (CustomOverlay content로 사용) ===== */
+    function createPinElement(p) {
+      var wrap = document.createElement('div');
+      wrap.className = 'marker-pin';
+
+      var circle = document.createElement('div');
+      circle.className = 'pin-circle';
+
+      var img = document.createElement('img');
+      img.src = resolveBrandImage(p.brand);
+      img.alt = p.brand || '';
+      circle.appendChild(img);
+
+      var tail = document.createElement('div');
+      tail.className = 'pin-tail';
+
+      wrap.appendChild(circle);
+      wrap.appendChild(tail);
+      return wrap;
+    }
+
     function clearRoute() {
       if (currentPolyline) { currentPolyline.setMap(null); currentPolyline = null; }
       if (currentLabel) { currentLabel.setMap(null); currentLabel = null; }
@@ -146,11 +199,9 @@
       });
       currentPolyline.setMap(map);
 
-      // 동적 라벨 추적을 위해 현재 경로/이름 저장
       activeRoutePath = path;
       activeRouteName = entry.name;
 
-      // 라벨 생성(초기 위치는 idle 로직으로 곧바로 갱신됨)
       currentLabel = new kakao.maps.CustomOverlay({
         position: path[Math.floor(path.length / 2)],
         content: '<div class="highway-label">' + entry.name + '</div>',
@@ -159,11 +210,9 @@
       });
       currentLabel.setMap(map);
 
-      updateLabelPosition();   // 즉시 한 번 화면 기준으로 재배치
+      updateLabelPosition();
     }
 
-    /* [동적 라벨] 현재 화면(bounds) 안에 보이는 노선 좌표 중
-       화면 중심에 가장 가까운 점으로 라벨을 이동. 화면 밖이면 숨김. */
     function updateLabelPosition() {
       if (!currentLabel || !activeRoutePath || !activeRoutePath.length) return;
 
@@ -174,30 +223,32 @@
       var best = null, bestDist = Infinity;
       for (var i = 0; i < activeRoutePath.length; i++) {
         var pt = activeRoutePath[i];
-        if (!bounds.contain(pt)) continue;   // 화면 밖 좌표는 제외
+        if (!bounds.contain(pt)) continue;
         var dLat = pt.getLat() - cLat;
         var dLng = pt.getLng() - cLng;
         var dist = dLat * dLat + dLng * dLng;
         if (dist < bestDist) { bestDist = dist; best = pt; }
       }
 
-      var labelEl = currentLabel.getContent();
       if (best) {
         currentLabel.setPosition(best);
-        currentLabel.setMap(map);   // 다시 표시
+        currentLabel.setMap(map);
       } else {
-        // 노선이 현재 화면에 하나도 안 보이면 라벨 숨김
         currentLabel.setMap(null);
       }
     }
 
+    /* ===== 강조/흐림 처리: DOM opacity·zIndex 직접 제어 ===== */
     function highlightMarkers(highway) {
       var target = normalize(highway);
       allMarkers.forEach(function (item) {
+        var el = item.el;
         if (normalize(item.point.highway) === target) {
-          item.marker.setOpacity(1.0); item.marker.setZIndex(10);
+          el.classList.remove('is-dim');
+          el.style.zIndex = 10;
         } else {
-          item.marker.setOpacity(0.3); item.marker.setZIndex(1);
+          el.classList.add('is-dim');
+          el.style.zIndex = 1;
         }
       });
     }
@@ -206,7 +257,8 @@
       clearRoute();
       infowindow.close();
       allMarkers.forEach(function (item) {
-        item.marker.setOpacity(1.0); item.marker.setZIndex(2);
+        item.el.classList.remove('is-dim');
+        item.el.style.zIndex = 2;
       });
       log('↺ 전체 초기화');
     }
@@ -217,9 +269,10 @@
       highlightMarkers(p.highway);
     }
 
-    function activate(marker, p, content) {
+    function activate(pos, p, content) {
       infowindow.setContent(content);
-      infowindow.open(map, marker);
+      infowindow.setPosition(pos);
+      infowindow.open(map);
       selectHighway(p);
     }
 
@@ -233,34 +286,47 @@
 
       points.forEach(function (p) {
         var pos = new kakao.maps.LatLng(p.lat, p.lng);
-        // 브랜드별 커스텀 마커 이미지 적용
-        var marker = new kakao.maps.Marker({
-          position: pos,
-          map: map,
-          image: getMarkerImage(p.brand)
-        });
-        allMarkers.push({ marker: marker, point: p });
         var content = buildContent(p);
 
-        kakao.maps.event.addListener(marker, 'mouseover', function () {
-          infowindow.setContent(content); infowindow.open(map, marker);
+        // ---- HTML 핀 DOM 생성 ----
+        var pinEl = createPinElement(p);
+        pinEl.style.zIndex = 2;
+
+        // ---- CustomOverlay로 지도에 얹기 ----
+        var overlay = new kakao.maps.CustomOverlay({
+          position: pos,
+          content: pinEl,
+          xAnchor: 0.5,
+          yAnchor: 1,
+          clickable: true
         });
-        kakao.maps.event.addListener(marker, 'mouseout', function () {
+        overlay.setMap(map);
+
+        // 오버레이 위에서의 제스처가 지도 드래그로 새어나가지 않도록 방지
+        kakao.maps.event.preventMap(pinEl);
+
+        allMarkers.push({ overlay: overlay, el: pinEl, point: p });
+
+        // ---- 기존과 동일한 이벤트: 오버레이 DOM에 직접 부착 ----
+        pinEl.addEventListener('mouseover', function () {
+          infowindow.setContent(content);
+          infowindow.setPosition(pos);
+          infowindow.open(map);
+        });
+        pinEl.addEventListener('mouseout', function () {
           infowindow.close();
         });
-        kakao.maps.event.addListener(marker, 'click', function () {
+        pinEl.addEventListener('click', function () {
           log('🖱 marker click: ' + p.name);
-          activate(marker, p, content);
+          activate(pos, p, content);
         });
-        kakao.maps.event.addListener(marker, 'mouseup', function () {
+        pinEl.addEventListener('mouseup', function () {
           log('🖱 marker mouseup: ' + p.name);
-          activate(marker, p, content);
+          activate(pos, p, content);
         });
       });
 
       document.getElementById('resetBtn').addEventListener('click', resetAll);
-
-      // 지도가 멈출 때마다(이동/줌 종료) 라벨 위치 재계산 → 화면을 따라오게
       kakao.maps.event.addListener(map, 'idle', updateLabelPosition);
 
       if (query) {
@@ -270,9 +336,10 @@
           if (allMarkers[i].point.name.toLowerCase().indexOf(nq) !== -1) { hit = allMarkers[i]; break; }
         }
         if (hit) {
+          var hitPos = hit.overlay.getPosition();
           map.setLevel(6);
-          map.panTo(hit.marker.getPosition());
-          activate(hit.marker, hit.point, buildContent(hit.point));
+          map.panTo(hitPos);
+          activate(hitPos, hit.point, buildContent(hit.point));
         }
       }
     }
