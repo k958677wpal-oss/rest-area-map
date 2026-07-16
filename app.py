@@ -3,6 +3,9 @@ import pandas as pd
 import gspread
 import json
 from datetime import datetime, timedelta
+import streamlit.components.v1 as components 
+import os
+import time
 
 # --- 페이지 기본 설정 ---
 st.set_page_config(page_title="전국 휴게소 통합 관리", layout="wide")
@@ -51,7 +54,7 @@ if not st.session_state['logged_in']:
         else:
             st.error("사번 또는 비밀번호가 일치하지 않습니다.")
 
-# --- 3. 로그인 성공 후 메인 대시보드 화면 ---
+# --- 3. 메인 대시보드 화면 (담당자님 카카오맵 코드 적용!) ---
 else:
     st.title("🛣️ 전국 휴게소 통합 관리 대시보드")
     
@@ -61,8 +64,7 @@ else:
         
     st.divider()
 
-    # 모바일 최적화를 위해 탭 분리
-    tab1, tab2 = st.tabs(["🗺️ 휴게소 지도 보기", "📊 상세 데이터 및 필터"])
+    tab1, tab2 = st.tabs(["🗺️ 카카오맵 지도 보기", "📊 상세 데이터 및 필터"])
     
     with tab1:
         st.subheader("📍 휴게소 지도 검색")
@@ -82,23 +84,110 @@ else:
             map_df = df
             
         if '위도' in map_df.columns and '경도' in map_df.columns:
-            # 안전장치: 결측치 제거 및 숫자로 변환
-            safe_df = map_df.dropna(subset=['위도', '경도']).copy()
-            safe_df['위도'] = pd.to_numeric(safe_df['위도'], errors='coerce')
-            safe_df['경도'] = pd.to_numeric(safe_df['경도'], errors='coerce')
-            safe_df = safe_df.dropna(subset=['위도', '경도'])
+            # 1. 정식 HTML 파일을 저장할 폴더 생성
+            os.makedirs("static", exist_ok=True)
             
-            # [핵심] 대한민국 좌표만 남겨서 외국 지도가 나오는 것을 원천 차단
-            safe_df = safe_df[(safe_df['위도'] > 32.0) & (safe_df['위도'] < 39.0) & 
-                              (safe_df['경도'] > 124.0) & (safe_df['경도'] < 132.0)]
+            # 2. 담당자님이 작성하셨던 마커(핀) 데이터 생성 로직 그대로 적용
+            markers_js = ""
+            for index, row in map_df.iterrows():
+                name = row.get('휴게소명', '이름없음')
+                lat = row.get('위도', 0)
+                lng = row.get('경도', 0)
+                brand = row.get('브랜드', '')
+                manager = row.get('담당자', '')
+                progress = row.get('진척률', '')
+                
+                try:
+                    lat, lng = float(lat), float(lng)
+                    if pd.isna(lat) or pd.isna(lng): continue
+                except:
+                    continue
+                
+                markers_js += f"""
+                {{
+                    title: '{name}', 
+                    brand: '{brand}',
+                    manager: '{manager}',
+                    progress: '{progress}',
+                    latlng: new kakao.maps.LatLng({lat}, {lng})
+                }},
+                """
             
-            if not safe_df.empty:
-                # 어제 완벽하게 작동했던 바로 그 지도 명령어입니다!
-                st.map(safe_df, latitude='위도', longitude='경도')
-            else:
-                st.warning("선택하신 휴게소의 정확한 좌표(한국 내 위치) 데이터가 엑셀에 없습니다.")
+            center_lat = float(map_df['위도'].mean()) if not pd.isna(map_df['위도'].mean()) else 36.5
+            center_lon = float(map_df['경도'].mean()) if not pd.isna(map_df['경도'].mean()) else 127.5
+            zoom_level = 4 if search_name != "전체 보기" else 13
+            
+            try:
+                kakao_key = st.secrets["kakao_key"]
+            except KeyError:
+                st.error("⚠️ 카카오 키를 찾을 수 없습니다.")
+                st.stop()
+
+            # 3. 담당자님의 완벽한 HTML 구조 + 정보창(말풍선) 코드 반영
+            html_content = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="utf-8">
+                <style>
+                    html, body {{width:100%; height:100%; margin:0; padding:0;}} 
+                    #map {{width:100%; height:450px; border-radius:10px;}}
+                </style>
+            </head>
+            <body>
+            <div id="map"></div>
+            <script type="text/javascript" src="//dapi.kakao.com/v2/maps/sdk.js?appkey={kakao_key}"></script>
+            <script>
+            var mapContainer = document.getElementById('map');
+            var mapOption = {{
+                center: new kakao.maps.LatLng({center_lat}, {center_lon}),
+                level: {zoom_level}
+            }};
+            var map = new kakao.maps.Map(mapContainer, mapOption);
+            
+            var positions = [{markers_js}];
+            
+            for (var i = 0; i < positions.length; i ++) {{
+                var marker = new kakao.maps.Marker({{
+                    map: map,
+                    position: positions[i].latlng,
+                    title : positions[i].title,
+                }});
+                
+                // 마커 마우스오버 정보창 (담당자님 코드 완벽 적용)
+                var infowindow = new kakao.maps.InfoWindow({{
+                    content: '<div style="padding:10px;font-size:12px;line-height:1.5;min-width:150px;">' + 
+                             '<b>' + positions[i].title + '</b><br>' + 
+                             '브랜드: ' + positions[i].brand + '<br>' + 
+                             '담당자: ' + positions[i].manager + '<br>' + 
+                             '진척률: ' + positions[i].progress + '</div>'
+                }});
+                
+                kakao.maps.event.addListener(marker, 'mouseover', makeOverListener(map, marker, infowindow));
+                kakao.maps.event.addListener(marker, 'mouseout', makeOutListener(infowindow));
+            }}
+            
+            function makeOverListener(map, marker, infowindow) {{
+                return function() {{ infowindow.open(map, marker); }};
+            }}
+            function makeOutListener(infowindow) {{
+                return function() {{ infowindow.close(); }};
+            }}
+            </script>
+            </body>
+            </html>
+            """
+            
+            # 4. 가짜 도화지가 아닌 '진짜 HTML 파일'을 스트림릿 서버에 저장
+            with open("static/map.html", "w", encoding="utf-8") as f:
+                f.write(html_content)
+            
+            # 5. 저장된 진짜 HTML 파일을 정식 주소로 불러오기 (카카오 차단 완벽 우회!)
+            # 브라우저가 새 데이터를 인식하도록 뒤에 시간(?t=...)을 붙입니다.
+            components.iframe(f"/app/static/map.html?t={time.time()}", height=470)
+            
         else:
-            st.info("💡 엑셀(구글 시트)에 '위도'와 '경도' 컬럼이 있어야 지도가 표시됩니다.")
+            st.info("💡 엑셀에 '위도'와 '경도' 컬럼이 있어야 지도가 표시됩니다.")
             
     with tab2:
         st.subheader("📋 휴게소 통합 데이터")
