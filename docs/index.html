@@ -14,20 +14,17 @@
   <script>
     /* =========================================================
        [1] 고속도로 전체 노선 좌표 (미리 정의하는 상수)
-       - key: app.py가 넘기는 highway 값과 "정확히 동일"해야 함
-       - value: 노선을 따라 찍은 [위도, 경도] 좌표 배열
-       - 좌표 얻는 법: 카카오맵/구글맵에서 도로를 따라 우클릭 → 좌표 확인,
-         시작·끝·주요 굴곡점(IC/JC)을 순서대로 나열
        ========================================================= */
     var HIGHWAY_ROUTES = {
-      "평택제천고속도로": [
-        [36.9925, 127.1128],
-        [36.9990, 127.2500],
-        [37.0050, 127.4200],
-        [37.0400, 127.6300],
-        [37.1000, 127.8500],
-        [37.1400, 128.1900]
-        // ... 실제 노선을 따라 좌표를 순서대로 추가
+      "평택영월고속도로": [
+        [37.04865840817568, 126.91955476593384],
+        [37.04607817131007, 126.94572715718608],
+        [37.0313455713912, 126.97158756314981],
+        [37.0249688329813, 127.01096844170729],
+        [37.02561344138778, 127.03331017977634],
+        [37.03490397784772, 127.1081700982303],
+        [37.03412411628573, 127.1603202617985],
+        [36.97484657484367, 127.31544979850715]
       ],
       "중부내륙고속도로": [
         [35.1000, 128.4500],
@@ -35,15 +32,28 @@
         [36.0000, 128.0000],
         [36.6000, 127.9000],
         [37.2000, 127.8000]
-        // ...
       ]
-      // 필요한 고속도로를 계속 추가
     };
 
     var map;
-    var currentPolyline = null;   // 현재 강조된 노선
-    var infowindow = null;        // 정보창 공유
-    var allMarkers = [];          // {marker, point} 전체 목록
+    var currentPolyline = null;
+    var infowindow = null;
+    var allMarkers = [];
+
+    // [핵심] 고정 타이머 대신, "마지막 마커 상호작용 시각"을 기록해
+    // 그 시각으로부터 SUPPRESS_WINDOW_MS 이내의 map click은 무시합니다.
+    // 모바일 탭 지연(탭→클릭 합성 지연)이 기기·브라우저마다 달라
+    // 고정 타이머보다 이 방식이 훨씬 안정적입니다.
+    var lastMarkerInteractionAt = 0;
+    var SUPPRESS_WINDOW_MS = 600;
+
+    function markMarkerInteraction() {
+      lastMarkerInteractionAt = Date.now();
+    }
+
+    function isWithinSuppressWindow() {
+      return (Date.now() - lastMarkerInteractionAt) < SUPPRESS_WINDOW_MS;
+    }
 
     function buildContent(p) {
       // 순서: 휴게소명 → 브랜드 → 운영사 → 연매출액 → 계약기간 → 담당자
@@ -57,7 +67,6 @@
              '</div>';
     }
 
-    /* [2] 미리 정의된 노선 Polyline 표시 */
     function drawRoute(highway) {
       if (currentPolyline) {
         currentPolyline.setMap(null);
@@ -81,20 +90,18 @@
       currentPolyline.setMap(map);
     }
 
-    /* [3] 같은 고속도로 휴게소만 강조, 나머지는 흐리게 */
     function highlightMarkers(highway) {
       allMarkers.forEach(function (item) {
         if (item.point.highway === highway) {
-          item.marker.setOpacity(1.0);   // 해당 노선 휴게소: 선명하게
+          item.marker.setOpacity(1.0);
           item.marker.setZIndex(10);
         } else {
-          item.marker.setOpacity(0.25);  // 다른 노선: 흐리게
+          item.marker.setOpacity(0.25);
           item.marker.setZIndex(1);
         }
       });
     }
 
-    /* 강조 초기화(모든 마커 원상복구) */
     function resetMarkers() {
       allMarkers.forEach(function (item) {
         item.marker.setOpacity(1.0);
@@ -105,6 +112,14 @@
     function selectHighway(p) {
       drawRoute(p.highway);
       highlightMarkers(p.highway);
+    }
+
+    // 마커 클릭/터치 시 공통으로 실행되는 핸들러
+    function handleMarkerActivate(marker, p, content) {
+      markMarkerInteraction();          // "방금 마커와 상호작용했다" 기록
+      infowindow.setContent(content);
+      infowindow.open(map, marker);
+      selectHighway(p);
     }
 
     function initMap(points, query) {
@@ -123,26 +138,43 @@
 
         var content = buildContent(p);
 
-        function openInfo() {
+        // PC: 마우스 오버로 정보 미리보기
+        kakao.maps.event.addListener(marker, 'mouseover', function () {
           infowindow.setContent(content);
           infowindow.open(map, marker);
-        }
-
-        // PC: 마우스 오버로 정보 미리보기
-        kakao.maps.event.addListener(marker, 'mouseover', openInfo);
+        });
         kakao.maps.event.addListener(marker, 'mouseout', function () {
           infowindow.close();
         });
 
-        // 클릭(모바일 터치 포함): 정보창 + 노선 강조 + 소속 휴게소 강조
-        kakao.maps.event.addListener(marker, 'click', function () {
-          openInfo();
-          selectHighway(p);
+        // 클릭(PC 클릭 + 모바일 탭이 합성 click으로 들어오는 경우)
+        kakao.maps.event.addListener(marker, 'click', function (mouseEvent) {
+          // 이벤트 객체에 stopPropagation이 있으면 방어적으로 호출
+          // (카카오맵 SDK 버전에 따라 존재하지 않을 수 있어 안전하게 체크)
+          if (mouseEvent && typeof mouseEvent.stopPropagation === 'function') {
+            mouseEvent.stopPropagation();
+          }
+          handleMarkerActivate(marker, p, content);
         });
+
+        // 일부 모바일 브라우저 대응: touchstart도 시도
+        // (Marker가 공식 지원하는 이벤트는 아니므로 실패해도 무해하게 무시)
+        try {
+          kakao.maps.event.addListener(marker, 'touchstart', function (mouseEvent) {
+            if (mouseEvent && typeof mouseEvent.stopPropagation === 'function') {
+              mouseEvent.stopPropagation();
+            }
+            handleMarkerActivate(marker, p, content);
+          });
+        } catch (e) {
+          // touchstart 리스너 등록이 지원되지 않는 환경 - 무시
+        }
       });
 
       // 지도 빈 곳 클릭 시 강조 해제
+      // 단, 방금 마커를 클릭/터치한 여파로 발생한 map click이면 무시
       kakao.maps.event.addListener(map, 'click', function () {
+        if (isWithinSuppressWindow()) return;
         infowindow.close();
         if (currentPolyline) { currentPolyline.setMap(null); currentPolyline = null; }
         resetMarkers();
@@ -159,6 +191,7 @@
           }
         }
         if (hit) {
+          markMarkerInteraction();
           map.setLevel(6);
           map.panTo(hit.marker.getPosition());
           infowindow.setContent(buildContent(hit.point));
@@ -168,7 +201,6 @@
       }
     }
 
-    // SDK 로드 완료 후에만 지도 생성 (LatLng is not a constructor 방지)
     kakao.maps.load(function () {
       var params = new URLSearchParams(window.location.search);
       var raw = params.get('data');
