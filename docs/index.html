@@ -12,9 +12,38 @@
 
   <script src="//dapi.kakao.com/v2/maps/sdk.js?appkey=fbd1e96068b754f1939c7e11a2790ce1&autoload=false"></script>
   <script>
+    /* =========================================================
+       [1] 고속도로 전체 노선 좌표 (미리 정의하는 상수)
+       - key: app.py가 넘기는 highway 값과 "정확히 동일"해야 함
+       - value: 노선을 따라 찍은 [위도, 경도] 좌표 배열
+       - 좌표 얻는 법: 카카오맵/구글맵에서 도로를 따라 우클릭 → 좌표 확인,
+         시작·끝·주요 굴곡점(IC/JC)을 순서대로 나열
+       ========================================================= */
+    var HIGHWAY_ROUTES = {
+      "평택제천고속도로": [
+        [36.9925, 127.1128],
+        [36.9990, 127.2500],
+        [37.0050, 127.4200],
+        [37.0400, 127.6300],
+        [37.1000, 127.8500],
+        [37.1400, 128.1900]
+        // ... 실제 노선을 따라 좌표를 순서대로 추가
+      ],
+      "중부내륙고속도로": [
+        [35.1000, 128.4500],
+        [35.5000, 128.2000],
+        [36.0000, 128.0000],
+        [36.6000, 127.9000],
+        [37.2000, 127.8000]
+        // ...
+      ]
+      // 필요한 고속도로를 계속 추가
+    };
+
     var map;
     var currentPolyline = null;   // 현재 강조된 노선
-    var infowindow = null;        // 정보창 하나를 공유
+    var infowindow = null;        // 정보창 공유
+    var allMarkers = [];          // {marker, point} 전체 목록
 
     function buildContent(p) {
       // 순서: 휴게소명 → 브랜드 → 운영사 → 연매출액 → 계약기간 → 담당자
@@ -28,33 +57,54 @@
              '</div>';
     }
 
-    // 고속도로명별로 휴게소를 묶어 노선(Polyline) 강조
-    function highlightHighway(highway, groups) {
+    /* [2] 미리 정의된 노선 Polyline 표시 */
+    function drawRoute(highway) {
       if (currentPolyline) {
-        currentPolyline.setMap(null);   // 이전 노선 제거
+        currentPolyline.setMap(null);
         currentPolyline = null;
       }
-      if (!highway || !groups[highway]) return;
-
-      var group = groups[highway].slice();
-      // 노선순서(seq)가 있으면 그것으로, 없으면 위도 기준 정렬
-      group.sort(function (a, b) {
-        if (a.seq != null && b.seq != null) return a.seq - b.seq;
-        return a.lat - b.lat;
+      var route = HIGHWAY_ROUTES[highway];
+      if (!route || !route.length) {
+        console.warn('정의된 노선 좌표가 없습니다: ' + highway);
+        return;
+      }
+      var path = route.map(function (c) {
+        return new kakao.maps.LatLng(c[0], c[1]);
       });
-
-      var path = group.map(function (p) {
-        return new kakao.maps.LatLng(p.lat, p.lng);
-      });
-
       currentPolyline = new kakao.maps.Polyline({
         path: path,
-        strokeWeight: 6,
+        strokeWeight: 7,
         strokeColor: '#FF3B30',
-        strokeOpacity: 0.9,
+        strokeOpacity: 0.95,
         strokeStyle: 'solid'
       });
       currentPolyline.setMap(map);
+    }
+
+    /* [3] 같은 고속도로 휴게소만 강조, 나머지는 흐리게 */
+    function highlightMarkers(highway) {
+      allMarkers.forEach(function (item) {
+        if (item.point.highway === highway) {
+          item.marker.setOpacity(1.0);   // 해당 노선 휴게소: 선명하게
+          item.marker.setZIndex(10);
+        } else {
+          item.marker.setOpacity(0.25);  // 다른 노선: 흐리게
+          item.marker.setZIndex(1);
+        }
+      });
+    }
+
+    /* 강조 초기화(모든 마커 원상복구) */
+    function resetMarkers() {
+      allMarkers.forEach(function (item) {
+        item.marker.setOpacity(1.0);
+        item.marker.setZIndex(2);
+      });
+    }
+
+    function selectHighway(p) {
+      drawRoute(p.highway);
+      highlightMarkers(p.highway);
     }
 
     function initMap(points, query) {
@@ -64,23 +114,12 @@
         : new kakao.maps.LatLng(36.5, 127.8);
 
       map = new kakao.maps.Map(container, { center: center, level: 8 });
-      infowindow = new kakao.maps.InfoWindow({ zIndex: 1 });
-
-      // 고속도로명별 그룹 구성
-      var groups = {};
-      points.forEach(function (p) {
-        if (p.highway) {
-          if (!groups[p.highway]) groups[p.highway] = [];
-          groups[p.highway].push(p);
-        }
-      });
-
-      var markerByName = {};
+      infowindow = new kakao.maps.InfoWindow({ zIndex: 20 });
 
       points.forEach(function (p) {
         var pos = new kakao.maps.LatLng(p.lat, p.lng);
         var marker = new kakao.maps.Marker({ position: pos, map: map });
-        markerByName[p.name] = { marker: marker, point: p };
+        allMarkers.push({ marker: marker, point: p });
 
         var content = buildContent(p);
 
@@ -89,36 +128,42 @@
           infowindow.open(map, marker);
         }
 
-        // PC: 마우스 오버 시 열고 나갈 때 닫기
+        // PC: 마우스 오버로 정보 미리보기
         kakao.maps.event.addListener(marker, 'mouseover', openInfo);
         kakao.maps.event.addListener(marker, 'mouseout', function () {
           infowindow.close();
         });
 
-        // 클릭(모바일 터치 포함): 정보창 열고 + 노선 강조
+        // 클릭(모바일 터치 포함): 정보창 + 노선 강조 + 소속 휴게소 강조
         kakao.maps.event.addListener(marker, 'click', function () {
           openInfo();
-          highlightHighway(p.highway, groups);
+          selectHighway(p);
         });
       });
 
-      // 검색어(q) 처리: 부분 일치 휴게소로 이동 + 정보창 자동 열기
+      // 지도 빈 곳 클릭 시 강조 해제
+      kakao.maps.event.addListener(map, 'click', function () {
+        infowindow.close();
+        if (currentPolyline) { currentPolyline.setMap(null); currentPolyline = null; }
+        resetMarkers();
+      });
+
+      // 검색어(q): 부분 일치 휴게소로 이동 + 정보창 + 노선 강조
       if (query) {
         var q = query.toLowerCase();
         var hit = null;
-        for (var name in markerByName) {
-          if (name.toLowerCase().indexOf(q) !== -1) {
-            hit = markerByName[name];
+        for (var i = 0; i < allMarkers.length; i++) {
+          if (allMarkers[i].point.name.toLowerCase().indexOf(q) !== -1) {
+            hit = allMarkers[i];
             break;
           }
         }
         if (hit) {
-          var hitPos = hit.marker.getPosition();
-          map.setLevel(5);
-          map.panTo(hitPos);
+          map.setLevel(6);
+          map.panTo(hit.marker.getPosition());
           infowindow.setContent(buildContent(hit.point));
           infowindow.open(map, hit.marker);
-          highlightHighway(hit.point.highway, groups);
+          selectHighway(hit.point);
         }
       }
     }
