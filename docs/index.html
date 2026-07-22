@@ -19,35 +19,39 @@
     #showAllRoutesBtn { background: #2F5597; }
 
     /* =========================================================
-       [신규] 브랜드 점유율 대시보드 (좌측 상단 플로팅 카드)
+       [개선] 브랜드 점유율 대시보드 (좌측 상단 플로팅 카드)
+       - width:max-content 로 내용물 크기에 딱 맞게 (PC 휑한 여백 제거)
        ========================================================= */
     #brandStats {
       position: absolute; top: 10px; left: 10px; z-index: 100;
+      width: max-content;              /* 내용물에 딱 맞는 콤팩트한 폭 */
+      max-width: calc(100% - 20px);    /* 화면 밖으로 삐져나가지 않도록 상한 */
       background: rgba(255,255,255,0.92);
       border-radius: 10px;
       box-shadow: 0 2px 10px rgba(0,0,0,.25);
       overflow: hidden;
       font-size: 12px;
-      max-width: calc(100% - 20px);
     }
     /* 헤더(제목 + 노선명 + 토글 화살표) */
     #brandStats .bs-header {
       display: flex; align-items: center; gap: 8px;
       padding: 6px 10px;
       background: rgba(0,0,0,0.04);
-      cursor: default;
     }
     #brandStats .bs-titlebox { display: flex; flex-direction: column; }
     #brandStats .bs-title { font-weight: 700; color: #333; white-space: nowrap; }
     #brandStats .bs-route { font-size: 11px; color: #2F5597; font-weight: 600; white-space: nowrap; }
+
+    /* [개선] 토글 버튼: PC/모바일 공통 항상 표시 */
     #brandStats .bs-toggle {
-      display: none;                 /* PC에서는 숨김 (모바일에서만 표시) */
+      display: block;
       margin-left: auto;
       border: none; background: transparent;
-      font-size: 13px; color: #555; cursor: pointer; padding: 2px 4px;
+      font-size: 13px; color: #555; cursor: pointer; padding: 2px 6px;
+      line-height: 1;
     }
 
-    /* 본문(브랜드 셀들) - PC: 가로 한 줄 */
+    /* 본문(브랜드 셀들) - PC: 가로 1줄 타이트 */
     #brandStats .bs-body {
       display: flex;
       align-items: stretch;
@@ -56,8 +60,9 @@
       display: flex; flex-direction: column; align-items: center; justify-content: center;
       padding: 6px 10px;
       border-left: 1px solid rgba(0,0,0,0.08);
-      min-width: 56px;
+      min-width: 54px;
     }
+    #brandStats .bs-cell:first-child { border-left: none; }
     #brandStats .bs-name { font-weight: 700; margin-bottom: 2px; white-space: nowrap; }
     #brandStats .bs-value { color: #333; white-space: nowrap; }
 
@@ -68,17 +73,14 @@
     #brandStats .bs-seven .bs-name { color: #FF6C00; }
     #brandStats .bs-etc .bs-name { color: #888; }
 
+    /* [개선] 접힘 상태: 본문 숨김 (PC/모바일 공통) */
+    #brandStats.is-collapsed .bs-body { display: none; }
+
     /* =========================================================
-       [반응형] 모바일 (768px 이하): 토글 노출 + 기본 접힘 + 타일 그리드
+       [반응형] 모바일 (768px 이하): 펼쳤을 때 3열 타일 그리드(위3·아래2)
        ========================================================= */
     @media (max-width: 768px) {
       #brandStats { font-size: 11px; }
-      #brandStats .bs-toggle { display: block; }
-
-      /* 접힘 상태: 본문 숨김 (기본값) */
-      #brandStats.is-collapsed .bs-body { display: none; }
-
-      /* 펼침 상태: 타일형 그리드(3열 → 5개가 2줄로) */
       #brandStats .bs-body {
         display: grid;
         grid-template-columns: repeat(3, 1fr);
@@ -218,7 +220,7 @@
 <body>
   <div id="map"></div>
 
-  <!-- [신규] 브랜드 점유율 대시보드 (JS가 내용을 채움) -->
+  <!-- 브랜드 점유율 대시보드 (기본 접힘 상태) -->
   <div id="brandStats" class="is-collapsed"></div>
 
   <div class="top-right-btns">
@@ -255,10 +257,6 @@
       return BRAND_COLORS["기타"];
     }
 
-    // =========================================================
-    // [신규] 브랜드 점유율 대시보드 설정
-    // 표시 순서: GS25 | CU | 이마트24 | 7-11 | 매점
-    // =========================================================
     var BRAND_STAT_ORDER = [
       { key: "GS25",   label: "GS25",   cls: "bs-GS25" },
       { key: "CU",     label: "CU",     cls: "bs-CU" },
@@ -273,15 +271,12 @@
       if (b === "CU") return "CU";
       if (b === "이마트24") return "이마트24";
       if (b === "세븐일레븐" || b === "7-11") return "7-11";
-      return "매점";  // 기타 및 미매칭 브랜드는 모두 '매점'으로 취합
+      return "매점";
     }
 
-    // 현재 접힘/펼침 상태를 유지하기 위한 변수 (표를 다시 그릴 때 상태 보존)
+    // 접힘/펼침 상태 (PC/모바일 공통). 기본은 접힘.
     var brandStatsCollapsed = true;
 
-    // =========================================================
-    // [신규] 대시보드 갱신: markers 집계 + routeLabel(노선명) 표시
-    // =========================================================
     function updateBrandStats(markers, routeLabel) {
       var counts = { "GS25": 0, "CU": 0, "이마트24": 0, "7-11": 0, "매점": 0 };
       var total = 0;
@@ -294,14 +289,13 @@
       var cellsHtml = "";
       BRAND_STAT_ORDER.forEach(function (b) {
         var cnt = counts[b.key];
-        var pct = (total > 0) ? Math.round((cnt / total) * 100) : 0;  // 총합 0이면 0% (NaN 방지)
+        var pct = (total > 0) ? Math.round((cnt / total) * 100) : 0;
         cellsHtml += '<div class="bs-cell ' + b.cls + '">' +
                        '<span class="bs-name">' + b.label + '</span>' +
                        '<span class="bs-value">' + cnt + '(' + pct + '%)</span>' +
                      '</div>';
       });
 
-      // 화살표는 현재 접힘 상태에 따라 방향 결정 (모바일에서만 보임)
       var arrow = brandStatsCollapsed ? '▼' : '▲';
 
       var html =
@@ -317,14 +311,12 @@
       var container = document.getElementById('brandStats');
       container.innerHTML = html;
 
-      // 접힘 상태 클래스 반영
       if (brandStatsCollapsed) {
         container.classList.add('is-collapsed');
       } else {
         container.classList.remove('is-collapsed');
       }
 
-      // 토글 버튼 이벤트 연결 (innerHTML로 새로 그려지므로 매번 다시 연결)
       var toggleBtn = document.getElementById('bsToggle');
       if (toggleBtn) {
         toggleBtn.addEventListener('click', function () {
@@ -624,7 +616,6 @@
       var group = allMarkers.filter(function (item) {
         return normalize(item.point.highway) === target;
       });
-      // 고속도로명이 있으면 그 노선 기준, 없으면 전체 기준으로 폴백
       if (group.length && target) {
         updateBrandStats(group, p.highway);
       } else {
@@ -723,7 +714,6 @@
 
       applyMarkerScale();
 
-      // 초기 로드: 전체 마커 기준 + 노선명 (전체노선)
       updateBrandStats(allMarkers, '전체노선');
 
       if (query) {
