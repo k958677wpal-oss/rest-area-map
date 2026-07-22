@@ -181,7 +181,8 @@
     }
 
     // [요청 1] 경부선 꼬리 구간 강제 정렬 순서 (이 순서대로 배열 맨 끝에 붙임)
-    var GYEONGBU_TAIL_ORDER = ['평사부산', '건천서울', '경주부산', '언양서울', '통도사부산', '양산서울'];
+    // '경산서울'을 맨 앞에 추가하여 꼬임 문제 해결
+    var GYEONGBU_TAIL_ORDER = ['경산서울', '평사부산', '건천서울', '경주부산', '언양서울', '통도사부산', '양산서울'];
 
     var SMALL_MARKER_ZOOM_LEVEL = 10;
 
@@ -552,7 +553,6 @@
           activate(pos, p, content);
         }, { passive: false });
 
-        // [요청 1(이전)] 호버 시 z-index 임시 상승 → 밀집 지역 가림 방지
         pinEl.addEventListener('mouseenter', function () {
           setMarkerZ(item, Z_HOVER, false);
         });
