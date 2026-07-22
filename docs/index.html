@@ -217,10 +217,24 @@
       }
     }
 
+    // =========================================================
+    // [신규] 제목 문자열 생성 헬퍼.
+    // - highway 값이 있으면 "휴게소명(고속도로명)" 형식
+    // - highway 값이 비어있거나 없으면 괄호 없이 "휴게소명"만 반환
+    // 팝업(buildContent)과 툴팁(buildTooltipContent)이 공통으로 사용합니다.
+    // =========================================================
+    function buildTitle(p) {
+      var hw = (p.highway == null ? "" : String(p.highway)).trim();
+      if (hw !== "") {
+        return p.name + '(' + hw + ')';
+      }
+      return p.name;
+    }
+
     function buildContent(p) {
       return '<div class="iw-wrap">' +
                '<span class="iw-close" onclick="closeInfoWindow()">×</span>' +
-               '<div class="iw-title">' + p.name + '</div>' +
+               '<div class="iw-title">' + buildTitle(p) + '</div>' +   // [변경] 휴게소명(고속도로명)
                '연매출액: ' + p.revenue + '<br>' +
                '브랜드: ' + p.brand + '<br>' +
                '운영사: ' + p.operator + '<br>' +
@@ -231,7 +245,7 @@
     }
 
     function buildTooltipContent(p) {
-      return '<b>' + p.name + '</b><br>' +
+      return '<b>' + buildTitle(p) + '</b><br>' +   // [변경] 휴게소명(고속도로명)
              '브랜드: ' + p.brand + '<br>' +
              '연매출액: ' + p.revenue;
     }
@@ -275,25 +289,12 @@
       allLabels = [];
     }
 
-    // 두 지점 사이의 직선 거리(제곱거리). 대소 비교용이라 제곱근은 생략.
     function squaredDistance(a, b) {
       var dLat = a.lat - b.lat;
       var dLng = a.lng - b.lng;
       return dLat * dLat + dLng * dLng;
     }
 
-    // =========================================================
-    // [핵심 교체] 최근접 이웃 + 최대거리 시작점(Max Distance Start)
-    //
-    // 이전 방식은 "가장 북쪽 점"을 시작점으로 고정했는데,
-    // 동서로 뻗은 노선(예: 남해선)에서는 가장 북쪽 점이 도로 '중간'에 있어
-    // 시작부터 좌우로 왔다갔다하는 핑퐁 현상이 생겼습니다.
-    //
-    // 해결: 그룹 내 모든 점 쌍의 거리를 비교해 "가장 멀리 떨어진 두 점"을 찾습니다.
-    // 이 두 점이 노선의 양쪽 끝이므로, 그중 하나를 시작점으로 삼으면
-    // 동서/남북 방향과 무관하게 항상 도로 끝에서부터 이어집니다.
-    // 이후 최근접 이웃으로 꼬리를 무는 로직은 동일합니다.
-    // =========================================================
     function computeSortedGroup(highway) {
       var target = normalize(highway);
 
