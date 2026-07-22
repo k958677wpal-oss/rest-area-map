@@ -30,7 +30,6 @@
       transition: opacity .2s ease;
     }
 
-    /* 마커 전체 컨테이너: 여기에는 더 이상 scale을 걸지 않습니다. */
     .marker-pin {
       position: relative;
       display: flex;
@@ -41,12 +40,6 @@
       transition: opacity .2s ease;
     }
 
-    /* =========================================================
-       [신규] 핀 그래픽(원+꼬리)만 감싸는 내부 래퍼.
-       축소(scale)는 오직 이 요소에만 적용됩니다.
-       transform-origin을 하단 중앙으로 두어, 축소해도 꼬리 끝(좌표 지점)은
-       움직이지 않고 그 자리를 기준으로 작아집니다.
-       ========================================================= */
     .pin-graphics {
       display: flex;
       flex-direction: column;
@@ -83,19 +76,11 @@
       pointer-events: none;
     }
     .marker-pin.is-dim { opacity: 0.3; }
-
-    /* [변경] 축소를 .marker-pin 전체가 아니라 내부의 .pin-graphics 에만 적용.
-       → 형제 요소인 툴팁(.pin-tooltip)은 축소의 영향을 전혀 받지 않습니다. */
     .marker-pin.is-small .pin-graphics { transform: scale(0.55); }
 
-    /* =========================================================
-       호버 툴팁: 핀의 자식이지만 .pin-graphics 바깥(형제)에 위치.
-       순수 CSS :hover 로만 표시되어 깜빡임이 없고,
-       핀 그래픽이 축소돼도 크기가 고정됩니다.
-       ========================================================= */
     .pin-tooltip {
       position: absolute;
-      bottom: 100%;              /* 핀 위쪽에 배치 */
+      bottom: 100%;
       left: 50%;
       transform: translateX(-50%);
       margin-bottom: 8px;
@@ -108,7 +93,7 @@
       white-space: nowrap;
       opacity: 0;
       visibility: hidden;
-      pointer-events: none;      /* 툴팁은 항상 마우스를 통과시킴 → 깜빡임 방지 */
+      pointer-events: none;
       transition: opacity .12s ease;
       z-index: 30;
     }
@@ -118,7 +103,6 @@
       visibility: visible;
     }
 
-    /* 클릭 시 뜨는 세부 정보창(카카오 InfoWindow) - 기존 그대로 유지 */
     .iw-wrap {
       pointer-events: none;
       position: relative;
@@ -156,25 +140,12 @@
   <div id="debugPanel"></div>
   <script src="//dapi.kakao.com/v2/maps/sdk.js?appkey=fbd1e96068b754f1939c7e11a2790ce1&autoload=false"></script>
   <script>
-    var HIGHWAY_ROUTES = {
-      "평택영월고속도로": [
-        [37.04865840817568, 126.91955476593384],
-        [37.04607817131007, 126.94572715718608],
-        [37.0313455713912, 126.97158756314981],
-        [37.0249688329813, 127.01096844170729],
-        [37.02561344138778, 127.03331017977634],
-        [37.03490397784772, 127.1081700982303],
-        [37.03412411628573, 127.1603202617985],
-        [36.97484657484367, 127.31544979850715]
-      ],
-      "중부내륙고속도로": [
-        [35.1000, 128.4500],
-        [35.5000, 128.2000],
-        [36.0000, 128.0000],
-        [36.6000, 127.9000],
-        [37.2000, 127.8000]
-      ]
-    };
+    // =========================================================
+    // [요청 2 반영] HIGHWAY_ROUTES 하드코딩 데이터를 완전히 삭제했습니다.
+    // 이제 노선은 데이터(구글 시트에서 넘어온 points)의 좌표를 이용해
+    // 클릭 시점에 동적으로 계산해서 그립니다.
+    // =========================================================
+
     var BRAND_IMAGES = {
       "GS25": "images/GS25.PNG",
       "CU": "images/CU.PNG",
@@ -188,7 +159,6 @@
       return BRAND_IMAGES["기타"];
     }
 
-    // 브랜드명 → 테두리/꼬리 색상 반환 (매칭 실패 시 '기타' 색상으로 폴백)
     var BRAND_COLORS = {
       "GS25": "#2770BF",
       "CU": "#710E82",
@@ -203,30 +173,48 @@
     }
 
     var SMALL_MARKER_ZOOM_LEVEL = 10;
+
+    // z-index 기본값 상수 (가독성을 위해 이름을 붙여둠)
+    var Z_BASE = 2;        // 아무 강조도 없는 기본 상태
+    var Z_HIGHLIGHT = 10;  // 노선 강조 시, 같은 고속도로 마커
+    var Z_DIM = 1;         // 노선 강조 시, 다른 고속도로 마커
+    var Z_HOVER = 9999;    // 마우스가 올라가 있는 동안 최상단
+
     var map, currentPolyline = null, currentLabel = null, infowindow = null, allMarkers = [];
     var activeRoutePath = null, activeRouteName = "";
     var DEBUG = false;
     var mapReady = false;
     var pendingMapData = null;
+
     window.closeInfoWindow = function () {
       if (infowindow) infowindow.close();
     };
+
     function log(msg) {
       if (!DEBUG) return;
       var el = document.getElementById('debugPanel');
       el.textContent += msg + "\n";
       el.scrollTop = el.scrollHeight;
     }
+
     function normalize(s) {
       return (s == null ? "" : String(s)).replace(/\s+/g, "").trim();
     }
-    var ROUTE_LOOKUP = {};
-    (function () {
-      for (var k in HIGHWAY_ROUTES) {
-        if (HIGHWAY_ROUTES.hasOwnProperty(k)) ROUTE_LOOKUP[normalize(k)] = { name: k, path: HIGHWAY_ROUTES[k] };
+
+    // =========================================================
+    // [요청 2] z-index를 실제로 적용하는 헬퍼.
+    // DOM 요소의 style.zIndex와 CustomOverlay.setZIndex를 항상 함께 갱신합니다.
+    // baseFlag가 true인 경우에만 item.baseZIndex(복귀할 기준값)를 갱신합니다.
+    // (마우스 호버로 인한 임시 상승은 baseZIndex를 건드리지 않습니다.)
+    // =========================================================
+    function setMarkerZ(item, z, isBaseChange) {
+      item.el.style.zIndex = z;
+      item.overlay.setZIndex(z);
+      if (isBaseChange) {
+        item.baseZIndex = z;
       }
-    })();
-    // 클릭 시 뜨는 세부 정보창 내용 (기존과 동일)
+    }
+
     function buildContent(p) {
       return '<div class="iw-wrap">' +
                '<span class="iw-close" onclick="closeInfoWindow()">×</span>' +
@@ -239,28 +227,27 @@
                '담당자: ' + p.manager +
              '</div>';
     }
-    // 호버 시 보여줄 간단 툴팁 내용
+
     function buildTooltipContent(p) {
       return '<b>' + p.name + '</b><br>' +
              '브랜드: ' + p.brand + '<br>' +
              '연매출액: ' + p.revenue;
     }
+
     function createPinElement(p) {
       var wrap = document.createElement('div');
       wrap.className = 'marker-pin';
 
-      // [핵심] 축소의 영향을 받지 않아야 하는 툴팁은 .pin-graphics '바깥'(형제)에 둡니다.
       var tooltip = document.createElement('div');
       tooltip.className = 'pin-tooltip';
       tooltip.innerHTML = buildTooltipContent(p);
 
-      // [신규] 핀 그래픽(원+꼬리)만 감싸는 래퍼. 축소는 이 요소에만 적용됩니다.
       var graphics = document.createElement('div');
       graphics.className = 'pin-graphics';
 
       var circle = document.createElement('div');
       circle.className = 'pin-circle';
-      circle.style.borderColor = resolveBrandColor(p.brand);   // 브랜드별 원 테두리 색상
+      circle.style.borderColor = resolveBrandColor(p.brand);
 
       var img = document.createElement('img');
       img.src = resolveBrandImage(p.brand);
@@ -269,31 +256,78 @@
 
       var tail = document.createElement('div');
       tail.className = 'pin-tail';
-      tail.style.borderTopColor = resolveBrandColor(p.brand);  // 브랜드별 꼬리 색상
+      tail.style.borderTopColor = resolveBrandColor(p.brand);
 
       graphics.appendChild(circle);
       graphics.appendChild(tail);
 
-      // 최종 구조: .marker-pin > [ .pin-tooltip(형제), .pin-graphics > (.pin-circle, .pin-tail) ]
       wrap.appendChild(tooltip);
       wrap.appendChild(graphics);
       return wrap;
     }
+
     function clearRoute() {
       if (currentPolyline) { currentPolyline.setMap(null); currentPolyline = null; }
       if (currentLabel) { currentLabel.setMap(null); currentLabel = null; }
       activeRoutePath = null;
       activeRouteName = "";
     }
+
+    // =========================================================
+    // [요청 2] 분산(variance)을 계산하는 헬퍼.
+    // 값들이 평균에서 얼마나 넓게 퍼져 있는지를 나타냅니다.
+    // =========================================================
+    function calcVariance(values) {
+      var n = values.length;
+      if (n === 0) return 0;
+      var mean = values.reduce(function (a, b) { return a + b; }, 0) / n;
+      var sumSq = values.reduce(function (a, b) { return a + (b - mean) * (b - mean); }, 0);
+      return sumSq / n;
+    }
+
+    // =========================================================
+    // [요청 2 핵심] 하드코딩된 좌표 대신, 같은 highway를 가진 마커들의
+    // 실제 좌표를 모아 동적으로 노선을 그립니다.
+    // =========================================================
     function drawRoute(highway) {
       clearRoute();
-      var entry = ROUTE_LOOKUP[normalize(highway)];
-      if (!entry) {
-        log('❌ 노선 좌표 없음: "' + highway + '"');
+
+      var target = normalize(highway);
+      if (!target) {
+        log('❌ 고속도로명이 비어있어 노선을 그릴 수 없습니다.');
         return;
       }
-      log('✅ 노선 그림: "' + highway + '" (' + entry.path.length + '개 좌표)');
-      var path = entry.path.map(function (c) { return new kakao.maps.LatLng(c[0], c[1]); });
+
+      // 같은 고속도로에 속한 마커들만 추출
+      var group = allMarkers.filter(function (item) {
+        return normalize(item.point.highway) === target;
+      });
+
+      if (group.length < 2) {
+        log('❌ "' + highway + '" 소속 휴게소가 2개 미만이라 노선을 그릴 수 없습니다. (' + group.length + '개)');
+        return;
+      }
+
+      // 지그재그 방지를 위한 지리적 정렬:
+      // 위도의 분산과 경도의 분산을 비교해, 더 넓게 퍼진 축을 기준으로 오름차순 정렬합니다.
+      var lats = group.map(function (item) { return item.point.lat; });
+      var lngs = group.map(function (item) { return item.point.lng; });
+      var latVar = calcVariance(lats);
+      var lngVar = calcVariance(lngs);
+
+      var sortKey = (latVar >= lngVar) ? 'lat' : 'lng';
+      log('📐 정렬 기준: ' + (sortKey === 'lat' ? '위도(남북으로 더 넓게 분포)' : '경도(동서로 더 넓게 분포)'));
+
+      group.sort(function (a, b) {
+        return a.point[sortKey] - b.point[sortKey];
+      });
+
+      log('✅ 노선 그림: "' + highway + '" (' + group.length + '개 좌표, 데이터 기반 자동 생성)');
+
+      var path = group.map(function (item) {
+        return new kakao.maps.LatLng(item.point.lat, item.point.lng);
+      });
+
       currentPolyline = new kakao.maps.Polyline({
         path: path,
         strokeWeight: 4,
@@ -302,22 +336,28 @@
         strokeStyle: 'solid'
       });
       currentPolyline.setMap(map);
+
       activeRoutePath = path;
-      activeRouteName = entry.name;
+      activeRouteName = highway;
+
       currentLabel = new kakao.maps.CustomOverlay({
         position: path[Math.floor(path.length / 2)],
-        content: '<div class="highway-label">' + entry.name + '</div>',
+        content: '<div class="highway-label">' + highway + '</div>',
         yAnchor: 1,
         zIndex: 15
       });
       currentLabel.setMap(map);
+
       updateLabelPosition();
     }
+
     function updateLabelPosition() {
       if (!currentLabel || !activeRoutePath || !activeRoutePath.length) return;
+
       var bounds = map.getBounds();
       var center = map.getCenter();
       var cLat = center.getLat(), cLng = center.getLng();
+
       var best = null, bestDist = Infinity;
       for (var i = 0; i < activeRoutePath.length; i++) {
         var pt = activeRoutePath[i];
@@ -327,6 +367,7 @@
         var dist = dLat * dLat + dLng * dLng;
         if (dist < bestDist) { bestDist = dist; best = pt; }
       }
+
       if (best) {
         currentLabel.setPosition(best);
         currentLabel.setMap(map);
@@ -334,39 +375,44 @@
         currentLabel.setMap(null);
       }
     }
+
+    // [요청 1] highlightMarkers/resetAll 도 baseZIndex를 함께 갱신하도록 수정
     function highlightMarkers(highway) {
       var target = normalize(highway);
       allMarkers.forEach(function (item) {
-        var el = item.el;
         if (normalize(item.point.highway) === target) {
-          el.classList.remove('is-dim');
-          el.style.zIndex = 10;
+          item.el.classList.remove('is-dim');
+          setMarkerZ(item, Z_HIGHLIGHT, true);   // 기준값도 10으로 갱신
         } else {
-          el.classList.add('is-dim');
-          el.style.zIndex = 1;
+          item.el.classList.add('is-dim');
+          setMarkerZ(item, Z_DIM, true);         // 기준값도 1로 갱신
         }
       });
     }
+
     function resetAll() {
       clearRoute();
       if (infowindow) infowindow.close();
       allMarkers.forEach(function (item) {
         item.el.classList.remove('is-dim');
-        item.el.style.zIndex = 2;
+        setMarkerZ(item, Z_BASE, true);          // 기준값을 다시 2로 복구
       });
       log('↺ 전체 초기화');
     }
+
     function selectHighway(p) {
       log('👉 selectHighway 실행: ' + p.name + ' / highway=' + p.highway);
       drawRoute(p.highway);
       highlightMarkers(p.highway);
     }
+
     function activate(pos, p, content) {
       infowindow.setContent(content);
       infowindow.setPosition(pos);
       infowindow.open(map);
       selectHighway(p);
     }
+
     function applyMarkerScale() {
       if (!map) return;
       var level = map.getLevel();
@@ -379,9 +425,11 @@
         }
       });
     }
+
     function initMap(points, query) {
       log('총 마커 수: ' + (points ? points.length : 0));
       var container = document.getElementById('map');
+
       if (!map) {
         var center = (points && points.length)
           ? new kakao.maps.LatLng(points[0].lat, points[0].lng)
@@ -396,22 +444,29 @@
         allMarkers = [];
         resetAll();
       }
+
       (points || []).forEach(function (p) {
         var pos = new kakao.maps.LatLng(p.lat, p.lng);
         var content = buildContent(p);
         var pinEl = createPinElement(p);
-        pinEl.style.zIndex = 2;
+
         var overlay = new kakao.maps.CustomOverlay({
           position: pos,
           content: pinEl,
           xAnchor: 0.5,
           yAnchor: 1,
-          clickable: true
+          clickable: true,
+          zIndex: Z_BASE
         });
         overlay.setMap(map);
+
         kakao.maps.event.preventMap(pinEl);
-        allMarkers.push({ overlay: overlay, el: pinEl, point: p });
-        // 호버 미리보기는 순수 CSS 툴팁(.pin-tooltip)이 전담 → 깜빡임 없음
+
+        // baseZIndex: 이 마커가 "평상시" 돌아가야 할 z-index 값을 기억해두는 필드
+        var item = { overlay: overlay, el: pinEl, point: p, baseZIndex: Z_BASE };
+        allMarkers.push(item);
+        setMarkerZ(item, Z_BASE, true);
+
         pinEl.addEventListener('click', function () {
           log('🖱 marker click: ' + p.name);
           activate(pos, p, content);
@@ -425,8 +480,24 @@
           log('📱 marker touchstart: ' + p.name);
           activate(pos, p, content);
         }, { passive: false });
+
+        // =========================================================
+        // [요청 1] 마우스가 올라가면 z-index를 9999로 임시 상승시켜
+        // 밀집 지역에서도 다른 마커에 가려지지 않게 합니다.
+        // 마우스가 벗어나면 baseZIndex(평상시 값)로 정확히 복구합니다.
+        // (baseZIndex 자체는 건드리지 않으므로, 노선 강조 상태였다면
+        //  그 상태의 z-index로, 기본 상태였다면 기본 z-index로 정확히 돌아갑니다.)
+        // =========================================================
+        pinEl.addEventListener('mouseenter', function () {
+          setMarkerZ(item, Z_HOVER, false);
+        });
+        pinEl.addEventListener('mouseleave', function () {
+          setMarkerZ(item, item.baseZIndex, false);
+        });
       });
+
       applyMarkerScale();
+
       if (query) {
         var hit = null;
         for (var i = 0; i < allMarkers.length; i++) {
@@ -442,6 +513,7 @@
         }
       }
     }
+
     window.addEventListener('message', function (event) {
       if (event.source !== window.parent) {
         return;
@@ -457,6 +529,7 @@
         pendingMapData = data;
       }
     });
+
     kakao.maps.load(function () {
       var params = new URLSearchParams(window.location.search);
       DEBUG = params.get('debug') === '1';
