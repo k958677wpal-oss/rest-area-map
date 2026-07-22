@@ -5,12 +5,20 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
     html, body, #map { width: 100%; height: 100%; margin: 0; padding: 0; }
-    #resetBtn {
+
+    /* [요청 2] 우측 상단 버튼들을 세로로 정렬해 배치 */
+    .top-right-btns {
       position: absolute; top: 10px; right: 10px; z-index: 100;
-      padding: 8px 12px; font-size: 13px; border: none; border-radius: 6px;
-      background: #333; color: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.3);
-      cursor: pointer;
+      display: flex; flex-direction: column; gap: 6px; align-items: flex-end;
     }
+    .map-btn {
+      padding: 8px 12px; font-size: 13px; border: none; border-radius: 6px;
+      color: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.3); cursor: pointer;
+      white-space: nowrap;
+    }
+    #resetBtn { background: #333; }
+    #showAllRoutesBtn { background: #2F5597; }
+
     #debugPanel {
       position: absolute; left: 0; bottom: 0; z-index: 100;
       max-height: 35%; width: 100%; overflow-y: auto;
@@ -136,16 +144,16 @@
 </head>
 <body>
   <div id="map"></div>
-  <button id="resetBtn">전체 보기</button>
+
+  <!-- [요청 2] 우측 상단 버튼 묶음 -->
+  <div class="top-right-btns">
+    <button id="resetBtn" class="map-btn">전체 보기</button>
+    <button id="showAllRoutesBtn" class="map-btn">전체 노선 보기</button>
+  </div>
+
   <div id="debugPanel"></div>
   <script src="//dapi.kakao.com/v2/maps/sdk.js?appkey=fbd1e96068b754f1939c7e11a2790ce1&autoload=false"></script>
   <script>
-    // =========================================================
-    // [요청 2 반영] HIGHWAY_ROUTES 하드코딩 데이터를 완전히 삭제했습니다.
-    // 이제 노선은 데이터(구글 시트에서 넘어온 points)의 좌표를 이용해
-    // 클릭 시점에 동적으로 계산해서 그립니다.
-    // =========================================================
-
     var BRAND_IMAGES = {
       "GS25": "images/GS25.PNG",
       "CU": "images/CU.PNG",
@@ -172,16 +180,23 @@
       return BRAND_COLORS["기타"];
     }
 
+    // [요청 1] 경부선 꼬리 구간 강제 정렬 순서 (이 순서대로 배열 맨 끝에 붙임)
+    var GYEONGBU_TAIL_ORDER = ['평사부산', '건천서울', '경주부산', '언양서울', '통도사부산', '양산서울'];
+
     var SMALL_MARKER_ZOOM_LEVEL = 10;
 
-    // z-index 기본값 상수 (가독성을 위해 이름을 붙여둠)
-    var Z_BASE = 2;        // 아무 강조도 없는 기본 상태
-    var Z_HIGHLIGHT = 10;  // 노선 강조 시, 같은 고속도로 마커
-    var Z_DIM = 1;         // 노선 강조 시, 다른 고속도로 마커
-    var Z_HOVER = 9999;    // 마우스가 올라가 있는 동안 최상단
+    var Z_BASE = 2;
+    var Z_HIGHLIGHT = 10;
+    var Z_DIM = 1;
+    var Z_HOVER = 9999;
 
-    var map, currentPolyline = null, currentLabel = null, infowindow = null, allMarkers = [];
-    var activeRoutePath = null, activeRouteName = "";
+    var map, infowindow = null, allMarkers = [];
+
+    // [요청 2] 단일 변수 → 배열로 변경 (여러 노선/라벨 동시 관리)
+    // allLabels 각 항목: { overlay, path }  (path 로 화면 이동 시 위치 재계산)
+    var allPolylines = [];
+    var allLabels = [];
+
     var DEBUG = false;
     var mapReady = false;
     var pendingMapData = null;
@@ -201,12 +216,6 @@
       return (s == null ? "" : String(s)).replace(/\s+/g, "").trim();
     }
 
-    // =========================================================
-    // [요청 2] z-index를 실제로 적용하는 헬퍼.
-    // DOM 요소의 style.zIndex와 CustomOverlay.setZIndex를 항상 함께 갱신합니다.
-    // baseFlag가 true인 경우에만 item.baseZIndex(복귀할 기준값)를 갱신합니다.
-    // (마우스 호버로 인한 임시 상승은 baseZIndex를 건드리지 않습니다.)
-    // =========================================================
     function setMarkerZ(item, z, isBaseChange) {
       item.el.style.zIndex = z;
       item.overlay.setZIndex(z);
@@ -266,17 +275,16 @@
       return wrap;
     }
 
+    // =========================================================
+    // [요청 2] clearRoute: 배열에 담긴 모든 폴리라인/라벨을 깔끔히 제거
+    // =========================================================
     function clearRoute() {
-      if (currentPolyline) { currentPolyline.setMap(null); currentPolyline = null; }
-      if (currentLabel) { currentLabel.setMap(null); currentLabel = null; }
-      activeRoutePath = null;
-      activeRouteName = "";
+      allPolylines.forEach(function (pl) { pl.setMap(null); });
+      allLabels.forEach(function (lb) { lb.overlay.setMap(null); });
+      allPolylines = [];
+      allLabels = [];
     }
 
-    // =========================================================
-    // [요청 2] 분산(variance)을 계산하는 헬퍼.
-    // 값들이 평균에서 얼마나 넓게 퍼져 있는지를 나타냅니다.
-    // =========================================================
     function calcVariance(values) {
       var n = values.length;
       if (n === 0) return 0;
@@ -286,106 +294,169 @@
     }
 
     // =========================================================
-    // [요청 2 핵심] 하드코딩된 좌표 대신, 같은 highway를 가진 마커들의
-    // 실제 좌표를 모아 동적으로 노선을 그립니다.
+    // [정렬 전담] 같은 highway 마커들을 지그재그 없이 정렬해 반환.
+    // - 경부선: 위도 내림차순(북→남) + 지정된 꼬리 구간 강제 배치 (요청 1)
+    // - 그 외: 위도/경도 분산 비교해 더 넓게 퍼진 축 기준 오름차순
     // =========================================================
-    function drawRoute(highway) {
-      clearRoute();
-
+    function computeSortedGroup(highway) {
       var target = normalize(highway);
-      if (!target) {
-        log('❌ 고속도로명이 비어있어 노선을 그릴 수 없습니다.');
-        return;
-      }
 
-      // 같은 고속도로에 속한 마커들만 추출
       var group = allMarkers.filter(function (item) {
         return normalize(item.point.highway) === target;
       });
+      if (group.length < 2) return group;
 
-      if (group.length < 2) {
-        log('❌ "' + highway + '" 소속 휴게소가 2개 미만이라 노선을 그릴 수 없습니다. (' + group.length + '개)');
-        return;
+      // [요청 1] 경부선 예외 처리
+      if (target === normalize('경부선')) {
+        var tailSet = {};
+        GYEONGBU_TAIL_ORDER.forEach(function (nm) { tailSet[normalize(nm)] = true; });
+
+        // 꼬리 구간과 나머지를 분리
+        var rest = group.filter(function (item) {
+          return !tailSet[normalize(item.point.name)];
+        });
+        // 나머지: 위도 내림차순 (북 → 남)
+        rest.sort(function (a, b) { return b.point.lat - a.point.lat; });
+
+        // 꼬리 구간: 지정된 순서대로 강제 배치 (존재하는 것만)
+        var tail = [];
+        GYEONGBU_TAIL_ORDER.forEach(function (nm) {
+          for (var i = 0; i < group.length; i++) {
+            if (normalize(group[i].point.name) === normalize(nm)) {
+              tail.push(group[i]);
+              break;
+            }
+          }
+        });
+
+        log('📐 경부선 예외 정렬 적용 (북→남 + 꼬리 구간 강제)');
+        return rest.concat(tail);
       }
 
-      // 지그재그 방지를 위한 지리적 정렬:
-      // 위도의 분산과 경도의 분산을 비교해, 더 넓게 퍼진 축을 기준으로 오름차순 정렬합니다.
+      // 일반 노선: 분산 기반 정렬
       var lats = group.map(function (item) { return item.point.lat; });
       var lngs = group.map(function (item) { return item.point.lng; });
-      var latVar = calcVariance(lats);
-      var lngVar = calcVariance(lngs);
+      var sortKey = (calcVariance(lats) >= calcVariance(lngs)) ? 'lat' : 'lng';
+      group.sort(function (a, b) { return a.point[sortKey] - b.point[sortKey]; });
+      return group;
+    }
 
-      var sortKey = (latVar >= lngVar) ? 'lat' : 'lng';
-      log('📐 정렬 기준: ' + (sortKey === 'lat' ? '위도(남북으로 더 넓게 분포)' : '경도(동서로 더 넓게 분포)'));
-
-      group.sort(function (a, b) {
-        return a.point[sortKey] - b.point[sortKey];
-      });
-
-      log('✅ 노선 그림: "' + highway + '" (' + group.length + '개 좌표, 데이터 기반 자동 생성)');
+    // =========================================================
+    // [그리기 전담] highway 하나에 대해 폴리라인 + 라벨을 만들어 배열에 추가.
+    // 단일 노선 클릭과 '전체 노선 보기' 버튼이 공통으로 사용합니다.
+    // =========================================================
+    function drawSingleRoute(highway) {
+      var group = computeSortedGroup(highway);
+      if (group.length < 2) {
+        log('❌ "' + highway + '" 소속 휴게소가 2개 미만이라 노선 생략 (' + group.length + '개)');
+        return;
+      }
 
       var path = group.map(function (item) {
         return new kakao.maps.LatLng(item.point.lat, item.point.lng);
       });
 
-      currentPolyline = new kakao.maps.Polyline({
+      var polyline = new kakao.maps.Polyline({
         path: path,
         strokeWeight: 4,
         strokeColor: '#2F5597',
         strokeOpacity: 0.9,
         strokeStyle: 'solid'
       });
-      currentPolyline.setMap(map);
+      polyline.setMap(map);
+      allPolylines.push(polyline);
 
-      activeRoutePath = path;
-      activeRouteName = highway;
-
-      currentLabel = new kakao.maps.CustomOverlay({
+      var labelOverlay = new kakao.maps.CustomOverlay({
         position: path[Math.floor(path.length / 2)],
         content: '<div class="highway-label">' + highway + '</div>',
         yAnchor: 1,
         zIndex: 15
       });
-      currentLabel.setMap(map);
+      labelOverlay.setMap(map);
+      allLabels.push({ overlay: labelOverlay, path: path });
 
+      log('✅ 노선 그림: "' + highway + '" (' + path.length + '개 좌표)');
+    }
+
+    // 단일 노선(마커 클릭 시): 기존 노선 지우고 이 노선만 그림
+    function drawRoute(highway) {
+      clearRoute();
+      if (!normalize(highway)) {
+        log('❌ 고속도로명이 비어있어 노선을 그릴 수 없습니다.');
+        return;
+      }
+      drawSingleRoute(highway);
       updateLabelPosition();
     }
 
+    // =========================================================
+    // [요청 2] 전체 노선 보기: 모든 highway 종류를 뽑아 각각 그림.
+    // 이때 마커는 흐려지지 않고 전부 진하게 유지.
+    // =========================================================
+    function showAllRoutes() {
+      clearRoute();
+      if (infowindow) infowindow.close();
+
+      // 마커는 모두 진하게 + 기본 z-index로 복구
+      allMarkers.forEach(function (item) {
+        item.el.classList.remove('is-dim');
+        setMarkerZ(item, Z_BASE, true);
+      });
+
+      // 존재하는 모든 고속도로 종류 수집 (중복 제거)
+      var seen = {};
+      var highways = [];
+      allMarkers.forEach(function (item) {
+        var hw = item.point.highway;
+        var key = normalize(hw);
+        if (key && !seen[key]) {
+          seen[key] = true;
+          highways.push(hw);
+        }
+      });
+
+      log('🛣 전체 노선 보기: ' + highways.length + '개 고속도로');
+      highways.forEach(function (hw) { drawSingleRoute(hw); });
+      updateLabelPosition();
+    }
+
+    // [요청 2] 여러 라벨 각각을 자기 경로 기준으로 화면 안 중앙 근처에 재배치
     function updateLabelPosition() {
-      if (!currentLabel || !activeRoutePath || !activeRoutePath.length) return;
+      if (!map || !allLabels.length) return;
 
       var bounds = map.getBounds();
       var center = map.getCenter();
       var cLat = center.getLat(), cLng = center.getLng();
 
-      var best = null, bestDist = Infinity;
-      for (var i = 0; i < activeRoutePath.length; i++) {
-        var pt = activeRoutePath[i];
-        if (!bounds.contain(pt)) continue;
-        var dLat = pt.getLat() - cLat;
-        var dLng = pt.getLng() - cLng;
-        var dist = dLat * dLat + dLng * dLng;
-        if (dist < bestDist) { bestDist = dist; best = pt; }
-      }
-
-      if (best) {
-        currentLabel.setPosition(best);
-        currentLabel.setMap(map);
-      } else {
-        currentLabel.setMap(null);
-      }
+      allLabels.forEach(function (lb) {
+        var path = lb.path;
+        var best = null, bestDist = Infinity;
+        for (var i = 0; i < path.length; i++) {
+          var pt = path[i];
+          if (!bounds.contain(pt)) continue;
+          var dLat = pt.getLat() - cLat;
+          var dLng = pt.getLng() - cLng;
+          var dist = dLat * dLat + dLng * dLng;
+          if (dist < bestDist) { bestDist = dist; best = pt; }
+        }
+        if (best) {
+          lb.overlay.setPosition(best);
+          lb.overlay.setMap(map);
+        } else {
+          lb.overlay.setMap(null);
+        }
+      });
     }
 
-    // [요청 1] highlightMarkers/resetAll 도 baseZIndex를 함께 갱신하도록 수정
     function highlightMarkers(highway) {
       var target = normalize(highway);
       allMarkers.forEach(function (item) {
         if (normalize(item.point.highway) === target) {
           item.el.classList.remove('is-dim');
-          setMarkerZ(item, Z_HIGHLIGHT, true);   // 기준값도 10으로 갱신
+          setMarkerZ(item, Z_HIGHLIGHT, true);
         } else {
           item.el.classList.add('is-dim');
-          setMarkerZ(item, Z_DIM, true);         // 기준값도 1로 갱신
+          setMarkerZ(item, Z_DIM, true);
         }
       });
     }
@@ -395,7 +466,7 @@
       if (infowindow) infowindow.close();
       allMarkers.forEach(function (item) {
         item.el.classList.remove('is-dim');
-        setMarkerZ(item, Z_BASE, true);          // 기준값을 다시 2로 복구
+        setMarkerZ(item, Z_BASE, true);
       });
       log('↺ 전체 초기화');
     }
@@ -437,6 +508,7 @@
         map = new kakao.maps.Map(container, { center: center, level: 8 });
         infowindow = new kakao.maps.InfoWindow({ zIndex: 20 });
         document.getElementById('resetBtn').addEventListener('click', resetAll);
+        document.getElementById('showAllRoutesBtn').addEventListener('click', showAllRoutes);
         kakao.maps.event.addListener(map, 'idle', updateLabelPosition);
         kakao.maps.event.addListener(map, 'zoom_changed', applyMarkerScale);
       } else {
@@ -462,7 +534,6 @@
 
         kakao.maps.event.preventMap(pinEl);
 
-        // baseZIndex: 이 마커가 "평상시" 돌아가야 할 z-index 값을 기억해두는 필드
         var item = { overlay: overlay, el: pinEl, point: p, baseZIndex: Z_BASE };
         allMarkers.push(item);
         setMarkerZ(item, Z_BASE, true);
@@ -481,13 +552,7 @@
           activate(pos, p, content);
         }, { passive: false });
 
-        // =========================================================
-        // [요청 1] 마우스가 올라가면 z-index를 9999로 임시 상승시켜
-        // 밀집 지역에서도 다른 마커에 가려지지 않게 합니다.
-        // 마우스가 벗어나면 baseZIndex(평상시 값)로 정확히 복구합니다.
-        // (baseZIndex 자체는 건드리지 않으므로, 노선 강조 상태였다면
-        //  그 상태의 z-index로, 기본 상태였다면 기본 z-index로 정확히 돌아갑니다.)
-        // =========================================================
+        // [요청 1(이전)] 호버 시 z-index 임시 상승 → 밀집 지역 가림 방지
         pinEl.addEventListener('mouseenter', function () {
           setMarkerZ(item, Z_HOVER, false);
         });
