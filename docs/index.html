@@ -275,11 +275,7 @@
       allLabels = [];
     }
 
-    // =========================================================
-    // [핵심 교체] 두 지점 사이의 직선 거리(제곱거리)를 계산합니다.
-    // 정렬 목적(누가 더 가까운지 비교)에는 제곱근을 씌우지 않아도 되므로,
-    // 성능을 위해 제곱거리 그대로 비교에 사용합니다(대소 비교 결과는 동일).
-    // =========================================================
+    // 두 지점 사이의 직선 거리(제곱거리). 대소 비교용이라 제곱근은 생략.
     function squaredDistance(a, b) {
       var dLat = a.lat - b.lat;
       var dLng = a.lng - b.lng;
@@ -287,17 +283,16 @@
     }
 
     // =========================================================
-    // [핵심 교체] 최근접 이웃(Nearest Neighbor) 알고리즘.
-    // - 축 정렬(위도/경도 오름차순)과 GYEONGBU_TAIL_ORDER 같은 수동 예외 처리를
-    //   전부 제거하고, 순수하게 "가장 가까운 점을 계속 이어가는" 방식으로 대체합니다.
-    // - 대각선/곡선으로 휘어진 노선도 실제 거리 기준으로 이어지므로
-    //   지그재그 꼬임이 구조적으로 크게 줄어듭니다.
+    // [핵심 교체] 최근접 이웃 + 최대거리 시작점(Max Distance Start)
     //
-    // 절차:
-    //   1) 위도(lat)가 가장 큰(가장 북쪽) 마커를 시작점으로 고정
-    //   2) 남은 마커 중 "현재 마지막 지점"과 가장 가까운 마커를 찾아 다음 순서로 채택
-    //   3) 채택된 마커를 remaining에서 제거하고, 그 마커를 새로운 기준점으로 삼아 2)를 반복
-    //   4) remaining이 빌 때까지 반복
+    // 이전 방식은 "가장 북쪽 점"을 시작점으로 고정했는데,
+    // 동서로 뻗은 노선(예: 남해선)에서는 가장 북쪽 점이 도로 '중간'에 있어
+    // 시작부터 좌우로 왔다갔다하는 핑퐁 현상이 생겼습니다.
+    //
+    // 해결: 그룹 내 모든 점 쌍의 거리를 비교해 "가장 멀리 떨어진 두 점"을 찾습니다.
+    // 이 두 점이 노선의 양쪽 끝이므로, 그중 하나를 시작점으로 삼으면
+    // 동서/남북 방향과 무관하게 항상 도로 끝에서부터 이어집니다.
+    // 이후 최근접 이웃으로 꼬리를 무는 로직은 동일합니다.
     // =========================================================
     function computeSortedGroup(highway) {
       var target = normalize(highway);
@@ -307,30 +302,36 @@
       });
       if (group.length < 2) return group;
 
-      // 원본 배열을 건드리지 않도록 복사본(remaining)에서 하나씩 꺼냅니다.
-      var remaining = group.slice();
-
-      // 1) 가장 북쪽(위도가 가장 큰) 지점을 시작점으로 선정
-      var startIdx = 0;
-      for (var i = 1; i < remaining.length; i++) {
-        if (remaining[i].point.lat > remaining[startIdx].point.lat) {
-          startIdx = i;
+      // 1) 가장 멀리 떨어진 두 점(양 끝점)을 탐색
+      var farA = 0, farB = 1, maxDist = -1;
+      for (var i = 0; i < group.length; i++) {
+        for (var k = i + 1; k < group.length; k++) {
+          var d = squaredDistance(group[i].point, group[k].point);
+          if (d > maxDist) {
+            maxDist = d;
+            farA = i;
+            farB = k;
+          }
         }
       }
+
+      // 2) 두 끝점 중 하나(farA)를 시작점으로 설정
+      var remaining = group.slice();
+      var startIdx = farA;
 
       var sorted = [];
       var current = remaining.splice(startIdx, 1)[0];
       sorted.push(current);
 
-      // 2)~3) 남은 지점 중 가장 가까운 지점을 계속 이어붙임
+      // 3) 남은 점 중 가장 가까운 점을 계속 이어붙임 (최근접 이웃)
       while (remaining.length > 0) {
         var nearestIdx = 0;
         var nearestDist = squaredDistance(current.point, remaining[0].point);
 
         for (var j = 1; j < remaining.length; j++) {
-          var d = squaredDistance(current.point, remaining[j].point);
-          if (d < nearestDist) {
-            nearestDist = d;
+          var dd = squaredDistance(current.point, remaining[j].point);
+          if (dd < nearestDist) {
+            nearestDist = dd;
             nearestIdx = j;
           }
         }
@@ -339,7 +340,7 @@
         sorted.push(current);
       }
 
-      log('📐 최근접 이웃 정렬 적용: "' + highway + '" (' + sorted.length + '개 지점, 시작점=' + sorted[0].point.name + ')');
+      log('📐 최대거리 시작점 + 최근접 이웃 정렬: "' + highway + '" (' + sorted.length + '개, 시작점=' + sorted[0].point.name + ')');
       return sorted;
     }
 
