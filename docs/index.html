@@ -23,19 +23,34 @@
        ========================================================= */
     #brandStats {
       position: absolute; top: 10px; left: 10px; z-index: 100;
-      display: flex; align-items: stretch;
       background: rgba(255,255,255,0.92);
       border-radius: 10px;
       box-shadow: 0 2px 10px rgba(0,0,0,.25);
       overflow: hidden;
       font-size: 12px;
+      max-width: calc(100% - 20px);
     }
-    #brandStats .bs-title {
-      display: flex; align-items: center;
+    /* 헤더(제목 + 노선명 + 토글 화살표) */
+    #brandStats .bs-header {
+      display: flex; align-items: center; gap: 8px;
       padding: 6px 10px;
-      font-weight: 700; color: #333;
       background: rgba(0,0,0,0.04);
-      white-space: nowrap;
+      cursor: default;
+    }
+    #brandStats .bs-titlebox { display: flex; flex-direction: column; }
+    #brandStats .bs-title { font-weight: 700; color: #333; white-space: nowrap; }
+    #brandStats .bs-route { font-size: 11px; color: #2F5597; font-weight: 600; white-space: nowrap; }
+    #brandStats .bs-toggle {
+      display: none;                 /* PC에서는 숨김 (모바일에서만 표시) */
+      margin-left: auto;
+      border: none; background: transparent;
+      font-size: 13px; color: #555; cursor: pointer; padding: 2px 4px;
+    }
+
+    /* 본문(브랜드 셀들) - PC: 가로 한 줄 */
+    #brandStats .bs-body {
+      display: flex;
+      align-items: stretch;
     }
     #brandStats .bs-cell {
       display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -43,23 +58,38 @@
       border-left: 1px solid rgba(0,0,0,0.08);
       min-width: 56px;
     }
-    #brandStats .bs-name {
-      font-weight: 700; margin-bottom: 2px; white-space: nowrap;
-    }
-    #brandStats .bs-value {
-      color: #333; white-space: nowrap;
-    }
+    #brandStats .bs-name { font-weight: 700; margin-bottom: 2px; white-space: nowrap; }
+    #brandStats .bs-value { color: #333; white-space: nowrap; }
+
     /* 브랜드별 이름 색상 (마커 테두리 색과 통일) */
     #brandStats .bs-GS25 .bs-name { color: #2770BF; }
     #brandStats .bs-CU .bs-name { color: #710E82; }
-    #brandStats .bs-emart .bs-name { color: #C99700; } /* 노란색은 글자 가독성 위해 살짝 진하게 */
+    #brandStats .bs-emart .bs-name { color: #C99700; }
     #brandStats .bs-seven .bs-name { color: #FF6C00; }
     #brandStats .bs-etc .bs-name { color: #888; }
 
-    @media (max-width: 640px) {
+    /* =========================================================
+       [반응형] 모바일 (768px 이하): 토글 노출 + 기본 접힘 + 타일 그리드
+       ========================================================= */
+    @media (max-width: 768px) {
       #brandStats { font-size: 11px; }
-      #brandStats .bs-cell { min-width: 46px; padding: 5px 6px; }
-      #brandStats .bs-title { padding: 5px 7px; }
+      #brandStats .bs-toggle { display: block; }
+
+      /* 접힘 상태: 본문 숨김 (기본값) */
+      #brandStats.is-collapsed .bs-body { display: none; }
+
+      /* 펼침 상태: 타일형 그리드(3열 → 5개가 2줄로) */
+      #brandStats .bs-body {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 0;
+      }
+      #brandStats .bs-cell {
+        border-left: none;
+        border-top: 1px solid rgba(0,0,0,0.08);
+        min-width: 0;
+        padding: 6px 4px;
+      }
     }
 
     #debugPanel {
@@ -189,7 +219,7 @@
   <div id="map"></div>
 
   <!-- [신규] 브랜드 점유율 대시보드 (JS가 내용을 채움) -->
-  <div id="brandStats"></div>
+  <div id="brandStats" class="is-collapsed"></div>
 
   <div class="top-right-btns">
     <button id="resetBtn" class="map-btn">전체 보기</button>
@@ -227,9 +257,6 @@
 
     // =========================================================
     // [신규] 브랜드 점유율 대시보드 설정
-    // - key: 집계용 내부 식별자
-    // - label: 화면 표기 이름 (세븐일레븐→7-11, 기타→매점)
-    // - cls: 색상 지정용 CSS 클래스
     // 표시 순서: GS25 | CU | 이마트24 | 7-11 | 매점
     // =========================================================
     var BRAND_STAT_ORDER = [
@@ -240,7 +267,6 @@
       { key: "매점",    label: "매점",    cls: "bs-etc" }
     ];
 
-    // 데이터상의 브랜드 문자열을 5개 버킷 중 하나의 key로 변환
     function classifyBrand(brand) {
       var b = (brand == null ? "" : String(brand)).trim();
       if (b === "GS25") return "GS25";
@@ -250,31 +276,63 @@
       return "매점";  // 기타 및 미매칭 브랜드는 모두 '매점'으로 취합
     }
 
+    // 현재 접힘/펼침 상태를 유지하기 위한 변수 (표를 다시 그릴 때 상태 보존)
+    var brandStatsCollapsed = true;
+
     // =========================================================
-    // [신규] 넘겨받은 마커 배열을 집계해 대시보드를 갱신
+    // [신규] 대시보드 갱신: markers 집계 + routeLabel(노선명) 표시
     // =========================================================
-    function updateBrandStats(markers) {
+    function updateBrandStats(markers, routeLabel) {
       var counts = { "GS25": 0, "CU": 0, "이마트24": 0, "7-11": 0, "매점": 0 };
       var total = 0;
 
       (markers || []).forEach(function (item) {
-        var key = classifyBrand(item.point.brand);
-        counts[key] += 1;
+        counts[classifyBrand(item.point.brand)] += 1;
         total += 1;
       });
 
-      var html = '<div class="bs-title">브랜드 점유율</div>';
+      var cellsHtml = "";
       BRAND_STAT_ORDER.forEach(function (b) {
         var cnt = counts[b.key];
-        // 총합이 0이면 비율을 0%로 처리 (NaN 방지)
-        var pct = (total > 0) ? Math.round((cnt / total) * 100) : 0;
-        html += '<div class="bs-cell ' + b.cls + '">' +
-                  '<span class="bs-name">' + b.label + '</span>' +
-                  '<span class="bs-value">' + cnt + '(' + pct + '%)</span>' +
-                '</div>';
+        var pct = (total > 0) ? Math.round((cnt / total) * 100) : 0;  // 총합 0이면 0% (NaN 방지)
+        cellsHtml += '<div class="bs-cell ' + b.cls + '">' +
+                       '<span class="bs-name">' + b.label + '</span>' +
+                       '<span class="bs-value">' + cnt + '(' + pct + '%)</span>' +
+                     '</div>';
       });
 
-      document.getElementById('brandStats').innerHTML = html;
+      // 화살표는 현재 접힘 상태에 따라 방향 결정 (모바일에서만 보임)
+      var arrow = brandStatsCollapsed ? '▼' : '▲';
+
+      var html =
+        '<div class="bs-header">' +
+          '<div class="bs-titlebox">' +
+            '<span class="bs-title">브랜드 점유율</span>' +
+            '<span class="bs-route">(' + (routeLabel || '전체노선') + ')</span>' +
+          '</div>' +
+          '<button class="bs-toggle" id="bsToggle">' + arrow + '</button>' +
+        '</div>' +
+        '<div class="bs-body">' + cellsHtml + '</div>';
+
+      var container = document.getElementById('brandStats');
+      container.innerHTML = html;
+
+      // 접힘 상태 클래스 반영
+      if (brandStatsCollapsed) {
+        container.classList.add('is-collapsed');
+      } else {
+        container.classList.remove('is-collapsed');
+      }
+
+      // 토글 버튼 이벤트 연결 (innerHTML로 새로 그려지므로 매번 다시 연결)
+      var toggleBtn = document.getElementById('bsToggle');
+      if (toggleBtn) {
+        toggleBtn.addEventListener('click', function () {
+          brandStatsCollapsed = !brandStatsCollapsed;
+          container.classList.toggle('is-collapsed', brandStatsCollapsed);
+          toggleBtn.textContent = brandStatsCollapsed ? '▼' : '▲';
+        });
+      }
     }
 
     var SMALL_MARKER_ZOOM_LEVEL = 10;
@@ -396,7 +454,6 @@
       });
       if (group.length < 2) return group;
 
-      // 1) 가장 멀리 떨어진 두 점(양 끝점) 탐색
       var farA = 0, farB = 1, maxDist = -1;
       for (var i = 0; i < group.length; i++) {
         for (var k = i + 1; k < group.length; k++) {
@@ -409,7 +466,6 @@
         }
       }
 
-      // 2) 두 끝점 중 하나(farA)를 시작점으로 설정
       var remaining = group.slice();
       var startIdx = farA;
 
@@ -417,7 +473,6 @@
       var current = remaining.splice(startIdx, 1)[0];
       sorted.push(current);
 
-      // 3) 남은 점 중 가장 가까운 점을 계속 이어붙임 (최근접 이웃)
       while (remaining.length > 0) {
         var nearestIdx = 0;
         var nearestDist = squaredDistance(current.point, remaining[0].point);
@@ -505,8 +560,7 @@
       highways.forEach(function (hw) { drawSingleRoute(hw); });
       updateLabelPosition();
 
-      // 전체 노선 보기: 전체 마커 기준으로 점유율 표시
-      updateBrandStats(allMarkers);
+      updateBrandStats(allMarkers, '전체노선');
     }
 
     function updateLabelPosition() {
@@ -558,8 +612,7 @@
       });
       log('↺ 전체 초기화');
 
-      // 전체 보기: 전체 마커 기준으로 점유율 표시
-      updateBrandStats(allMarkers);
+      updateBrandStats(allMarkers, '전체노선');
     }
 
     function selectHighway(p) {
@@ -567,13 +620,16 @@
       drawRoute(p.highway);
       highlightMarkers(p.highway);
 
-      // 단일 노선 클릭: 해당 고속도로 소속 마커만 추려서 점유율 갱신
       var target = normalize(p.highway);
       var group = allMarkers.filter(function (item) {
         return normalize(item.point.highway) === target;
       });
-      // 고속도로명이 비어있으면(그룹 없음) 전체 기준으로 폴백
-      updateBrandStats(group.length ? group : allMarkers);
+      // 고속도로명이 있으면 그 노선 기준, 없으면 전체 기준으로 폴백
+      if (group.length && target) {
+        updateBrandStats(group, p.highway);
+      } else {
+        updateBrandStats(allMarkers, '전체노선');
+      }
     }
 
     function activate(pos, p, content) {
@@ -610,6 +666,12 @@
         document.getElementById('showAllRoutesBtn').addEventListener('click', showAllRoutes);
         kakao.maps.event.addListener(map, 'idle', updateLabelPosition);
         kakao.maps.event.addListener(map, 'zoom_changed', applyMarkerScale);
+
+        // 대시보드 내부 클릭/터치가 지도로 전파되지 않도록 차단
+        var bsEl = document.getElementById('brandStats');
+        ['click', 'mousedown', 'touchstart', 'dblclick'].forEach(function (evt) {
+          bsEl.addEventListener(evt, function (e) { e.stopPropagation(); });
+        });
       } else {
         allMarkers.forEach(function (item) { item.overlay.setMap(null); });
         allMarkers = [];
@@ -661,8 +723,8 @@
 
       applyMarkerScale();
 
-      // 초기 로드: 전체 마커 기준 점유율 표시
-      updateBrandStats(allMarkers);
+      // 초기 로드: 전체 마커 기준 + 노선명 (전체노선)
+      updateBrandStats(allMarkers, '전체노선');
 
       if (query) {
         var hit = null;
