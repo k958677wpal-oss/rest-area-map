@@ -43,12 +43,45 @@ def load_data():
 @st.cache_data(ttl=300)
 def load_login_data():
     """
-    '휴게소_통합_데이터' 파일에서 '사용자 명단' 탭을 읽어옵니다.
+    로그인 전용 구글 시트를 읽어 DataFrame으로 반환합니다.
     """
     gc = init_connection()
-    doc = gc.open("휴게소_통합_데이터")
-    # '사용자 명단' 시트 탭에서 데이터를 가져옵니다.
-    return pd.DataFrame(doc.worksheet("사용자 명단").get_all_records())
+    LOGIN_SHEET_KEY = "1zD20Om2mHH7M9ppcialvqB1SxA9IyVq2aCLM9IWoo8c"
+    doc = gc.open_by_key(LOGIN_SHEET_KEY)
+    return pd.DataFrame(doc.sheet1.get_all_records())
+
+
+def normalize_value(value):
+    """
+    시트에서 읽어온 값(문자열/정수/실수 등 어떤 타입이든)을
+    비교 가능한 순수 문자열로 안전하게 통일합니다.
+    - 숫자로 자동 변환되어 860422.0 처럼 .0이 붙는 경우를 제거합니다.
+    - 앞뒤 공백, 보이지 않는 특수 공백 문자도 제거합니다.
+    """
+    if value is None:
+        return ""
+    # 정수처럼 보이는 float(예: 860422.0)는 .0을 제거하고 정수 문자열로 변환
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+    s = str(value)
+    # 일반 공백 + 특수 공백문자(줄바꿈, NBSP 등) 제거
+    s = s.strip()
+    s = s.replace("\u00a0", "").replace("\u200b", "")
+    return s
+
+
+def find_column(df, target_name):
+    """
+    데이터프레임의 컬럼명 중, 공백/대소문자를 무시했을 때
+    target_name과 일치하는 실제 컬럼명을 찾아 반환합니다.
+    (헤더에 보이지 않는 공백이 섞여 있어도 안전하게 찾기 위함)
+    """
+    normalized_target = target_name.replace(" ", "").strip()
+    for col in df.columns:
+        if str(col).replace(" ", "").strip() == normalized_target:
+            return col
+    return None
+
 
 # --- 2. 로그인 시스템 (사번 + 생년월일 6자리 / 구글 시트 대조) ---
 if "logged_in" not in st.session_state:
@@ -62,9 +95,8 @@ if not st.session_state["logged_in"]:
         submitted = st.form_submit_button("로그인")
 
     if submitted:
-        # 입력값을 문자열로 정규화 (사번 앞자리 0 보존을 위해 반드시 str 처리)
-        input_id = str(user_id).strip()
-        input_pw = str(user_pw).strip()
+        input_id = normalize_value(user_id)
+        input_pw = normalize_value(user_pw)
 
         try:
             login_df = load_login_data()
@@ -72,20 +104,34 @@ if not st.session_state["logged_in"]:
             st.error(f"로그인 정보 로드 오류: {e}")
             st.stop()
 
-        # 시트의 '사번'/'생년월일' 값도 문자열로 변환하여 안전하게 대조
+        id_col = find_column(login_df, "사번")
+        pw_col = find_column(login_df, "생년월일")
+
         matched = False
-        for _, row in login_df.iterrows():
-            sheet_id = str(row.get("사번", "")).strip()
-            sheet_pw = str(row.get("생년월일", "")).strip()
-            if input_id == sheet_id and input_pw == sheet_pw:
-                matched = True
-                break
+        if id_col is not None and pw_col is not None:
+            for _, row in login_df.iterrows():
+                sheet_id = normalize_value(row.get(id_col, ""))
+                sheet_pw = normalize_value(row.get(pw_col, ""))
+                if input_id == sheet_id and input_pw == sheet_pw:
+                    matched = True
+                    break
 
         if matched:
             st.session_state["logged_in"] = True
             st.rerun()
         else:
             st.error("사번 또는 비밀번호가 올바르지 않습니다.")
+
+            # [진단용] 실패했을 때만 펼쳐서 원인을 직접 확인할 수 있는 디버그 패널
+            with st.expander("🔧 왜 실패했는지 확인하기 (디버그 정보)"):
+                st.write("컬럼명이 정확히 인식되었는지 확인:")
+                st.write(f"- '사번' 컬럼으로 인식된 실제 컬럼명: {id_col}")
+                st.write(f"- '생년월일' 컬럼으로 인식된 실제 컬럼명: {pw_col}")
+                st.write("입력하신 값 (정규화 후):")
+                st.write(f"- 입력 사번: '{input_id}'")
+                st.write(f"- 입력 생년월일: '{input_pw}'")
+                st.write("구글 시트에서 실제로 읽어온 데이터 (상위 10행):")
+                st.dataframe(login_df.head(10), use_container_width=True)
 
     st.stop()
 
@@ -164,9 +210,6 @@ MAP_HEIGHT = 560
 tab_map, tab_data = st.tabs(["🗺️ 스마트 노선 맵", "📊 상세 데이터 및 필터"])
 
 with tab_map:
-    # [변경] text_input → selectbox 로 교체.
-    # 지도에 표시 가능한(좌표가 유효한) 휴게소명만 옵션으로 제공합니다.
-    # 첫 옵션은 빈 문자열("")로 두어 '선택 안 함' 상태를 표현합니다.
     valid_names = [p["name"] for p in points]
     name_options = [""] + valid_names
 
@@ -177,7 +220,6 @@ with tab_map:
         help="휴게소명을 타이핑하면 자동완성 목록에서 정확한 휴게소를 선택할 수 있습니다.",
     )
 
-    # [핵심 유지] URL 파라미터 방식이 아니라 postMessage로 데이터를 전달합니다.
     points_json = json.dumps(points, ensure_ascii=False)
     query_json = json.dumps(query if query else "")
 
@@ -214,7 +256,6 @@ with tab_map:
 
     components.html(component_html, height=MAP_HEIGHT, scrolling=False)
 
-    # 좌표 문제로 지도에서 제외된 행 안내 (기존 로직 유지)
     if skipped_rows:
         with st.expander(f"⚠️ 좌표 오류로 지도에 표시되지 않은 휴게소 {len(skipped_rows)}건 (클릭하여 확인)"):
             st.dataframe(pd.DataFrame(skipped_rows), use_container_width=True)
