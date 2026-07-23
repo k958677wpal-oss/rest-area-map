@@ -58,7 +58,7 @@ if not st.session_state["logged_in"]:
     st.stop()
 
 # --- 여기부터는 로그인 성공 시에만 실행 ---
-st.markdown('<div class="app-title">🛣️ 휴게소 데이터 허브</div>', unsafe_allow_html=True)
+st.markdown('<div class="app-title">🛣️ 휴게소 데이터 허브 (Powered by 특수개발팀)</div>', unsafe_allow_html=True)
 
 # 데이터 로드
 try:
