@@ -5,7 +5,7 @@ import json
 import streamlit.components.v1 as components
 
 # --- 페이지 기본 설정 ---
-st.set_page_config(page_title="전국 휴게소 통합 관리", layout="wide")
+st.set_page_config(page_title="휴게소 데이터 허브", layout="wide")
 
 # --- 모바일 헤더 최적화 CSS ---
 st.markdown(
@@ -58,7 +58,7 @@ if not st.session_state["logged_in"]:
     st.stop()
 
 # --- 여기부터는 로그인 성공 시에만 실행 ---
-st.markdown('<div class="app-title">🛣️ 전국 휴게소 통합 관리</div>', unsafe_allow_html=True)
+st.markdown('<div class="app-title">🛣️ 휴게소 데이터 허브</div>', unsafe_allow_html=True)
 
 # 데이터 로드
 try:
@@ -133,7 +133,7 @@ TARGET_ORIGIN = "https://k958677wpal-oss.github.io"
 MAP_HEIGHT = 560
 
 # --- 5. 탭 분리 (지도 vs 데이터) ---
-tab_map, tab_data = st.tabs(["🗺️ 카카오맵 지도 보기", "📊 상세 데이터 및 필터"])
+tab_map, tab_data = st.tabs(["🗺️ 스마트 노선 맵", "📊 상세 데이터 및 필터"])
 
 with tab_map:
     # [변경] text_input → selectbox 로 교체.
