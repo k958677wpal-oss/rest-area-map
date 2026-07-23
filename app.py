@@ -44,7 +44,7 @@ if "logged_in" not in st.session_state:
     st.session_state["logged_in"] = False
 
 if not st.session_state["logged_in"]:
-    st.title("🔐 관리자 로그인")
+    st.title("🔐 로그인 (Powered by 특수개발팀)")
     with st.form("login_form"):
         user_id = st.text_input("사번 (ID)")
         user_pw = st.text_input("생년월일 6자리 (PW)", type="password", max_chars=6)
