@@ -39,7 +39,18 @@ def load_data():
     doc = gc.open("휴게소_통합_데이터")
     return pd.DataFrame(doc.sheet1.get_all_records())
 
-# --- 2. 로그인 시스템 (사번 + 생년월일 6자리) ---
+# --- 로그인 시트 로더 (구글 시트 연동) ---
+@st.cache_data(ttl=300)
+def load_login_data():
+    """
+    '휴게소_통합_데이터' 파일에서 '사용자 명단' 탭을 읽어옵니다.
+    """
+    gc = init_connection()
+    doc = gc.open("휴게소_통합_데이터")
+    # '사용자 명단' 시트 탭에서 데이터를 가져옵니다.
+    return pd.DataFrame(doc.worksheet("사용자 명단").get_all_records())
+
+# --- 2. 로그인 시스템 (사번 + 생년월일 6자리 / 구글 시트 대조) ---
 if "logged_in" not in st.session_state:
     st.session_state["logged_in"] = False
 
@@ -49,12 +60,33 @@ if not st.session_state["logged_in"]:
         user_id = st.text_input("사번 (ID)")
         user_pw = st.text_input("생년월일 6자리 (PW)", type="password", max_chars=6)
         submitted = st.form_submit_button("로그인")
+
     if submitted:
-        if user_id == "admin" and user_pw == "123456":
+        # 입력값을 문자열로 정규화 (사번 앞자리 0 보존을 위해 반드시 str 처리)
+        input_id = str(user_id).strip()
+        input_pw = str(user_pw).strip()
+
+        try:
+            login_df = load_login_data()
+        except Exception as e:
+            st.error(f"로그인 정보 로드 오류: {e}")
+            st.stop()
+
+        # 시트의 '사번'/'생년월일' 값도 문자열로 변환하여 안전하게 대조
+        matched = False
+        for _, row in login_df.iterrows():
+            sheet_id = str(row.get("사번", "")).strip()
+            sheet_pw = str(row.get("생년월일", "")).strip()
+            if input_id == sheet_id and input_pw == sheet_pw:
+                matched = True
+                break
+
+        if matched:
             st.session_state["logged_in"] = True
             st.rerun()
         else:
             st.error("사번 또는 비밀번호가 올바르지 않습니다.")
+
     st.stop()
 
 # --- 여기부터는 로그인 성공 시에만 실행 ---
@@ -66,7 +98,6 @@ try:
 except Exception as e:
     st.error(f"데이터 로드 오류: {e}")
     st.stop()
-
 
 # --- 3. 위도/경도 값 검증 함수 (기존 로직 그대로 유지) ---
 def parse_coordinate(value):
@@ -84,14 +115,12 @@ def parse_coordinate(value):
     except (ValueError, TypeError):
         return None
 
-
 # --- 4. 지도용 데이터 구성 (좌표 검증 포함, 기존 스킵 로직 유지) ---
 points = []
 skipped_rows = []  # 어떤 행이 왜 제외됐는지 기록 (화면 안내용)
 
 for idx, r in df.iterrows():
     name = r.get("휴게소명", f"{idx}행")
-
     lat = parse_coordinate(r.get("위도"))
     lng = parse_coordinate(r.get("경도"))
 
@@ -129,7 +158,6 @@ for idx, r in df.iterrows():
 # GitHub Pages 주소와, postMessage 수신 검증에 쓸 출처(origin)
 PAGE_URL = "https://k958677wpal-oss.github.io/rest-area-map/"
 TARGET_ORIGIN = "https://k958677wpal-oss.github.io"
-
 MAP_HEIGHT = 560
 
 # --- 5. 탭 분리 (지도 vs 데이터) ---
