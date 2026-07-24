@@ -18,36 +18,39 @@
     #resetBtn { background: #333; }
     #showAllRoutesBtn { background: #2F5597; }
 
-    /* 브랜드 점유율 대시보드 */
-    #brandStats {
+    /* [변경] 좌측 필터 묶음: 브랜드/계약/운영사 세로 정렬 */
+    #leftPanels {
       position: absolute; top: 10px; left: 10px; z-index: 100;
+      display: flex; flex-direction: column; gap: 8px;
       width: max-content;
       max-width: calc(100% - 20px);
+    }
+
+    /* 공통 패널 카드 스타일 */
+    .panel-card {
       background: rgba(255,255,255,0.92);
       border-radius: 10px;
       box-shadow: 0 2px 10px rgba(0,0,0,.25);
       overflow: hidden;
       font-size: 12px;
     }
-    #brandStats .bs-header {
+    .panel-head {
       display: flex; align-items: center; gap: 8px;
       padding: 6px 10px;
       background: rgba(0,0,0,0.04);
     }
-    #brandStats .bs-titlebox { display: flex; flex-direction: column; }
-    #brandStats .bs-title { font-weight: 700; color: #333; white-space: nowrap; }
-    #brandStats .bs-route { font-size: 11px; color: #2F5597; font-weight: 600; white-space: nowrap; }
-    #brandStats .bs-toggle {
-      display: block;
+    .panel-titlebox { display: flex; flex-direction: column; }
+    .panel-title { font-weight: 700; color: #333; white-space: nowrap; }
+    .panel-sub { font-size: 11px; color: #2F5597; font-weight: 600; white-space: nowrap; }
+    .panel-toggle {
       margin-left: auto;
       border: none; background: transparent;
-      font-size: 13px; color: #555; cursor: pointer; padding: 2px 6px;
-      line-height: 1;
+      font-size: 13px; color: #555; cursor: pointer; padding: 2px 6px; line-height: 1;
     }
-    #brandStats .bs-body {
-      display: flex;
-      align-items: stretch;
-    }
+    .panel-card.is-collapsed .panel-body { display: none; }
+
+    /* 브랜드 점유율 본문 */
+    #brandStats .bs-body { display: flex; align-items: stretch; }
     #brandStats .bs-cell {
       display: flex; flex-direction: column; align-items: center; justify-content: center;
       padding: 6px 10px;
@@ -66,10 +69,8 @@
     #brandStats .bs-emart .bs-name { color: #C99700; }
     #brandStats .bs-seven .bs-name { color: #FF6C00; }
     #brandStats .bs-etc .bs-name { color: #888; }
-    #brandStats.is-collapsed .bs-body { display: none; }
 
     @media (max-width: 768px) {
-      #brandStats { font-size: 11px; }
       #brandStats .bs-body {
         display: grid;
         grid-template-columns: repeat(3, 1fr);
@@ -83,44 +84,27 @@
       }
     }
 
-    /* =========================================================
-       [신규] 계약만료 필터 패널 (상단 중앙 플로팅)
-       ========================================================= */
-    #contractFilterPanel {
-      position: absolute; top: 10px; left: 50%; z-index: 100;
-      transform: translateX(-50%);
-      width: max-content;
-      max-width: calc(100% - 20px);
-      background: rgba(255,255,255,0.92);
-      border-radius: 10px;
-      box-shadow: 0 2px 10px rgba(0,0,0,.25);
-      overflow: hidden;
-      font-size: 12px;
-    }
-    #contractFilterPanel .cf-header {
-      display: flex; align-items: center; gap: 8px;
-      padding: 6px 10px;
-      background: rgba(0,0,0,0.04);
-    }
-    #contractFilterPanel .cf-title { font-weight: 700; color: #333; white-space: nowrap; }
-    #contractFilterPanel .cf-toggle {
-      margin-left: auto;
-      border: none; background: transparent;
-      font-size: 13px; color: #555; cursor: pointer; padding: 2px 6px;
-      line-height: 1;
-    }
-    #contractFilterPanel .cf-body { padding: 8px 10px; }
-    #contractFilterPanel.is-collapsed .cf-body { display: none; }
-    .cf-row { display: flex; gap: 6px; flex-wrap: wrap; }
-    .cf-row + .cf-row { margin-top: 6px; }
-    .cf-chip {
+    /* 칩(계약/운영사 공용) */
+    .chip-body { padding: 8px 10px; }
+    .chip-row { display: flex; gap: 6px; flex-wrap: wrap; }
+    .chip-row + .chip-row { margin-top: 6px; }
+    .flt-chip {
       padding: 5px 10px; border-radius: 14px; font-size: 12px; font-weight: 600;
       background: #eee; color: #333; cursor: pointer; white-space: nowrap;
       border: 1px solid rgba(0,0,0,0.08);
     }
-    .cf-chip:hover { background: #e0e6f0; }
-    .cf-chip.is-active { background: #2F5597; color: #fff; border-color: #2F5597; }
-    .cf-empty-note { font-size: 11px; color: #999; padding: 2px 2px; }
+    .flt-chip:hover { background: #e0e6f0; }
+    .flt-chip.is-active { background: #2F5597; color: #fff; border-color: #2F5597; }
+    .flt-empty-note { font-size: 11px; color: #999; padding: 2px 2px; }
+    /* '그외' 운영사 목록: 스크롤 영역 */
+    .etc-scroll {
+      margin-top: 6px;
+      max-height: 160px;
+      overflow-y: auto;
+      display: flex; flex-wrap: wrap; gap: 6px;
+      padding-top: 6px;
+      border-top: 1px dashed rgba(0,0,0,0.12);
+    }
 
     #debugPanel {
       position: absolute; left: 0; bottom: 0; z-index: 100;
@@ -139,7 +123,6 @@
       transform: translate(-50%, -130%);
     }
 
-    /* 브랜드/계약 필터 시 마커 위에 뜨는 휴게소명 라벨 */
     .name-label {
       transform: translateY(-56px);
       background: rgba(33,33,33,0.85);
@@ -161,7 +144,6 @@
       opacity: 1;
       transition: opacity .2s ease;
     }
-
     .pin-graphics {
       display: flex;
       flex-direction: column;
@@ -169,7 +151,6 @@
       transform-origin: 50% 100%;
       transition: transform .2s ease;
     }
-
     .marker-pin .pin-circle {
       width: 42px;
       height: 42px;
@@ -225,7 +206,6 @@
       visibility: visible;
     }
 
-    /* [수정] 정보창이 이름 라벨/오버레이보다 항상 맨 앞에 오도록 매우 높은 값 사용 */
     .iw-wrap {
       pointer-events: none;
       position: relative;
@@ -260,8 +240,12 @@
 <body>
   <div id="map"></div>
 
-  <div id="brandStats" class="is-collapsed"></div>
-  <div id="contractFilterPanel" class="is-collapsed"></div>
+  <!-- [변경] 좌측 필터 묶음: 브랜드 / 계약만료 / 운영사 -->
+  <div id="leftPanels">
+    <div id="brandStats" class="panel-card is-collapsed"></div>
+    <div id="contractFilterPanel" class="panel-card is-collapsed"></div>
+    <div id="operatorFilterPanel" class="panel-card is-collapsed"></div>
+  </div>
 
   <div class="top-right-btns">
     <button id="resetBtn" class="map-btn">전체 보기</button>
@@ -362,23 +346,18 @@
       var arrow = brandStatsCollapsed ? '▼' : '▲';
 
       var html =
-        '<div class="bs-header">' +
-          '<div class="bs-titlebox">' +
-            '<span class="bs-title">브랜드 점유율</span>' +
-            '<span class="bs-route">(' + (routeLabel || '전체노선') + ')</span>' +
+        '<div class="panel-head">' +
+          '<div class="panel-titlebox">' +
+            '<span class="panel-title">브랜드 점유율</span>' +
+            '<span class="panel-sub">(' + (routeLabel || '전체노선') + ')</span>' +
           '</div>' +
-          '<button class="bs-toggle" id="bsToggle">' + arrow + '</button>' +
+          '<button class="panel-toggle" id="bsToggle">' + arrow + '</button>' +
         '</div>' +
-        '<div class="bs-body">' + cellsHtml + '</div>';
+        '<div class="panel-body bs-body">' + cellsHtml + '</div>';
 
       var container = document.getElementById('brandStats');
       container.innerHTML = html;
-
-      if (brandStatsCollapsed) {
-        container.classList.add('is-collapsed');
-      } else {
-        container.classList.remove('is-collapsed');
-      }
+      container.classList.toggle('is-collapsed', brandStatsCollapsed);
 
       var toggleBtn = document.getElementById('bsToggle');
       if (toggleBtn) {
@@ -392,18 +371,12 @@
       var cells = container.querySelectorAll('.bs-cell');
       for (var c = 0; c < cells.length; c++) {
         cells[c].addEventListener('click', function () {
-          var key = this.getAttribute('data-brand');
-          filterByBrand(key);
+          filterByBrand(this.getAttribute('data-brand'));
         });
       }
     }
 
-    // =========================================================
-    // [신규] 계약기간 문자열에서 연도를 추출
-    // - "2027-06-30" 같은 4자리 연도
-    // - "26.12예정" 같은 2자리 연도(앞에 점이 붙는 표기)
-    // - 그 외(예: "미파악(민자)") 는 null 반환 → 필터 대상에서 제외
-    // =========================================================
+    // ===== 계약만료 필터 =====
     function parseContractYear(contractStr) {
       var s = (contractStr == null ? "" : String(contractStr)).trim();
       if (!s) return null;
@@ -413,12 +386,9 @@
       if (m2) return 2000 + parseInt(m2[1], 10);
       return null;
     }
-
     var CONTRACT_YEARS = [2026, 2027, 2028, 2029];
-
     var contractPanelCollapsed = true;
-    // 계약만료 필터 현재 상태: null 또는 { year: 2027, step: '3차' 또는 null(=전체) }
-    var contractFilterState = null;
+    var contractFilterState = null;  // { year, step }
 
     function updateContractPanel() {
       var yearCounts = {};
@@ -431,48 +401,44 @@
       var yearChipsHtml = "";
       CONTRACT_YEARS.forEach(function (y) {
         var active = (contractFilterState && contractFilterState.year === y) ? ' is-active' : '';
-        yearChipsHtml += '<div class="cf-chip' + active + '" data-year="' + y + '">' +
-                            y + '년(' + yearCounts[y] + ')' +
-                          '</div>';
+        yearChipsHtml += '<div class="flt-chip' + active + '" data-year="' + y + '">' + y + '년(' + yearCounts[y] + ')</div>';
       });
 
       var stepChipsHtml = "";
       if (contractFilterState && contractFilterState.year != null) {
-        // 선택된 연도 내에 실제 존재하는 계약차수 값들만 모아 칩으로 구성
-        var stepSet = {};
-        var stepList = [];
+        var stepSet = {}, stepList = [];
         allMarkers.forEach(function (item) {
           if (parseContractYear(item.point.contract) !== contractFilterState.year) return;
-          var stepVal = (item.point.contract_step == null ? "" : String(item.point.contract_step)).trim();
-          if (!stepVal) return;
-          if (!stepSet[stepVal]) {
-            stepSet[stepVal] = true;
-            stepList.push(stepVal);
-          }
+          var sv = (item.point.contract_step == null ? "" : String(item.point.contract_step)).trim();
+          if (!sv) return;
+          if (!stepSet[sv]) { stepSet[sv] = true; stepList.push(sv); }
         });
-
         if (stepList.length) {
           var allActive = (contractFilterState.step == null) ? ' is-active' : '';
-          stepChipsHtml += '<div class="cf-chip' + allActive + '" data-step="__ALL__">전체</div>';
+          stepChipsHtml += '<div class="flt-chip' + allActive + '" data-step="__ALL__">전체</div>';
           stepList.forEach(function (sv) {
             var active = (contractFilterState.step === sv) ? ' is-active' : '';
-            stepChipsHtml += '<div class="cf-chip' + active + '" data-step="' + sv + '">' + sv + '</div>';
+            stepChipsHtml += '<div class="flt-chip' + active + '" data-step="' + sv + '">' + sv + '</div>';
           });
         } else {
-          stepChipsHtml = '<div class="cf-empty-note">이 연도에는 계약차수 정보가 없습니다.</div>';
+          stepChipsHtml = '<div class="flt-empty-note">이 연도에는 계약차수 정보가 없습니다.</div>';
         }
       }
 
       var arrow = contractPanelCollapsed ? '▼' : '▲';
+      var sub = contractFilterState ? (' (' + contractFilterState.year + '년' + (contractFilterState.step ? ' · ' + contractFilterState.step : '') + ')') : '';
 
       var html =
-        '<div class="cf-header">' +
-          '<span class="cf-title">📅 계약만료 필터' + (contractFilterState ? (' (' + contractFilterState.year + '년' + (contractFilterState.step ? ' · ' + contractFilterState.step : '') + ')') : '') + '</span>' +
-          '<button class="cf-toggle" id="cfToggle">' + arrow + '</button>' +
+        '<div class="panel-head">' +
+          '<div class="panel-titlebox">' +
+            '<span class="panel-title">📅 계약만료 필터</span>' +
+            (sub ? '<span class="panel-sub">' + sub + '</span>' : '') +
+          '</div>' +
+          '<button class="panel-toggle" id="cfToggle">' + arrow + '</button>' +
         '</div>' +
-        '<div class="cf-body">' +
-          '<div class="cf-row">' + yearChipsHtml + '</div>' +
-          (stepChipsHtml ? '<div class="cf-row">' + stepChipsHtml + '</div>' : '') +
+        '<div class="panel-body chip-body">' +
+          '<div class="chip-row">' + yearChipsHtml + '</div>' +
+          (stepChipsHtml ? '<div class="chip-row">' + stepChipsHtml + '</div>' : '') +
         '</div>';
 
       var panel = document.getElementById('contractFilterPanel');
@@ -491,8 +457,7 @@
       var yearEls = panel.querySelectorAll('[data-year]');
       for (var i = 0; i < yearEls.length; i++) {
         yearEls[i].addEventListener('click', function () {
-          var y = parseInt(this.getAttribute('data-year'), 10);
-          filterByContractYear(y);
+          filterByContractYear(parseInt(this.getAttribute('data-year'), 10));
         });
       }
       var stepEls = panel.querySelectorAll('[data-step]');
@@ -504,13 +469,113 @@
       }
     }
 
+    // ===== [신규] 운영사 필터 =====
+    var TOP_OPERATOR_COUNT = 10;      // 상위 몇 개를 1차로 노출할지
+    var operatorPanelCollapsed = true;
+    var operatorEtcExpanded = false;  // '그외' 목록 펼침 여부
+    var activeOperator = null;        // 현재 선택된 운영사명
+
+    function normalizeOperator(v) {
+      return (v == null ? "" : String(v)).trim();
+    }
+
+    // 운영사별 점포 수 집계 후 [ {name, count}, ... ] 내림차순 반환
+    function getOperatorCounts() {
+      var counts = {};
+      allMarkers.forEach(function (item) {
+        var op = normalizeOperator(item.point.operator);
+        if (!op) return;
+        counts[op] = (counts[op] || 0) + 1;
+      });
+      var arr = [];
+      for (var k in counts) {
+        if (counts.hasOwnProperty(k)) arr.push({ name: k, count: counts[k] });
+      }
+      arr.sort(function (a, b) { return b.count - a.count; });
+      return arr;
+    }
+
+    function updateOperatorPanel() {
+      var opCounts = getOperatorCounts();
+      var topOps = opCounts.slice(0, TOP_OPERATOR_COUNT);
+      var etcOps = opCounts.slice(TOP_OPERATOR_COUNT);
+      var etcTotal = etcOps.reduce(function (a, b) { return a + b.count; }, 0);
+
+      // 상위 운영사 칩
+      var topChipsHtml = "";
+      topOps.forEach(function (o) {
+        var active = (activeOperator === o.name) ? ' is-active' : '';
+        topChipsHtml += '<div class="flt-chip' + active + '" data-operator="' + o.name + '">' + o.name + '(' + o.count + ')</div>';
+      });
+      // '그외' 칩 (있을 때만)
+      if (etcOps.length) {
+        var etcActive = operatorEtcExpanded ? ' is-active' : '';
+        topChipsHtml += '<div class="flt-chip' + etcActive + '" data-etc="1">그외 ' + etcOps.length + '곳(' + etcTotal + ') ' + (operatorEtcExpanded ? '▲' : '▾') + '</div>';
+      }
+
+      // '그외' 펼침 시 나머지 운영사 목록
+      var etcListHtml = "";
+      if (operatorEtcExpanded && etcOps.length) {
+        etcListHtml = '<div class="etc-scroll">';
+        etcOps.forEach(function (o) {
+          var active = (activeOperator === o.name) ? ' is-active' : '';
+          etcListHtml += '<div class="flt-chip' + active + '" data-operator="' + o.name + '">' + o.name + '(' + o.count + ')</div>';
+        });
+        etcListHtml += '</div>';
+      }
+
+      var arrow = operatorPanelCollapsed ? '▼' : '▲';
+      var sub = activeOperator ? (' (' + activeOperator + ')') : '';
+
+      var html =
+        '<div class="panel-head">' +
+          '<div class="panel-titlebox">' +
+            '<span class="panel-title">🏢 운영사 필터</span>' +
+            (sub ? '<span class="panel-sub">' + sub + '</span>' : '') +
+          '</div>' +
+          '<button class="panel-toggle" id="opToggle">' + arrow + '</button>' +
+        '</div>' +
+        '<div class="panel-body chip-body">' +
+          '<div class="chip-row">' + topChipsHtml + '</div>' +
+          etcListHtml +
+        '</div>';
+
+      var panel = document.getElementById('operatorFilterPanel');
+      panel.innerHTML = html;
+      panel.classList.toggle('is-collapsed', operatorPanelCollapsed);
+
+      var toggleBtn = document.getElementById('opToggle');
+      if (toggleBtn) {
+        toggleBtn.addEventListener('click', function () {
+          operatorPanelCollapsed = !operatorPanelCollapsed;
+          panel.classList.toggle('is-collapsed', operatorPanelCollapsed);
+          toggleBtn.textContent = operatorPanelCollapsed ? '▼' : '▲';
+        });
+      }
+
+      // '그외' 토글
+      var etcBtn = panel.querySelector('[data-etc]');
+      if (etcBtn) {
+        etcBtn.addEventListener('click', function () {
+          operatorEtcExpanded = !operatorEtcExpanded;
+          updateOperatorPanel();
+        });
+      }
+
+      // 운영사 칩 클릭
+      var opEls = panel.querySelectorAll('[data-operator]');
+      for (var i = 0; i < opEls.length; i++) {
+        opEls[i].addEventListener('click', function () {
+          filterByOperator(this.getAttribute('data-operator'));
+        });
+      }
+    }
+
     var SMALL_MARKER_ZOOM_LEVEL = 10;
-    var LABEL_MAX_ZOOM_LEVEL = 9;          // 노선명 라벨 표시 기준 줌
-    // [수정] 점포명 라벨은 노선 라벨보다 더 멀리(더 축소된 상태)서도 보이도록 완화
-    //  (카카오맵 level 숫자가 클수록 축소 상태. 값을 올리면 더 축소해도 라벨이 보입니다.)
+    var LABEL_MAX_ZOOM_LEVEL = 9;
     var NAME_LABEL_MAX_ZOOM_LEVEL = 11;
     var LABEL_MIN_GAP_PX = 70;
-    var FILTER_LABEL_THRESHOLD = 25; // 필터된 개수가 이 값 이하면 항상 이름 표시
+    var FILTER_LABEL_THRESHOLD = 25;
 
     var Z_BASE = 2;
     var Z_HIGHLIGHT = 10;
@@ -523,12 +588,7 @@
     var allLabels = [];
     var isShowingAllRoutes = false;
 
-    // =========================================================
-    // [일반화] 브랜드 필터 / 계약만료 필터가 공유하는 상태
-    // - filterMode: null | 'brand' | 'contract'
-    // - filteredMarkerItems: 현재 필터로 지도에 남아있는 마커 목록
-    // =========================================================
-    var filterMode = null;
+    var filterMode = null;         // null | 'brand' | 'contract' | 'operator'
     var activeBrandKey = null;
     var filteredMarkerItems = [];
 
@@ -633,7 +693,6 @@
 
     function computeSortedGroup(highway) {
       var target = normalize(highway);
-
       var group = allMarkers.filter(function (item) {
         return normalize(item.point.highway) === target;
       });
@@ -643,60 +702,42 @@
       for (var i = 0; i < group.length; i++) {
         for (var k = i + 1; k < group.length; k++) {
           var d = squaredDistance(group[i].point, group[k].point);
-          if (d > maxDist) {
-            maxDist = d;
-            farA = i;
-            farB = k;
-          }
+          if (d > maxDist) { maxDist = d; farA = i; farB = k; }
         }
       }
 
       var remaining = group.slice();
-      var startIdx = farA;
-
       var sorted = [];
-      var current = remaining.splice(startIdx, 1)[0];
+      var current = remaining.splice(farA, 1)[0];
       sorted.push(current);
 
       while (remaining.length > 0) {
         var nearestIdx = 0;
         var nearestDist = squaredDistance(current.point, remaining[0].point);
-
         for (var j = 1; j < remaining.length; j++) {
           var dd = squaredDistance(current.point, remaining[j].point);
-          if (dd < nearestDist) {
-            nearestDist = dd;
-            nearestIdx = j;
-          }
+          if (dd < nearestDist) { nearestDist = dd; nearestIdx = j; }
         }
-
         current = remaining.splice(nearestIdx, 1)[0];
         sorted.push(current);
       }
 
-      log('📐 최대거리 시작점 + 최근접 이웃 정렬: "' + highway + '" (' + sorted.length + '개, 시작점=' + sorted[0].point.name + ')');
+      log('📐 정렬: "' + highway + '" (' + sorted.length + '개)');
       return sorted;
     }
 
     function drawSingleRoute(highway) {
       var group = computeSortedGroup(highway);
-      if (group.length < 2) {
-        log('❌ "' + highway + '" 소속 휴게소가 2개 미만이라 노선 생략 (' + group.length + '개)');
-        return;
-      }
+      if (group.length < 2) return;
 
       var color = getRouteColor(highway);
-
       var path = group.map(function (item) {
         return new kakao.maps.LatLng(item.point.lat, item.point.lng);
       });
 
       var polyline = new kakao.maps.Polyline({
-        path: path,
-        strokeWeight: 4,
-        strokeColor: color,
-        strokeOpacity: 0.9,
-        strokeStyle: 'solid'
+        path: path, strokeWeight: 4, strokeColor: color,
+        strokeOpacity: 0.9, strokeStyle: 'solid'
       });
       polyline.setMap(map);
       allPolylines.push(polyline);
@@ -704,20 +745,14 @@
       var labelOverlay = new kakao.maps.CustomOverlay({
         position: path[Math.floor(path.length / 2)],
         content: '<div class="highway-label" style="background:' + color + ';">' + highway + '</div>',
-        yAnchor: 1,
-        zIndex: 15
+        yAnchor: 1, zIndex: 15
       });
       allLabels.push({ overlay: labelOverlay, path: path, color: color });
-
-      log('✅ 노선 그림: "' + highway + '" (' + path.length + '개 좌표)');
     }
 
     function drawRoute(highway) {
       clearRoute();
-      if (!normalize(highway)) {
-        log('❌ 고속도로명이 비어있어 노선을 그릴 수 없습니다.');
-        return;
-      }
+      if (!normalize(highway)) return;
       drawSingleRoute(highway);
       updateLabelPosition();
     }
@@ -733,25 +768,18 @@
         setMarkerZ(item, Z_BASE, true);
       });
 
-      var seen = {};
-      var highways = [];
+      var seen = {}, highways = [];
       allMarkers.forEach(function (item) {
         var hw = item.point.highway;
         var key = normalize(hw);
-        if (key && !seen[key]) {
-          seen[key] = true;
-          highways.push(hw);
-        }
+        if (key && !seen[key]) { seen[key] = true; highways.push(hw); }
       });
 
-      log('🛣 전체 노선 보기: ' + highways.length + '개 고속도로');
       highways.forEach(function (hw) { drawSingleRoute(hw); });
       updateLabelPosition();
-
       updateBrandStats(allMarkers, '전체노선');
     }
 
-    // 노선 라벨 표시/위치 갱신
     function updateLabelPosition() {
       if (!map || !allLabels.length) return;
 
@@ -779,11 +807,7 @@
           var dist = dLat * dLat + dLng * dLng;
           if (dist < bestDist) { bestDist = dist; best = pt; }
         }
-
-        if (!best) {
-          lb.overlay.setMap(null);
-          return;
-        }
+        if (!best) { lb.overlay.setMap(null); return; }
 
         var tooClose = false;
         if (projection) {
@@ -792,30 +816,17 @@
             for (var j = 0; j < placedPoints.length; j++) {
               var dx = cp.x - placedPoints[j].x;
               var dy = cp.y - placedPoints[j].y;
-              if (Math.sqrt(dx * dx + dy * dy) < LABEL_MIN_GAP_PX) {
-                tooClose = true;
-                break;
-              }
+              if (Math.sqrt(dx * dx + dy * dy) < LABEL_MIN_GAP_PX) { tooClose = true; break; }
             }
             if (!tooClose) placedPoints.push(cp);
-          } catch (e) {
-            tooClose = false;
-          }
+          } catch (e) { tooClose = false; }
         }
 
-        if (tooClose) {
-          lb.overlay.setMap(null);
-        } else {
-          lb.overlay.setPosition(best);
-          lb.overlay.setMap(map);
-        }
+        if (tooClose) { lb.overlay.setMap(null); }
+        else { lb.overlay.setPosition(best); lb.overlay.setMap(map); }
       });
     }
 
-    // =========================================================
-    // [일반화] 브랜드/계약만료 필터 공통: 마커 위 휴게소명 라벨 표시
-    // filteredMarkerItems 를 대상으로 개수·줌 레벨·겹침 여부를 판단합니다.
-    // =========================================================
     function updateFilteredNameLabels() {
       if (!map) return;
 
@@ -842,7 +853,6 @@
 
       filteredMarkerItems.forEach(function (item) {
         var pos = item.overlay.getPosition();
-
         if (!bounds.contain(pos)) {
           if (item.nameLabel) item.nameLabel.setMap(null);
           return;
@@ -855,15 +865,10 @@
             for (var j = 0; j < placedPoints.length; j++) {
               var dx = cp.x - placedPoints[j].x;
               var dy = cp.y - placedPoints[j].y;
-              if (Math.sqrt(dx * dx + dy * dy) < LABEL_MIN_GAP_PX) {
-                tooClose = true;
-                break;
-              }
+              if (Math.sqrt(dx * dx + dy * dy) < LABEL_MIN_GAP_PX) { tooClose = true; break; }
             }
             if (!tooClose) placedPoints.push(cp);
-          } catch (e) {
-            tooClose = false;
-          }
+          } catch (e) { tooClose = false; }
         }
 
         if (tooClose) {
@@ -875,8 +880,7 @@
           item.nameLabel = new kakao.maps.CustomOverlay({
             position: pos,
             content: '<div class="name-label">' + item.point.name + '</div>',
-            yAnchor: 1,
-            zIndex: 25
+            yAnchor: 1, zIndex: 25
           });
         }
         item.nameLabel.setMap(map);
@@ -888,26 +892,29 @@
       updateFilteredNameLabels();
     }
 
-    // 현재 활성화된 필터(브랜드/계약만료)를 모두 해제하고 전체 마커를 복구
     function clearMarkerFilter() {
       filterMode = null;
       activeBrandKey = null;
       contractFilterState = null;
+      activeOperator = null;
+      operatorEtcExpanded = false;
       filteredMarkerItems = [];
       allMarkers.forEach(function (item) {
         item.overlay.setMap(map);
         if (item.nameLabel) item.nameLabel.setMap(null);
       });
       updateContractPanel();
+      updateOperatorPanel();
     }
 
-    // 공통: 필터된 마커만 지도에 남기고 나머지는 완전히 숨김
     function applyMarkerFilter(items, statsLabel, mode) {
       filterMode = mode;
       filteredMarkerItems = items;
 
       var matchSet = {};
-      items.forEach(function (item) { matchSet[item.point.name + '|' + item.point.lat + '|' + item.point.lng] = true; });
+      items.forEach(function (item) {
+        matchSet[item.point.name + '|' + item.point.lat + '|' + item.point.lng] = true;
+      });
 
       allMarkers.forEach(function (item) {
         var key = item.point.name + '|' + item.point.lat + '|' + item.point.lng;
@@ -925,61 +932,44 @@
       updateBrandStats(items, statsLabel);
     }
 
-    // =========================================================
     // 브랜드 필터
-    // =========================================================
     function filterByBrand(brandKey) {
-      if (filterMode === 'brand' && activeBrandKey === brandKey) {
-        resetAll();
-        return;
-      }
-
+      if (filterMode === 'brand' && activeBrandKey === brandKey) { resetAll(); return; }
       clearRoute();
       if (infowindow) infowindow.close();
       isShowingAllRoutes = false;
       contractFilterState = null;
-      updateContractPanel();
+      activeOperator = null; operatorEtcExpanded = false;
+      updateContractPanel(); updateOperatorPanel();
       activeBrandKey = brandKey;
 
       var items = allMarkers.filter(function (item) {
         return classifyBrand(item.point.brand) === brandKey;
       });
-
       applyMarkerFilter(items, brandLabelText(brandKey) + ' 필터', 'brand');
     }
 
-    // =========================================================
-    // [신규] 계약만료 연도 필터
-    // =========================================================
+    // 계약만료 연도 필터
     function filterByContractYear(year) {
-      if (contractFilterState && contractFilterState.year === year && contractFilterState.step == null) {
-        resetAll();
-        return;
-      }
-
+      if (contractFilterState && contractFilterState.year === year && contractFilterState.step == null) { resetAll(); return; }
       clearRoute();
       if (infowindow) infowindow.close();
       isShowingAllRoutes = false;
       activeBrandKey = null;
+      activeOperator = null; operatorEtcExpanded = false;
+      updateOperatorPanel();
       contractFilterState = { year: year, step: null };
       updateContractPanel();
 
       var items = allMarkers.filter(function (item) {
         return parseContractYear(item.point.contract) === year;
       });
-
       applyMarkerFilter(items, year + '년 만료', 'contract');
     }
 
-    // [신규] 계약만료 연도 안에서 계약차수로 다시 좁히기
     function filterByContractStep(step) {
       if (!contractFilterState || contractFilterState.year == null) return;
-
-      // 같은 차수를 다시 누르면 "전체(해당 연도)"로 복귀
-      if (contractFilterState.step === step) {
-        step = null;
-      }
-
+      if (contractFilterState.step === step) step = null;
       contractFilterState = { year: contractFilterState.year, step: step };
       updateContractPanel();
 
@@ -990,9 +980,25 @@
         var sv = (item.point.contract_step == null ? "" : String(item.point.contract_step)).trim();
         return sv === step;
       });
+      applyMarkerFilter(items, year + '년 만료' + (step ? (' · ' + step) : ''), 'contract');
+    }
 
-      var label = year + '년 만료' + (step ? (' · ' + step) : '');
-      applyMarkerFilter(items, label, 'contract');
+    // [신규] 운영사 필터
+    function filterByOperator(opName) {
+      if (filterMode === 'operator' && activeOperator === opName) { resetAll(); return; }
+      clearRoute();
+      if (infowindow) infowindow.close();
+      isShowingAllRoutes = false;
+      activeBrandKey = null;
+      contractFilterState = null;
+      updateContractPanel();
+      activeOperator = opName;
+      updateOperatorPanel();
+
+      var items = allMarkers.filter(function (item) {
+        return normalizeOperator(item.point.operator) === opName;
+      });
+      applyMarkerFilter(items, opName + ' 필터', 'operator');
     }
 
     function highlightMarkers(highway) {
@@ -1017,13 +1023,10 @@
         item.el.classList.remove('is-dim');
         setMarkerZ(item, Z_BASE, true);
       });
-      log('↺ 전체 초기화');
-
       updateBrandStats(allMarkers, '전체노선');
     }
 
     function selectHighway(p) {
-      log('👉 selectHighway 실행: ' + p.name + ' / highway=' + p.highway);
       isShowingAllRoutes = false;
       clearMarkerFilter();
       drawRoute(p.highway);
@@ -1040,7 +1043,6 @@
       }
     }
 
-    // 마커 클릭 시 동작: 필터 모드면 정보창만, 아니면 노선 강조까지
     function onMarkerActivate(pos, p, content) {
       if (filterMode) {
         infowindow.setContent(content);
@@ -1063,11 +1065,8 @@
       var level = map.getLevel();
       var small = level >= SMALL_MARKER_ZOOM_LEVEL;
       allMarkers.forEach(function (item) {
-        if (small) {
-          item.el.classList.add('is-small');
-        } else {
-          item.el.classList.remove('is-small');
-        }
+        if (small) item.el.classList.add('is-small');
+        else item.el.classList.remove('is-small');
       });
     }
 
@@ -1080,7 +1079,6 @@
           ? new kakao.maps.LatLng(points[0].lat, points[0].lng)
           : new kakao.maps.LatLng(36.5, 127.8);
         map = new kakao.maps.Map(container, { center: center, level: 8 });
-        // [수정] 정보창 z-index를 매우 높게 지정해 이름 라벨 등 다른 오버레이보다 항상 위에 표시
         infowindow = new kakao.maps.InfoWindow({ zIndex: 20000 });
         document.getElementById('resetBtn').addEventListener('click', resetAll);
         document.getElementById('showAllRoutesBtn').addEventListener('click', showAllRoutes);
@@ -1090,11 +1088,10 @@
           refreshOverlays();
         });
 
-        var bsEl = document.getElementById('brandStats');
-        var cfEl = document.getElementById('contractFilterPanel');
-        [bsEl, cfEl].forEach(function (panelEl) {
+        ['brandStats', 'contractFilterPanel', 'operatorFilterPanel'].forEach(function (id) {
+          var el = document.getElementById(id);
           ['click', 'mousedown', 'touchstart', 'dblclick'].forEach(function (evt) {
-            panelEl.addEventListener(evt, function (e) { e.stopPropagation(); });
+            el.addEventListener(evt, function (e) { e.stopPropagation(); });
           });
         });
       } else {
@@ -1112,47 +1109,27 @@
         var pinEl = createPinElement(p);
 
         var overlay = new kakao.maps.CustomOverlay({
-          position: pos,
-          content: pinEl,
-          xAnchor: 0.5,
-          yAnchor: 1,
-          clickable: true,
-          zIndex: Z_BASE
+          position: pos, content: pinEl,
+          xAnchor: 0.5, yAnchor: 1, clickable: true, zIndex: Z_BASE
         });
         overlay.setMap(map);
-
         kakao.maps.event.preventMap(pinEl);
 
         var item = { overlay: overlay, el: pinEl, point: p, baseZIndex: Z_BASE, nameLabel: null };
         allMarkers.push(item);
         setMarkerZ(item, Z_BASE, true);
 
-        pinEl.addEventListener('click', function () {
-          log('🖱 marker click: ' + p.name);
-          onMarkerActivate(pos, p, content);
-        });
-        pinEl.addEventListener('mouseup', function () {
-          log('🖱 marker mouseup: ' + p.name);
-          onMarkerActivate(pos, p, content);
-        });
-        pinEl.addEventListener('touchstart', function (e) {
-          e.preventDefault();
-          log('📱 marker touchstart: ' + p.name);
-          onMarkerActivate(pos, p, content);
-        }, { passive: false });
-
-        pinEl.addEventListener('mouseenter', function () {
-          setMarkerZ(item, Z_HOVER, false);
-        });
-        pinEl.addEventListener('mouseleave', function () {
-          setMarkerZ(item, item.baseZIndex, false);
-        });
+        pinEl.addEventListener('click', function () { onMarkerActivate(pos, p, content); });
+        pinEl.addEventListener('mouseup', function () { onMarkerActivate(pos, p, content); });
+        pinEl.addEventListener('touchstart', function (e) { e.preventDefault(); onMarkerActivate(pos, p, content); }, { passive: false });
+        pinEl.addEventListener('mouseenter', function () { setMarkerZ(item, Z_HOVER, false); });
+        pinEl.addEventListener('mouseleave', function () { setMarkerZ(item, item.baseZIndex, false); });
       });
 
       applyMarkerScale();
-
       updateBrandStats(allMarkers, '전체노선');
       updateContractPanel();
+      updateOperatorPanel();
 
       if (query) {
         var hit = null;
@@ -1164,21 +1141,15 @@
           map.setLevel(6);
           map.panTo(hitPos);
           activate(hitPos, hit.point, buildContent(hit.point));
-        } else {
-          log('🔎 검색 결과 없음(완전 일치): "' + query + '"');
         }
       }
     }
 
     window.addEventListener('message', function (event) {
-      if (event.source !== window.parent) {
-        return;
-      }
+      if (event.source !== window.parent) return;
       var data = event.data;
-      if (!data || data.type !== 'INIT_MAP_DATA') {
-        return;
-      }
-      log('📩 postMessage 데이터 수신 (마커 ' + (data.points ? data.points.length : 0) + '건)');
+      if (!data || data.type !== 'INIT_MAP_DATA') return;
+      log('📩 postMessage 수신 (' + (data.points ? data.points.length : 0) + '건)');
       if (mapReady) {
         initMap(data.points, data.query);
       } else {
