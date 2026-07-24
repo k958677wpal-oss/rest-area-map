@@ -62,9 +62,6 @@
 
     /* 브랜드 점유율 본문 */
     #brandStats .bs-body { display: flex; align-items: stretch; }
-    /* [수정] ID 선택자를 포함한 규칙끼리 특정도를 맞춰, 접힘 시 확실히 숨겨지도록 함
-       (기존에는 위 #brandStats .bs-body { display:flex } 가 .panel-card.is-collapsed .panel-body
-        보다 우선순위가 높아 접히지 않았던 버그를 해결) */
     #brandStats.is-collapsed .bs-body { display: none; }
 
     #brandStats .bs-cell {
@@ -637,11 +634,13 @@
       return p.name;
     }
 
+    // [수정] 연매출액과 브랜드 사이에 '추정매출' 추가
     function buildContent(p) {
       return '<div class="iw-wrap">' +
                '<span class="iw-close" onclick="closeInfoWindow()">×</span>' +
                '<div class="iw-title">' + buildTitle(p) + '</div>' +
                '연매출액: ' + p.revenue + '<br>' +
+               '추정매출: ' + p.estimated_revenue + '<br>' +
                '브랜드: ' + p.brand + '<br>' +
                '운영사: ' + p.operator + '<br>' +
                '계약기간: ' + p.contract + '<br>' +
@@ -650,10 +649,12 @@
              '</div>';
     }
 
+    // [수정] 순서: 연매출액 → 추정매출 → 브랜드
     function buildTooltipContent(p) {
       return '<b>' + buildTitle(p) + '</b><br>' +
-             '브랜드: ' + p.brand + '<br>' +
-             '연매출액: ' + p.revenue;
+             '연매출액: ' + p.revenue + '<br>' +
+             '추정매출: ' + p.estimated_revenue + '<br>' +
+             '브랜드: ' + p.brand;
     }
 
     function createPinElement(p) {
