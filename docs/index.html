@@ -18,7 +18,6 @@
     #resetBtn { background: #333; }
     #showAllRoutesBtn { background: #2F5597; }
 
-    /* 좌측 필터 영역 */
     #leftPanels {
       position: absolute; top: 10px; left: 10px; z-index: 100;
       display: flex; flex-direction: column; gap: 8px;
@@ -26,7 +25,6 @@
       max-width: calc(100% - 20px);
     }
 
-    /* 필터 마스터 토글 버튼 */
     #filterMasterBtn {
       padding: 8px 14px; font-size: 13px; font-weight: 700;
       border: none; border-radius: 8px;
@@ -37,7 +35,6 @@
     #filterGroup { display: flex; flex-direction: column; gap: 8px; }
     #leftPanels.master-collapsed #filterGroup { display: none; }
 
-    /* 공통 패널 카드 */
     .panel-card {
       background: rgba(255,255,255,0.94);
       border-radius: 10px;
@@ -60,7 +57,6 @@
     }
     .panel-card.is-collapsed .panel-body { display: none; }
 
-    /* 브랜드 점유율 본문 */
     #brandStats .bs-body { display: flex; align-items: stretch; }
     #brandStats.is-collapsed .bs-body { display: none; }
 
@@ -83,7 +79,6 @@
     #brandStats .bs-seven .bs-name { color: #FF6C00; }
     #brandStats .bs-etc .bs-name { color: #888; }
 
-    /* 칩 영역(계약/운영사 공용) */
     .chip-body { padding: 8px 10px; }
     .chip-row {
       display: flex; gap: 6px; flex-wrap: wrap;
@@ -394,7 +389,6 @@
       }
     }
 
-    // ===== 계약만료 필터 =====
     function parseContractYear(contractStr) {
       var s = (contractStr == null ? "" : String(contractStr)).trim();
       if (!s) return null;
@@ -487,7 +481,6 @@
       }
     }
 
-    // ===== 운영사 필터 =====
     var TOP_OPERATOR_COUNT = 10;
     var operatorPanelCollapsed = true;
     var operatorEtcExpanded = false;
@@ -634,13 +627,19 @@
       return p.name;
     }
 
-    // [수정] 연매출액과 브랜드 사이에 '추정매출' 추가
+    // [신규] 추정매출 표시: 값이 있으면 '천원' 단위를 붙이고, 비었으면 그대로 둠
+    function formatEstimated(v) {
+      var s = (v == null ? "" : String(v)).trim();
+      if (s === "") return "";
+      return s + "천원";
+    }
+
     function buildContent(p) {
       return '<div class="iw-wrap">' +
                '<span class="iw-close" onclick="closeInfoWindow()">×</span>' +
                '<div class="iw-title">' + buildTitle(p) + '</div>' +
                '연매출액: ' + p.revenue + '<br>' +
-               '추정매출: ' + p.estimated_revenue + '<br>' +
+               '추정매출: ' + formatEstimated(p.estimated_revenue) + '<br>' +
                '브랜드: ' + p.brand + '<br>' +
                '운영사: ' + p.operator + '<br>' +
                '계약기간: ' + p.contract + '<br>' +
@@ -649,11 +648,10 @@
              '</div>';
     }
 
-    // [수정] 순서: 연매출액 → 추정매출 → 브랜드
     function buildTooltipContent(p) {
       return '<b>' + buildTitle(p) + '</b><br>' +
              '연매출액: ' + p.revenue + '<br>' +
-             '추정매출: ' + p.estimated_revenue + '<br>' +
+             '추정매출: ' + formatEstimated(p.estimated_revenue) + '<br>' +
              '브랜드: ' + p.brand;
     }
 
