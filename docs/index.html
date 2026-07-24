@@ -15,7 +15,7 @@
       color: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.3); cursor: pointer;
       white-space: nowrap;
     }
-    #resetBtn { background: #0E9F6E; }
+    #resetBtn { background: #2E8B57; }
     #showAllRoutesBtn { background: #2F5597; }
 
     #leftPanels {
@@ -219,7 +219,6 @@
       visibility: visible;
     }
 
-    /* [수정] 상세 정보창 아래 여백을 34px → 8px로 축소해 불필요한 공백 제거 */
     .iw-wrap {
       pointer-events: none;
       position: relative;
@@ -265,7 +264,7 @@
 
   <div class="top-right-btns">
     <button id="resetBtn" class="map-btn">🏠 홈</button>
-    <button id="showAllRoutesBtn" class="map-btn">🛣️ 전체 노선 보기</button>
+    <button id="showAllRoutesBtn" class="map-btn">전체 노선 보기</button>
   </div>
 
   <div id="debugPanel"></div>
@@ -597,6 +596,10 @@
     var activeBrandKey = null;
     var filteredMarkerItems = [];
 
+    // [신규] routes.json에서 읽어온 노선별 실제 도로 좌표
+    var PRECOMPUTED_ROUTES = {};
+    var precomputedRoutesLoaded = false;
+
     var DEBUG = false;
     var mapReady = false;
     var pendingMapData = null;
@@ -614,6 +617,24 @@
 
     function normalize(s) {
       return (s == null ? "" : String(s)).replace(/\s+/g, "").trim();
+    }
+
+    // [신규] docs/routes.json 을 미리 불러옵니다. 실패해도 기존 방식으로 자연스럽게 대체됩니다.
+    function loadPrecomputedRoutes() {
+      fetch('routes.json')
+        .then(function (res) {
+          if (!res.ok) throw new Error('routes.json 로드 실패: ' + res.status);
+          return res.json();
+        })
+        .then(function (data) {
+          PRECOMPUTED_ROUTES = data || {};
+          precomputedRoutesLoaded = true;
+          log('📁 routes.json 로드 완료 (' + Object.keys(PRECOMPUTED_ROUTES).length + '개 노선)');
+        })
+        .catch(function (err) {
+          log('⚠ routes.json 로드 실패, 기존 휴게소 연결 방식으로 대체: ' + err);
+          precomputedRoutesLoaded = true;
+        });
     }
 
     function setMarkerZ(item, z, isBaseChange) {
@@ -733,14 +754,29 @@
       return sorted;
     }
 
+    // [수정] routes.json에 이 노선의 실제 도로 좌표가 있으면 우선 사용,
+    // 없으면 기존처럼 휴게소 좌표를 최근접 이웃으로 연결
     function drawSingleRoute(highway) {
-      var group = computeSortedGroup(highway);
-      if (group.length < 2) return;
+      var precomputed = PRECOMPUTED_ROUTES[highway];
+      var path;
+
+      if (precomputed && precomputed.length >= 2) {
+        path = precomputed.map(function (c) {
+          return new kakao.maps.LatLng(c[0], c[1]);
+        });
+        log('✅ 정밀 노선 사용: "' + highway + '" (' + path.length + '개 좌표, routes.json)');
+      } else {
+        var group = computeSortedGroup(highway);
+        if (group.length < 2) {
+          log('❌ "' + highway + '" 소속 휴게소가 2개 미만이라 노선 생략 (' + group.length + '개)');
+          return;
+        }
+        path = group.map(function (item) {
+          return new kakao.maps.LatLng(item.point.lat, item.point.lng);
+        });
+      }
 
       var color = getRouteColor(highway);
-      var path = group.map(function (item) {
-        return new kakao.maps.LatLng(item.point.lat, item.point.lng);
-      });
 
       var polyline = new kakao.maps.Polyline({
         path: path, strokeWeight: 4, strokeColor: color,
@@ -1169,6 +1205,9 @@
       DEBUG = params.get('debug') === '1';
       if (DEBUG) document.getElementById('debugPanel').style.display = 'block';
       mapReady = true;
+
+      loadPrecomputedRoutes();
+
       if (pendingMapData) {
         initMap(pendingMapData.points, pendingMapData.query);
         pendingMapData = null;
