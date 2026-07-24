@@ -3,9 +3,11 @@ import pandas as pd
 import gspread
 import json
 import streamlit.components.v1 as components
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 # --- 페이지 기본 설정 ---
 st.set_page_config(page_title="휴게소 데이터 허브", layout="wide")
+# 한국 표준시(KST, UTC+9) 시간대 정의
+KST = timezone(timedelta(hours=9))
 # --- 모바일 헤더 최적화 CSS ---
 st.markdown(
     """
@@ -51,12 +53,14 @@ def load_login_data():
 def write_login_log(user_name):
     """
     로그인 성공 시 "접속_로그" 시트에 접속시간과 이름을 한 줄 추가합니다.
+    접속시간은 서버 시간이 아니라 한국 표준시(KST, UTC+9) 기준으로 기록합니다.
     (캐시를 쓰지 않고 매번 새 연결로 기록해야 실제 시트에 반영됩니다.)
     """
     gc = init_connection()
     doc = gc.open_by_key(LOGIN_SHEET_KEY)
     worksheet = doc.worksheet("접속_로그")
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # 한국 표준시(UTC+9) 기준 현재 시각 문자열
+    now_str = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
     # [접속시간, 이름, 상태] 순서로 한 줄 추가
     worksheet.append_row([now_str, user_name, "로그인 성공"])
 def normalize_value(value):
