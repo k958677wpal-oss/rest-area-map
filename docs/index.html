@@ -219,10 +219,11 @@
       visibility: visible;
     }
 
+    /* [수정] 상세 정보창 아래 여백을 34px → 8px로 축소해 불필요한 공백 제거 */
     .iw-wrap {
       pointer-events: none;
       position: relative;
-      margin-bottom: 34px;
+      margin-bottom: 8px;
       padding: 10px 12px;
       font-size: 13px;
       line-height: 1.6;
@@ -627,7 +628,6 @@
       return p.name;
     }
 
-    // [신규] 추정매출 표시: 값이 있으면 '천원' 단위를 붙이고, 비었으면 그대로 둠
     function formatEstimated(v) {
       var s = (v == null ? "" : String(v)).trim();
       if (s === "") return "";
