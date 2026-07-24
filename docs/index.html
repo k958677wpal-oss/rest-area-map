@@ -18,21 +18,17 @@
     #resetBtn { background: #333; }
     #showAllRoutesBtn { background: #2F5597; }
 
-    /* =========================================================
-       [개선] 브랜드 점유율 대시보드 (좌측 상단 플로팅 카드)
-       - width:max-content 로 내용물 크기에 딱 맞게 (PC 휑한 여백 제거)
-       ========================================================= */
+    /* 브랜드 점유율 대시보드 */
     #brandStats {
       position: absolute; top: 10px; left: 10px; z-index: 100;
-      width: max-content;              /* 내용물에 딱 맞는 콤팩트한 폭 */
-      max-width: calc(100% - 20px);    /* 화면 밖으로 삐져나가지 않도록 상한 */
+      width: max-content;
+      max-width: calc(100% - 20px);
       background: rgba(255,255,255,0.92);
       border-radius: 10px;
       box-shadow: 0 2px 10px rgba(0,0,0,.25);
       overflow: hidden;
       font-size: 12px;
     }
-    /* 헤더(제목 + 노선명 + 토글 화살표) */
     #brandStats .bs-header {
       display: flex; align-items: center; gap: 8px;
       padding: 6px 10px;
@@ -41,8 +37,6 @@
     #brandStats .bs-titlebox { display: flex; flex-direction: column; }
     #brandStats .bs-title { font-weight: 700; color: #333; white-space: nowrap; }
     #brandStats .bs-route { font-size: 11px; color: #2F5597; font-weight: 600; white-space: nowrap; }
-
-    /* [개선] 토글 버튼: PC/모바일 공통 항상 표시 */
     #brandStats .bs-toggle {
       display: block;
       margin-left: auto;
@@ -50,8 +44,6 @@
       font-size: 13px; color: #555; cursor: pointer; padding: 2px 6px;
       line-height: 1;
     }
-
-    /* 본문(브랜드 셀들) - PC: 가로 1줄 타이트 */
     #brandStats .bs-body {
       display: flex;
       align-items: stretch;
@@ -65,20 +57,13 @@
     #brandStats .bs-cell:first-child { border-left: none; }
     #brandStats .bs-name { font-weight: 700; margin-bottom: 2px; white-space: nowrap; }
     #brandStats .bs-value { color: #333; white-space: nowrap; }
-
-    /* 브랜드별 이름 색상 (마커 테두리 색과 통일) */
     #brandStats .bs-GS25 .bs-name { color: #2770BF; }
     #brandStats .bs-CU .bs-name { color: #710E82; }
     #brandStats .bs-emart .bs-name { color: #C99700; }
     #brandStats .bs-seven .bs-name { color: #FF6C00; }
     #brandStats .bs-etc .bs-name { color: #888; }
-
-    /* [개선] 접힘 상태: 본문 숨김 (PC/모바일 공통) */
     #brandStats.is-collapsed .bs-body { display: none; }
 
-    /* =========================================================
-       [반응형] 모바일 (768px 이하): 펼쳤을 때 3열 타일 그리드(위3·아래2)
-       ========================================================= */
     @media (max-width: 768px) {
       #brandStats { font-size: 11px; }
       #brandStats .bs-body {
@@ -100,8 +85,8 @@
       background: rgba(0,0,0,.8); color: #0f0; font: 12px monospace;
       padding: 6px; display: none; white-space: pre-wrap;
     }
+    /* 노선 라벨: 배경색은 JS에서 노선 색으로 지정 */
     .highway-label {
-      background: #2F5597;
       color: #fff;
       font-size: 12px;
       font-weight: 600;
@@ -110,7 +95,6 @@
       box-shadow: 0 2px 6px rgba(0,0,0,.25);
       white-space: nowrap;
       transform: translate(-50%, -130%);
-      transition: opacity .2s ease;
     }
 
     .marker-pin {
@@ -220,7 +204,6 @@
 <body>
   <div id="map"></div>
 
-  <!-- 브랜드 점유율 대시보드 (기본 접힘 상태) -->
   <div id="brandStats" class="is-collapsed"></div>
 
   <div class="top-right-btns">
@@ -257,6 +240,27 @@
       return BRAND_COLORS["기타"];
     }
 
+    // =========================================================
+    // [신규] 노선별 색상 자동 배정
+    // - 노선명을 해시값으로 바꿔 팔레트에서 색을 고릅니다.
+    // - 같은 노선명은 항상 같은 색이 나옵니다(일관성).
+    // =========================================================
+    var ROUTE_COLOR_PALETTE = [
+      "#E6194B", "#3CB44B", "#4363D8", "#F58231", "#911EB4",
+      "#008080", "#9A6324", "#800000", "#808000", "#000075",
+      "#E6799A", "#46F0F0", "#F032E6", "#BCBD22", "#17BECF",
+      "#D2691E", "#1F77B4", "#2CA02C", "#8C564B", "#E377C2"
+    ];
+    function getRouteColor(highway) {
+      var s = String(highway || "");
+      var hash = 0;
+      for (var i = 0; i < s.length; i++) {
+        hash = (hash * 31 + s.charCodeAt(i)) % 1000000007;
+      }
+      var idx = Math.abs(hash) % ROUTE_COLOR_PALETTE.length;
+      return ROUTE_COLOR_PALETTE[idx];
+    }
+
     var BRAND_STAT_ORDER = [
       { key: "GS25",   label: "GS25",   cls: "bs-GS25" },
       { key: "CU",     label: "CU",     cls: "bs-CU" },
@@ -274,7 +278,6 @@
       return "매점";
     }
 
-    // 접힘/펼침 상태 (PC/모바일 공통). 기본은 접힘.
     var brandStatsCollapsed = true;
 
     function updateBrandStats(markers, routeLabel) {
@@ -329,6 +332,12 @@
 
     var SMALL_MARKER_ZOOM_LEVEL = 10;
 
+    // [신규] 전체 노선 보기에서 라벨을 보여줄 최대 줌 레벨.
+    // 카카오맵은 숫자가 작을수록 확대. level이 이 값보다 크면(축소/전국뷰) 라벨을 숨깁니다.
+    var LABEL_MAX_ZOOM_LEVEL = 9;
+    // [신규] 라벨끼리 이 픽셀 거리보다 가까우면 겹침으로 보고 뒤 라벨을 숨김
+    var LABEL_MIN_GAP_PX = 70;
+
     var Z_BASE = 2;
     var Z_HIGHLIGHT = 10;
     var Z_DIM = 1;
@@ -338,6 +347,8 @@
 
     var allPolylines = [];
     var allLabels = [];
+    // [신규] 현재 '전체 노선 보기' 모드인지 여부 (라벨 표시 규칙이 달라짐)
+    var isShowingAllRoutes = false;
 
     var DEBUG = false;
     var mapReady = false;
@@ -485,12 +496,15 @@
       return sorted;
     }
 
+    // [변경] 노선별 색상 적용. label 항목에 color도 저장.
     function drawSingleRoute(highway) {
       var group = computeSortedGroup(highway);
       if (group.length < 2) {
         log('❌ "' + highway + '" 소속 휴게소가 2개 미만이라 노선 생략 (' + group.length + '개)');
         return;
       }
+
+      var color = getRouteColor(highway);
 
       var path = group.map(function (item) {
         return new kakao.maps.LatLng(item.point.lat, item.point.lng);
@@ -499,7 +513,7 @@
       var polyline = new kakao.maps.Polyline({
         path: path,
         strokeWeight: 4,
-        strokeColor: '#2F5597',
+        strokeColor: color,
         strokeOpacity: 0.9,
         strokeStyle: 'solid'
       });
@@ -508,12 +522,12 @@
 
       var labelOverlay = new kakao.maps.CustomOverlay({
         position: path[Math.floor(path.length / 2)],
-        content: '<div class="highway-label">' + highway + '</div>',
+        content: '<div class="highway-label" style="background:' + color + ';">' + highway + '</div>',
         yAnchor: 1,
         zIndex: 15
       });
-      labelOverlay.setMap(map);
-      allLabels.push({ overlay: labelOverlay, path: path });
+      // 라벨은 일단 만들어 두고, updateLabelPosition에서 표시 여부를 결정
+      allLabels.push({ overlay: labelOverlay, path: path, color: color });
 
       log('✅ 노선 그림: "' + highway + '" (' + path.length + '개 좌표)');
     }
@@ -531,6 +545,7 @@
     function showAllRoutes() {
       clearRoute();
       if (infowindow) infowindow.close();
+      isShowingAllRoutes = true;   // 전체 노선 보기 모드 진입
 
       allMarkers.forEach(function (item) {
         item.el.classList.remove('is-dim');
@@ -555,12 +570,29 @@
       updateBrandStats(allMarkers, '전체노선');
     }
 
+    // =========================================================
+    // [변경] 라벨 위치/표시 갱신.
+    // - 전체 노선 보기 모드 + 지도가 축소(전국뷰)면 → 모든 라벨 숨김
+    // - 확대 상태면 화면 안에 들어온 노선만, 겹치지 않게 라벨 표시
+    // - 단일 노선(전체보기 아님)이면 줌과 무관하게 항상 표시
+    // =========================================================
     function updateLabelPosition() {
       if (!map || !allLabels.length) return;
+
+      // 전체 노선 보기 + 축소 상태면 라벨을 전부 숨기고 종료
+      if (isShowingAllRoutes && map.getLevel() > LABEL_MAX_ZOOM_LEVEL) {
+        allLabels.forEach(function (lb) { lb.overlay.setMap(null); });
+        return;
+      }
 
       var bounds = map.getBounds();
       var center = map.getCenter();
       var cLat = center.getLat(), cLng = center.getLng();
+
+      // 픽셀 좌표 변환기(겹침 판정용). 지원 안 되면 겹침 검사는 건너뜀.
+      var projection = null;
+      try { projection = map.getProjection(); } catch (e) { projection = null; }
+      var placedPoints = [];  // 이미 배치한 라벨들의 화면 좌표
 
       allLabels.forEach(function (lb) {
         var path = lb.path;
@@ -573,11 +605,36 @@
           var dist = dLat * dLat + dLng * dLng;
           if (dist < bestDist) { bestDist = dist; best = pt; }
         }
-        if (best) {
+
+        if (!best) {
+          lb.overlay.setMap(null);   // 화면 밖 노선은 라벨 숨김
+          return;
+        }
+
+        // 겹침 검사: 이미 배치된 라벨과 픽셀 거리가 너무 가까우면 숨김
+        var tooClose = false;
+        if (projection) {
+          try {
+            var cp = projection.containerPointFromCoords(best);
+            for (var j = 0; j < placedPoints.length; j++) {
+              var dx = cp.x - placedPoints[j].x;
+              var dy = cp.y - placedPoints[j].y;
+              if (Math.sqrt(dx * dx + dy * dy) < LABEL_MIN_GAP_PX) {
+                tooClose = true;
+                break;
+              }
+            }
+            if (!tooClose) placedPoints.push(cp);
+          } catch (e) {
+            tooClose = false;
+          }
+        }
+
+        if (tooClose) {
+          lb.overlay.setMap(null);
+        } else {
           lb.overlay.setPosition(best);
           lb.overlay.setMap(map);
-        } else {
-          lb.overlay.setMap(null);
         }
       });
     }
@@ -598,6 +655,7 @@
     function resetAll() {
       clearRoute();
       if (infowindow) infowindow.close();
+      isShowingAllRoutes = false;   // 전체 노선 보기 모드 해제
       allMarkers.forEach(function (item) {
         item.el.classList.remove('is-dim');
         setMarkerZ(item, Z_BASE, true);
@@ -609,6 +667,7 @@
 
     function selectHighway(p) {
       log('👉 selectHighway 실행: ' + p.name + ' / highway=' + p.highway);
+      isShowingAllRoutes = false;   // 단일 노선 선택 → 전체 보기 모드 해제
       drawRoute(p.highway);
       highlightMarkers(p.highway);
 
@@ -656,9 +715,12 @@
         document.getElementById('resetBtn').addEventListener('click', resetAll);
         document.getElementById('showAllRoutesBtn').addEventListener('click', showAllRoutes);
         kakao.maps.event.addListener(map, 'idle', updateLabelPosition);
-        kakao.maps.event.addListener(map, 'zoom_changed', applyMarkerScale);
+        // 줌이 바뀌면 마커 크기 + 라벨 표시 규칙 모두 갱신
+        kakao.maps.event.addListener(map, 'zoom_changed', function () {
+          applyMarkerScale();
+          updateLabelPosition();
+        });
 
-        // 대시보드 내부 클릭/터치가 지도로 전파되지 않도록 차단
         var bsEl = document.getElementById('brandStats');
         ['click', 'mousedown', 'touchstart', 'dblclick'].forEach(function (evt) {
           bsEl.addEventListener(evt, function (e) { e.stopPropagation(); });
