@@ -26,7 +26,7 @@
       max-width: calc(100% - 20px);
     }
 
-    /* [신규] 필터 마스터 토글 버튼 */
+    /* 필터 마스터 토글 버튼 */
     #filterMasterBtn {
       padding: 8px 14px; font-size: 13px; font-weight: 700;
       border: none; border-radius: 8px;
@@ -34,7 +34,6 @@
       box-shadow: 0 2px 8px rgba(0,0,0,.25); cursor: pointer;
       white-space: nowrap; width: max-content;
     }
-    /* 마스터가 닫혀 있으면 세 필터 묶음을 숨김 */
     #filterGroup { display: flex; flex-direction: column; gap: 8px; }
     #leftPanels.master-collapsed #filterGroup { display: none; }
 
@@ -63,6 +62,11 @@
 
     /* 브랜드 점유율 본문 */
     #brandStats .bs-body { display: flex; align-items: stretch; }
+    /* [수정] ID 선택자를 포함한 규칙끼리 특정도를 맞춰, 접힘 시 확실히 숨겨지도록 함
+       (기존에는 위 #brandStats .bs-body { display:flex } 가 .panel-card.is-collapsed .panel-body
+        보다 우선순위가 높아 접히지 않았던 버그를 해결) */
+    #brandStats.is-collapsed .bs-body { display: none; }
+
     #brandStats .bs-cell {
       display: flex; flex-direction: column; align-items: center; justify-content: center;
       padding: 6px 10px;
@@ -82,11 +86,11 @@
     #brandStats .bs-seven .bs-name { color: #FF6C00; }
     #brandStats .bs-etc .bs-name { color: #888; }
 
-    /* 칩 영역(계약/운영사 공용) - [변경] 가로 폭 제한 + 자동 줄바꿈 */
+    /* 칩 영역(계약/운영사 공용) */
     .chip-body { padding: 8px 10px; }
     .chip-row {
       display: flex; gap: 6px; flex-wrap: wrap;
-      max-width: 300px;              /* 칩이 3~4개마다 다음 줄로 넘어가도록 */
+      max-width: 300px;
     }
     .chip-row + .chip-row { margin-top: 6px; }
     .flt-chip {
@@ -113,6 +117,7 @@
         grid-template-columns: repeat(3, 1fr);
         gap: 0;
       }
+      #brandStats.is-collapsed .bs-body { display: none; }
       #brandStats .bs-cell {
         border-left: none;
         border-top: 1px solid rgba(0,0,0,0.08);
@@ -256,7 +261,6 @@
 <body>
   <div id="map"></div>
 
-  <!-- 좌측: 마스터 버튼 + (열렸을 때) 세 필터 묶음 -->
   <div id="leftPanels" class="master-collapsed">
     <button id="filterMasterBtn">🔎 필터 열기</button>
     <div id="filterGroup">
@@ -370,7 +374,6 @@
           '</div>' +
           '<button class="panel-toggle" id="bsToggle">' + arrow + '</button>' +
         '</div>' +
-        // [수정] 본문에 panel-body 클래스 추가 → 접기 규칙 적용됨
         '<div class="panel-body bs-body">' + cellsHtml + '</div>';
 
       var container = document.getElementById('brandStats');
@@ -1086,7 +1089,6 @@
           refreshOverlays();
         });
 
-        // [신규] 필터 마스터 버튼: 세 필터 묶음 열기/닫기
         var leftPanels = document.getElementById('leftPanels');
         var masterBtn = document.getElementById('filterMasterBtn');
         masterBtn.addEventListener('click', function () {
