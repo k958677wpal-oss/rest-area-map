@@ -48,13 +48,18 @@
       display: flex;
       align-items: stretch;
     }
+    /* 브랜드 칸: 클릭 가능하도록 커서/호버 표시 */
     #brandStats .bs-cell {
       display: flex; flex-direction: column; align-items: center; justify-content: center;
       padding: 6px 10px;
       border-left: 1px solid rgba(0,0,0,0.08);
       min-width: 54px;
+      cursor: pointer;
+      transition: background .15s ease;
     }
     #brandStats .bs-cell:first-child { border-left: none; }
+    #brandStats .bs-cell:hover { background: rgba(47,85,151,0.08); }
+    #brandStats .bs-cell.is-active { background: rgba(47,85,151,0.16); }
     #brandStats .bs-name { font-weight: 700; margin-bottom: 2px; white-space: nowrap; }
     #brandStats .bs-value { color: #333; white-space: nowrap; }
     #brandStats .bs-GS25 .bs-name { color: #2770BF; }
@@ -85,7 +90,6 @@
       background: rgba(0,0,0,.8); color: #0f0; font: 12px monospace;
       padding: 6px; display: none; white-space: pre-wrap;
     }
-    /* 노선 라벨: 배경색은 JS에서 노선 색으로 지정 */
     .highway-label {
       color: #fff;
       font-size: 12px;
@@ -95,6 +99,19 @@
       box-shadow: 0 2px 6px rgba(0,0,0,.25);
       white-space: nowrap;
       transform: translate(-50%, -130%);
+    }
+
+    /* [신규] 브랜드 필터 시 마커 위에 뜨는 휴게소명 라벨 */
+    .name-label {
+      transform: translateY(-56px);
+      background: rgba(33,33,33,0.85);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 7px;
+      border-radius: 6px;
+      white-space: nowrap;
+      box-shadow: 0 1px 3px rgba(0,0,0,.3);
     }
 
     .marker-pin {
@@ -240,11 +257,7 @@
       return BRAND_COLORS["기타"];
     }
 
-    // =========================================================
-    // [신규] 노선별 색상 자동 배정
-    // - 노선명을 해시값으로 바꿔 팔레트에서 색을 고릅니다.
-    // - 같은 노선명은 항상 같은 색이 나옵니다(일관성).
-    // =========================================================
+    // 노선별 색상 자동 배정
     var ROUTE_COLOR_PALETTE = [
       "#E6194B", "#3CB44B", "#4363D8", "#F58231", "#911EB4",
       "#008080", "#9A6324", "#800000", "#808000", "#000075",
@@ -278,6 +291,14 @@
       return "매점";
     }
 
+    // 브랜드 key → 화면 표기 라벨
+    function brandLabelText(key) {
+      for (var i = 0; i < BRAND_STAT_ORDER.length; i++) {
+        if (BRAND_STAT_ORDER[i].key === key) return BRAND_STAT_ORDER[i].label;
+      }
+      return key;
+    }
+
     var brandStatsCollapsed = true;
 
     function updateBrandStats(markers, routeLabel) {
@@ -293,7 +314,9 @@
       BRAND_STAT_ORDER.forEach(function (b) {
         var cnt = counts[b.key];
         var pct = (total > 0) ? Math.round((cnt / total) * 100) : 0;
-        cellsHtml += '<div class="bs-cell ' + b.cls + '">' +
+        // 현재 필터 중인 브랜드면 활성 표시
+        var activeCls = (brandFilterMode === b.key) ? ' is-active' : '';
+        cellsHtml += '<div class="bs-cell ' + b.cls + activeCls + '" data-brand="' + b.key + '">' +
                        '<span class="bs-name">' + b.label + '</span>' +
                        '<span class="bs-value">' + cnt + '(' + pct + '%)</span>' +
                      '</div>';
@@ -328,15 +351,22 @@
           toggleBtn.textContent = brandStatsCollapsed ? '▼' : '▲';
         });
       }
+
+      // 브랜드 칸 클릭 → 해당 브랜드 필터
+      var cells = container.querySelectorAll('.bs-cell');
+      for (var c = 0; c < cells.length; c++) {
+        cells[c].addEventListener('click', function () {
+          var key = this.getAttribute('data-brand');
+          filterByBrand(key);
+        });
+      }
     }
 
     var SMALL_MARKER_ZOOM_LEVEL = 10;
-
-    // [신규] 전체 노선 보기에서 라벨을 보여줄 최대 줌 레벨.
-    // 카카오맵은 숫자가 작을수록 확대. level이 이 값보다 크면(축소/전국뷰) 라벨을 숨깁니다.
     var LABEL_MAX_ZOOM_LEVEL = 9;
-    // [신규] 라벨끼리 이 픽셀 거리보다 가까우면 겹침으로 보고 뒤 라벨을 숨김
     var LABEL_MIN_GAP_PX = 70;
+    // [신규] 브랜드 필터에서 이름을 전국뷰에서도 바로 보여줄 최대 점포 수
+    var BRAND_LABEL_THRESHOLD = 25;
 
     var Z_BASE = 2;
     var Z_HIGHLIGHT = 10;
@@ -347,8 +377,9 @@
 
     var allPolylines = [];
     var allLabels = [];
-    // [신규] 현재 '전체 노선 보기' 모드인지 여부 (라벨 표시 규칙이 달라짐)
     var isShowingAllRoutes = false;
+    // [신규] 현재 브랜드 필터 모드 (null이면 아님, 아니면 브랜드 key)
+    var brandFilterMode = null;
 
     var DEBUG = false;
     var mapReady = false;
@@ -496,7 +527,6 @@
       return sorted;
     }
 
-    // [변경] 노선별 색상 적용. label 항목에 color도 저장.
     function drawSingleRoute(highway) {
       var group = computeSortedGroup(highway);
       if (group.length < 2) {
@@ -526,7 +556,6 @@
         yAnchor: 1,
         zIndex: 15
       });
-      // 라벨은 일단 만들어 두고, updateLabelPosition에서 표시 여부를 결정
       allLabels.push({ overlay: labelOverlay, path: path, color: color });
 
       log('✅ 노선 그림: "' + highway + '" (' + path.length + '개 좌표)');
@@ -545,11 +574,14 @@
     function showAllRoutes() {
       clearRoute();
       if (infowindow) infowindow.close();
-      isShowingAllRoutes = true;   // 전체 노선 보기 모드 진입
+      isShowingAllRoutes = true;
+      brandFilterMode = null;   // 브랜드 필터 해제
 
       allMarkers.forEach(function (item) {
         item.el.classList.remove('is-dim');
         setMarkerZ(item, Z_BASE, true);
+        item.overlay.setMap(map);                       // 숨겼던 마커 복구
+        if (item.nameLabel) item.nameLabel.setMap(null); // 이름 라벨 숨김
       });
 
       var seen = {};
@@ -570,16 +602,10 @@
       updateBrandStats(allMarkers, '전체노선');
     }
 
-    // =========================================================
-    // [변경] 라벨 위치/표시 갱신.
-    // - 전체 노선 보기 모드 + 지도가 축소(전국뷰)면 → 모든 라벨 숨김
-    // - 확대 상태면 화면 안에 들어온 노선만, 겹치지 않게 라벨 표시
-    // - 단일 노선(전체보기 아님)이면 줌과 무관하게 항상 표시
-    // =========================================================
+    // 노선 라벨 표시/위치 갱신
     function updateLabelPosition() {
       if (!map || !allLabels.length) return;
 
-      // 전체 노선 보기 + 축소 상태면 라벨을 전부 숨기고 종료
       if (isShowingAllRoutes && map.getLevel() > LABEL_MAX_ZOOM_LEVEL) {
         allLabels.forEach(function (lb) { lb.overlay.setMap(null); });
         return;
@@ -589,10 +615,9 @@
       var center = map.getCenter();
       var cLat = center.getLat(), cLng = center.getLng();
 
-      // 픽셀 좌표 변환기(겹침 판정용). 지원 안 되면 겹침 검사는 건너뜀.
       var projection = null;
       try { projection = map.getProjection(); } catch (e) { projection = null; }
-      var placedPoints = [];  // 이미 배치한 라벨들의 화면 좌표
+      var placedPoints = [];
 
       allLabels.forEach(function (lb) {
         var path = lb.path;
@@ -607,11 +632,10 @@
         }
 
         if (!best) {
-          lb.overlay.setMap(null);   // 화면 밖 노선은 라벨 숨김
+          lb.overlay.setMap(null);
           return;
         }
 
-        // 겹침 검사: 이미 배치된 라벨과 픽셀 거리가 너무 가까우면 숨김
         var tooClose = false;
         if (projection) {
           try {
@@ -639,6 +663,122 @@
       });
     }
 
+    // =========================================================
+    // [신규] 브랜드 필터 시 휴게소명 라벨 표시/갱신
+    // - 브랜드 점포 수 <= 25면 전국뷰에서도 이름 표시
+    // - 25 초과면 확대(LABEL_MAX_ZOOM_LEVEL 이하)해야 이름 표시
+    // - 화면 안 + 겹치지 않는 것만 표시
+    // =========================================================
+    function updateBrandLabels() {
+      if (!map) return;
+
+      if (!brandFilterMode) {
+        allMarkers.forEach(function (item) {
+          if (item.nameLabel) item.nameLabel.setMap(null);
+        });
+        return;
+      }
+
+      var filtered = allMarkers.filter(function (item) {
+        return classifyBrand(item.point.brand) === brandFilterMode;
+      });
+
+      var alwaysShow = filtered.length <= BRAND_LABEL_THRESHOLD;
+
+      // 개수 많고 + 축소(전국뷰) 상태면 이름 전부 숨기고 마커만
+      if (!alwaysShow && map.getLevel() > LABEL_MAX_ZOOM_LEVEL) {
+        filtered.forEach(function (item) {
+          if (item.nameLabel) item.nameLabel.setMap(null);
+        });
+        return;
+      }
+
+      var bounds = map.getBounds();
+      var projection = null;
+      try { projection = map.getProjection(); } catch (e) { projection = null; }
+      var placedPoints = [];
+
+      filtered.forEach(function (item) {
+        var pos = item.overlay.getPosition();
+
+        if (!bounds.contain(pos)) {
+          if (item.nameLabel) item.nameLabel.setMap(null);
+          return;
+        }
+
+        var tooClose = false;
+        if (projection) {
+          try {
+            var cp = projection.containerPointFromCoords(pos);
+            for (var j = 0; j < placedPoints.length; j++) {
+              var dx = cp.x - placedPoints[j].x;
+              var dy = cp.y - placedPoints[j].y;
+              if (Math.sqrt(dx * dx + dy * dy) < LABEL_MIN_GAP_PX) {
+                tooClose = true;
+                break;
+              }
+            }
+            if (!tooClose) placedPoints.push(cp);
+          } catch (e) {
+            tooClose = false;
+          }
+        }
+
+        if (tooClose) {
+          if (item.nameLabel) item.nameLabel.setMap(null);
+          return;
+        }
+
+        // 이름 라벨 lazy 생성 후 표시
+        if (!item.nameLabel) {
+          item.nameLabel = new kakao.maps.CustomOverlay({
+            position: pos,
+            content: '<div class="name-label">' + item.point.name + '</div>',
+            yAnchor: 1,
+            zIndex: 25
+          });
+        }
+        item.nameLabel.setMap(map);
+      });
+    }
+
+    // 지도 이동/줌 시 노선 라벨 + 브랜드 이름 라벨 모두 갱신
+    function refreshOverlays() {
+      updateLabelPosition();
+      updateBrandLabels();
+    }
+
+    // =========================================================
+    // [신규] 브랜드 필터: 해당 브랜드 마커만 남기고 나머지는 숨김
+    // =========================================================
+    function filterByBrand(brandKey) {
+      // 같은 브랜드 다시 누르면 필터 해제
+      if (brandFilterMode === brandKey) {
+        resetAll();
+        return;
+      }
+
+      clearRoute();
+      if (infowindow) infowindow.close();
+      isShowingAllRoutes = false;
+      brandFilterMode = brandKey;
+
+      allMarkers.forEach(function (item) {
+        var match = (classifyBrand(item.point.brand) === brandKey);
+        if (match) {
+          item.el.classList.remove('is-dim');
+          setMarkerZ(item, Z_BASE, true);
+          item.overlay.setMap(map);          // 해당 브랜드는 표시
+        } else {
+          item.overlay.setMap(null);         // 다른 브랜드는 완전히 숨김
+          if (item.nameLabel) item.nameLabel.setMap(null);
+        }
+      });
+
+      updateBrandLabels();
+      updateBrandStats(allMarkers, brandLabelText(brandKey) + ' 필터');
+    }
+
     function highlightMarkers(highway) {
       var target = normalize(highway);
       allMarkers.forEach(function (item) {
@@ -655,10 +795,13 @@
     function resetAll() {
       clearRoute();
       if (infowindow) infowindow.close();
-      isShowingAllRoutes = false;   // 전체 노선 보기 모드 해제
+      isShowingAllRoutes = false;
+      brandFilterMode = null;
       allMarkers.forEach(function (item) {
         item.el.classList.remove('is-dim');
         setMarkerZ(item, Z_BASE, true);
+        item.overlay.setMap(map);                       // 숨겼던 마커 복구
+        if (item.nameLabel) item.nameLabel.setMap(null); // 이름 라벨 숨김
       });
       log('↺ 전체 초기화');
 
@@ -667,7 +810,13 @@
 
     function selectHighway(p) {
       log('👉 selectHighway 실행: ' + p.name + ' / highway=' + p.highway);
-      isShowingAllRoutes = false;   // 단일 노선 선택 → 전체 보기 모드 해제
+      isShowingAllRoutes = false;
+      brandFilterMode = null;
+      // 혹시 숨겨져 있던 마커/이름 라벨 정리
+      allMarkers.forEach(function (item) {
+        item.overlay.setMap(map);
+        if (item.nameLabel) item.nameLabel.setMap(null);
+      });
       drawRoute(p.highway);
       highlightMarkers(p.highway);
 
@@ -679,6 +828,17 @@
         updateBrandStats(group, p.highway);
       } else {
         updateBrandStats(allMarkers, '전체노선');
+      }
+    }
+
+    // 마커 클릭 시 동작: 브랜드 필터 모드면 정보창만, 아니면 노선 강조까지
+    function onMarkerActivate(pos, p, content) {
+      if (brandFilterMode) {
+        infowindow.setContent(content);
+        infowindow.setPosition(pos);
+        infowindow.open(map);
+      } else {
+        activate(pos, p, content);
       }
     }
 
@@ -714,11 +874,10 @@
         infowindow = new kakao.maps.InfoWindow({ zIndex: 20 });
         document.getElementById('resetBtn').addEventListener('click', resetAll);
         document.getElementById('showAllRoutesBtn').addEventListener('click', showAllRoutes);
-        kakao.maps.event.addListener(map, 'idle', updateLabelPosition);
-        // 줌이 바뀌면 마커 크기 + 라벨 표시 규칙 모두 갱신
+        kakao.maps.event.addListener(map, 'idle', refreshOverlays);
         kakao.maps.event.addListener(map, 'zoom_changed', function () {
           applyMarkerScale();
-          updateLabelPosition();
+          refreshOverlays();
         });
 
         var bsEl = document.getElementById('brandStats');
@@ -726,7 +885,10 @@
           bsEl.addEventListener(evt, function (e) { e.stopPropagation(); });
         });
       } else {
-        allMarkers.forEach(function (item) { item.overlay.setMap(null); });
+        allMarkers.forEach(function (item) {
+          item.overlay.setMap(null);
+          if (item.nameLabel) item.nameLabel.setMap(null);
+        });
         allMarkers = [];
         resetAll();
       }
@@ -748,22 +910,22 @@
 
         kakao.maps.event.preventMap(pinEl);
 
-        var item = { overlay: overlay, el: pinEl, point: p, baseZIndex: Z_BASE };
+        var item = { overlay: overlay, el: pinEl, point: p, baseZIndex: Z_BASE, nameLabel: null };
         allMarkers.push(item);
         setMarkerZ(item, Z_BASE, true);
 
         pinEl.addEventListener('click', function () {
           log('🖱 marker click: ' + p.name);
-          activate(pos, p, content);
+          onMarkerActivate(pos, p, content);
         });
         pinEl.addEventListener('mouseup', function () {
           log('🖱 marker mouseup: ' + p.name);
-          activate(pos, p, content);
+          onMarkerActivate(pos, p, content);
         });
         pinEl.addEventListener('touchstart', function (e) {
           e.preventDefault();
           log('📱 marker touchstart: ' + p.name);
-          activate(pos, p, content);
+          onMarkerActivate(pos, p, content);
         }, { passive: false });
 
         pinEl.addEventListener('mouseenter', function () {
