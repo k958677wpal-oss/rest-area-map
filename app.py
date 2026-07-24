@@ -157,6 +157,26 @@ def parse_coordinate(value):
         return float(value)
     except (ValueError, TypeError):
         return None
+# --- 3-1. [신규] 숫자에 천 단위 쉼표를 넣어주는 포맷 함수 ---
+def format_thousands(value):
+    """
+    숫자 값에 천 단위 쉼표를 넣어 문자열로 반환합니다.
+    예: 3287 -> "3,287"
+    구글 시트는 셀 표시 서식(쉼표)이 아니라 순수 숫자값을 넘겨주기 때문에,
+    화면에 표시할 때 이 함수로 다시 쉼표를 넣어줍니다.
+    숫자로 변환할 수 없는 값(빈칸, 텍스트 등)은 원본 그대로 반환합니다.
+    """
+    if value is None:
+        return ""
+    if isinstance(value, str) and value.strip() == "":
+        return ""
+    try:
+        num = float(value)
+        if num.is_integer():
+            return f"{int(num):,}"
+        return f"{num:,.2f}"
+    except (ValueError, TypeError):
+        return value
 # --- 4. 지도용 데이터 구성 (좌표 검증 포함, 기존 스킵 로직 유지) ---
 points = []
 skipped_rows = []  # 어떤 행이 왜 제외됐는지 기록 (화면 안내용)
@@ -180,7 +200,7 @@ for idx, r in df.iterrows():
             "brand": r.get("브랜드", ""),
             "operator": r.get("운영사", ""),
             "revenue": r.get("연매출액", ""),
-            "estimated_revenue": r.get("추정매출", ""),
+            "estimated_revenue": format_thousands(r.get("추정매출", "")),
             "contract": r.get("계약기간", ""),
             "contract_step": r.get("계약차수", ""),
             "manager": r.get("담당자", ""),
