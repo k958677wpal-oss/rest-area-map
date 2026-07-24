@@ -180,6 +180,7 @@ for idx, r in df.iterrows():
             "brand": r.get("브랜드", ""),
             "operator": r.get("운영사", ""),
             "revenue": r.get("연매출액", ""),
+            "estimated_revenue": r.get("추정매출", ""),
             "contract": r.get("계약기간", ""),
             "contract_step": r.get("계약차수", ""),
             "manager": r.get("담당자", ""),
