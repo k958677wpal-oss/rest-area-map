@@ -18,7 +18,7 @@
     #resetBtn { background: #333; }
     #showAllRoutesBtn { background: #2F5597; }
 
-    /* [변경] 좌측 필터 묶음: 브랜드/계약/운영사 세로 정렬 */
+    /* 좌측 필터 영역 */
     #leftPanels {
       position: absolute; top: 10px; left: 10px; z-index: 100;
       display: flex; flex-direction: column; gap: 8px;
@@ -26,9 +26,21 @@
       max-width: calc(100% - 20px);
     }
 
-    /* 공통 패널 카드 스타일 */
+    /* [신규] 필터 마스터 토글 버튼 */
+    #filterMasterBtn {
+      padding: 8px 14px; font-size: 13px; font-weight: 700;
+      border: none; border-radius: 8px;
+      background: #2F5597; color: #fff;
+      box-shadow: 0 2px 8px rgba(0,0,0,.25); cursor: pointer;
+      white-space: nowrap; width: max-content;
+    }
+    /* 마스터가 닫혀 있으면 세 필터 묶음을 숨김 */
+    #filterGroup { display: flex; flex-direction: column; gap: 8px; }
+    #leftPanels.master-collapsed #filterGroup { display: none; }
+
+    /* 공통 패널 카드 */
     .panel-card {
-      background: rgba(255,255,255,0.92);
+      background: rgba(255,255,255,0.94);
       border-radius: 10px;
       box-shadow: 0 2px 10px rgba(0,0,0,.25);
       overflow: hidden;
@@ -70,6 +82,31 @@
     #brandStats .bs-seven .bs-name { color: #FF6C00; }
     #brandStats .bs-etc .bs-name { color: #888; }
 
+    /* 칩 영역(계약/운영사 공용) - [변경] 가로 폭 제한 + 자동 줄바꿈 */
+    .chip-body { padding: 8px 10px; }
+    .chip-row {
+      display: flex; gap: 6px; flex-wrap: wrap;
+      max-width: 300px;              /* 칩이 3~4개마다 다음 줄로 넘어가도록 */
+    }
+    .chip-row + .chip-row { margin-top: 6px; }
+    .flt-chip {
+      padding: 5px 10px; border-radius: 14px; font-size: 12px; font-weight: 600;
+      background: #eee; color: #333; cursor: pointer; white-space: nowrap;
+      border: 1px solid rgba(0,0,0,0.08);
+    }
+    .flt-chip:hover { background: #e0e6f0; }
+    .flt-chip.is-active { background: #2F5597; color: #fff; border-color: #2F5597; }
+    .flt-empty-note { font-size: 11px; color: #999; padding: 2px 2px; }
+    .etc-scroll {
+      margin-top: 6px;
+      max-height: 150px;
+      overflow-y: auto;
+      display: flex; flex-wrap: wrap; gap: 6px;
+      max-width: 300px;
+      padding-top: 6px;
+      border-top: 1px dashed rgba(0,0,0,0.12);
+    }
+
     @media (max-width: 768px) {
       #brandStats .bs-body {
         display: grid;
@@ -82,28 +119,7 @@
         min-width: 0;
         padding: 6px 4px;
       }
-    }
-
-    /* 칩(계약/운영사 공용) */
-    .chip-body { padding: 8px 10px; }
-    .chip-row { display: flex; gap: 6px; flex-wrap: wrap; }
-    .chip-row + .chip-row { margin-top: 6px; }
-    .flt-chip {
-      padding: 5px 10px; border-radius: 14px; font-size: 12px; font-weight: 600;
-      background: #eee; color: #333; cursor: pointer; white-space: nowrap;
-      border: 1px solid rgba(0,0,0,0.08);
-    }
-    .flt-chip:hover { background: #e0e6f0; }
-    .flt-chip.is-active { background: #2F5597; color: #fff; border-color: #2F5597; }
-    .flt-empty-note { font-size: 11px; color: #999; padding: 2px 2px; }
-    /* '그외' 운영사 목록: 스크롤 영역 */
-    .etc-scroll {
-      margin-top: 6px;
-      max-height: 160px;
-      overflow-y: auto;
-      display: flex; flex-wrap: wrap; gap: 6px;
-      padding-top: 6px;
-      border-top: 1px dashed rgba(0,0,0,0.12);
+      .chip-row, .etc-scroll { max-width: 240px; }
     }
 
     #debugPanel {
@@ -240,11 +256,14 @@
 <body>
   <div id="map"></div>
 
-  <!-- [변경] 좌측 필터 묶음: 브랜드 / 계약만료 / 운영사 -->
-  <div id="leftPanels">
-    <div id="brandStats" class="panel-card is-collapsed"></div>
-    <div id="contractFilterPanel" class="panel-card is-collapsed"></div>
-    <div id="operatorFilterPanel" class="panel-card is-collapsed"></div>
+  <!-- 좌측: 마스터 버튼 + (열렸을 때) 세 필터 묶음 -->
+  <div id="leftPanels" class="master-collapsed">
+    <button id="filterMasterBtn">🔎 필터 열기</button>
+    <div id="filterGroup">
+      <div id="brandStats" class="panel-card is-collapsed"></div>
+      <div id="contractFilterPanel" class="panel-card is-collapsed"></div>
+      <div id="operatorFilterPanel" class="panel-card is-collapsed"></div>
+    </div>
   </div>
 
   <div class="top-right-btns">
@@ -326,7 +345,6 @@
     function updateBrandStats(markers, routeLabel) {
       var counts = { "GS25": 0, "CU": 0, "이마트24": 0, "7-11": 0, "매점": 0 };
       var total = 0;
-
       (markers || []).forEach(function (item) {
         counts[classifyBrand(item.point.brand)] += 1;
         total += 1;
@@ -344,7 +362,6 @@
       });
 
       var arrow = brandStatsCollapsed ? '▼' : '▲';
-
       var html =
         '<div class="panel-head">' +
           '<div class="panel-titlebox">' +
@@ -353,6 +370,7 @@
           '</div>' +
           '<button class="panel-toggle" id="bsToggle">' + arrow + '</button>' +
         '</div>' +
+        // [수정] 본문에 panel-body 클래스 추가 → 접기 규칙 적용됨
         '<div class="panel-body bs-body">' + cellsHtml + '</div>';
 
       var container = document.getElementById('brandStats');
@@ -388,7 +406,7 @@
     }
     var CONTRACT_YEARS = [2026, 2027, 2028, 2029];
     var contractPanelCollapsed = true;
-    var contractFilterState = null;  // { year, step }
+    var contractFilterState = null;
 
     function updateContractPanel() {
       var yearCounts = {};
@@ -469,17 +487,16 @@
       }
     }
 
-    // ===== [신규] 운영사 필터 =====
-    var TOP_OPERATOR_COUNT = 10;      // 상위 몇 개를 1차로 노출할지
+    // ===== 운영사 필터 =====
+    var TOP_OPERATOR_COUNT = 10;
     var operatorPanelCollapsed = true;
-    var operatorEtcExpanded = false;  // '그외' 목록 펼침 여부
-    var activeOperator = null;        // 현재 선택된 운영사명
+    var operatorEtcExpanded = false;
+    var activeOperator = null;
 
     function normalizeOperator(v) {
       return (v == null ? "" : String(v)).trim();
     }
 
-    // 운영사별 점포 수 집계 후 [ {name, count}, ... ] 내림차순 반환
     function getOperatorCounts() {
       var counts = {};
       allMarkers.forEach(function (item) {
@@ -501,19 +518,16 @@
       var etcOps = opCounts.slice(TOP_OPERATOR_COUNT);
       var etcTotal = etcOps.reduce(function (a, b) { return a + b.count; }, 0);
 
-      // 상위 운영사 칩
       var topChipsHtml = "";
       topOps.forEach(function (o) {
         var active = (activeOperator === o.name) ? ' is-active' : '';
         topChipsHtml += '<div class="flt-chip' + active + '" data-operator="' + o.name + '">' + o.name + '(' + o.count + ')</div>';
       });
-      // '그외' 칩 (있을 때만)
       if (etcOps.length) {
         var etcActive = operatorEtcExpanded ? ' is-active' : '';
         topChipsHtml += '<div class="flt-chip' + etcActive + '" data-etc="1">그외 ' + etcOps.length + '곳(' + etcTotal + ') ' + (operatorEtcExpanded ? '▲' : '▾') + '</div>';
       }
 
-      // '그외' 펼침 시 나머지 운영사 목록
       var etcListHtml = "";
       if (operatorEtcExpanded && etcOps.length) {
         etcListHtml = '<div class="etc-scroll">';
@@ -553,7 +567,6 @@
         });
       }
 
-      // '그외' 토글
       var etcBtn = panel.querySelector('[data-etc]');
       if (etcBtn) {
         etcBtn.addEventListener('click', function () {
@@ -562,7 +575,6 @@
         });
       }
 
-      // 운영사 칩 클릭
       var opEls = panel.querySelectorAll('[data-operator]');
       for (var i = 0; i < opEls.length; i++) {
         opEls[i].addEventListener('click', function () {
@@ -583,12 +595,11 @@
     var Z_HOVER = 9999;
 
     var map, infowindow = null, allMarkers = [];
-
     var allPolylines = [];
     var allLabels = [];
     var isShowingAllRoutes = false;
 
-    var filterMode = null;         // null | 'brand' | 'contract' | 'operator'
+    var filterMode = null;
     var activeBrandKey = null;
     var filteredMarkerItems = [];
 
@@ -614,16 +625,12 @@
     function setMarkerZ(item, z, isBaseChange) {
       item.el.style.zIndex = z;
       item.overlay.setZIndex(z);
-      if (isBaseChange) {
-        item.baseZIndex = z;
-      }
+      if (isBaseChange) item.baseZIndex = z;
     }
 
     function buildTitle(p) {
       var hw = (p.highway == null ? "" : String(p.highway)).trim();
-      if (hw !== "") {
-        return p.name + '(' + hw + ')';
-      }
+      if (hw !== "") return p.name + '(' + hw + ')';
       return p.name;
     }
 
@@ -721,8 +728,6 @@
         current = remaining.splice(nearestIdx, 1)[0];
         sorted.push(current);
       }
-
-      log('📐 정렬: "' + highway + '" (' + sorted.length + '개)');
       return sorted;
     }
 
@@ -838,7 +843,6 @@
       }
 
       var alwaysShow = filteredMarkerItems.length <= FILTER_LABEL_THRESHOLD;
-
       if (!alwaysShow && map.getLevel() > NAME_LABEL_MAX_ZOOM_LEVEL) {
         filteredMarkerItems.forEach(function (item) {
           if (item.nameLabel) item.nameLabel.setMap(null);
@@ -932,7 +936,6 @@
       updateBrandStats(items, statsLabel);
     }
 
-    // 브랜드 필터
     function filterByBrand(brandKey) {
       if (filterMode === 'brand' && activeBrandKey === brandKey) { resetAll(); return; }
       clearRoute();
@@ -949,7 +952,6 @@
       applyMarkerFilter(items, brandLabelText(brandKey) + ' 필터', 'brand');
     }
 
-    // 계약만료 연도 필터
     function filterByContractYear(year) {
       if (contractFilterState && contractFilterState.year === year && contractFilterState.step == null) { resetAll(); return; }
       clearRoute();
@@ -983,7 +985,6 @@
       applyMarkerFilter(items, year + '년 만료' + (step ? (' · ' + step) : ''), 'contract');
     }
 
-    // [신규] 운영사 필터
     function filterByOperator(opName) {
       if (filterMode === 'operator' && activeOperator === opName) { resetAll(); return; }
       clearRoute();
@@ -1036,11 +1037,8 @@
       var group = allMarkers.filter(function (item) {
         return normalize(item.point.highway) === target;
       });
-      if (group.length && target) {
-        updateBrandStats(group, p.highway);
-      } else {
-        updateBrandStats(allMarkers, '전체노선');
-      }
+      if (group.length && target) updateBrandStats(group, p.highway);
+      else updateBrandStats(allMarkers, '전체노선');
     }
 
     function onMarkerActivate(pos, p, content) {
@@ -1088,7 +1086,15 @@
           refreshOverlays();
         });
 
-        ['brandStats', 'contractFilterPanel', 'operatorFilterPanel'].forEach(function (id) {
+        // [신규] 필터 마스터 버튼: 세 필터 묶음 열기/닫기
+        var leftPanels = document.getElementById('leftPanels');
+        var masterBtn = document.getElementById('filterMasterBtn');
+        masterBtn.addEventListener('click', function () {
+          var collapsed = leftPanels.classList.toggle('master-collapsed');
+          masterBtn.textContent = collapsed ? '🔎 필터 열기' : '✖ 필터 닫기';
+        });
+
+        ['leftPanels'].forEach(function (id) {
           var el = document.getElementById(id);
           ['click', 'mousedown', 'touchstart', 'dblclick'].forEach(function (evt) {
             el.addEventListener(evt, function (e) { e.stopPropagation(); });
