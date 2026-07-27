@@ -239,7 +239,7 @@ with tab_map:
     )
 
     # ── 수정 요청 폼 (모든 담당자 가능) ──
-    with st.expander("✏️ 이 휴게소 정보 수정 요청하기"):
+    with st.expander("✏️ 휴게소 정보 수정 요청하기"):
         with st.form("edit_request_form", clear_on_submit=True):
             target = st.selectbox("수정 요청할 휴게소", options=[""] + valid_names)
             memo = st.text_area("수정 요청 메모", placeholder="예: 브랜드가 CU에서 GS25로 변경되었습니다.")
