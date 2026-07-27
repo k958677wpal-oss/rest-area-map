@@ -4,10 +4,11 @@ import gspread
 import json
 import streamlit.components.v1 as components
 from datetime import datetime, timezone, timedelta
+
 # --- 페이지 기본 설정 ---
 st.set_page_config(page_title="휴게소 데이터 허브", layout="wide")
-# 한국 표준시(KST, UTC+9) 시간대 정의
 KST = timezone(timedelta(hours=9))
+
 # --- 모바일 헤더 최적화 CSS ---
 st.markdown(
     """
@@ -27,51 +28,62 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
 # --- 1. 구글 시트 연결 ---
 @st.cache_resource
 def init_connection():
     key_dict = json.loads(st.secrets["google_secret"])
     return gspread.service_account_from_dict(key_dict)
+
 @st.cache_data(ttl=300)
 def load_data():
     gc = init_connection()
     doc = gc.open("휴게소_통합_데이터")
     return pd.DataFrame(doc.sheet1.get_all_records())
-# 로그인 시트 키 (사용자 명단 / 접속_로그가 들어있는 문서)
+
 LOGIN_SHEET_KEY = "1zD20Om2mHH7M9ppcialvqB1SxA9IyVq2aCLM9IWoo8c"
-# --- 로그인 시트 로더 (구글 시트 연동) ---
+REQUEST_SHEET_TAB = "수정_요청_이력"
+
 @st.cache_data(ttl=300)
 def load_login_data():
-    """
-    로그인 전용 구글 시트를 읽어 DataFrame으로 반환합니다.
-    로그인 정보는 "사용자 명단" 탭에 있으므로 그 탭을 정확히 지정해서 엽니다.
-    """
     gc = init_connection()
     doc = gc.open_by_key(LOGIN_SHEET_KEY)
     worksheet = doc.worksheet("사용자 명단")
     return pd.DataFrame(worksheet.get_all_records())
+
 def write_login_log(user_name):
-    """
-    로그인 성공 시 "접속_로그" 시트에 접속시간과 이름을 한 줄 추가합니다.
-    접속시간은 서버 시간이 아니라 한국 표준시(KST, UTC+9) 기준으로 기록합니다.
-    (캐시를 쓰지 않고 매번 새 연결로 기록해야 실제 시트에 반영됩니다.)
-    """
     gc = init_connection()
     doc = gc.open_by_key(LOGIN_SHEET_KEY)
     worksheet = doc.worksheet("접속_로그")
-    # 한국 표준시(UTC+9) 기준 현재 시각 문자열
     now_str = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
-    # [접속시간, 이름, 상태] 순서로 한 줄 추가
     worksheet.append_row([now_str, user_name, "로그인 성공"])
+
+# --- 수정 요청 이력: 읽기 / 쓰기 / 대기중 목록 ---
+@st.cache_data(ttl=60)
+def load_edit_requests():
+    gc = init_connection()
+    doc = gc.open("휴게소_통합_데이터")
+    ws = doc.worksheet(REQUEST_SHEET_TAB)
+    return pd.DataFrame(ws.get_all_records())
+
+def add_edit_request(rest_name, user_id, memo):
+    gc = init_connection()
+    doc = gc.open("휴게소_통합_데이터")
+    ws = doc.worksheet(REQUEST_SHEET_TAB)
+    now_str = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
+    ws.append_row([rest_name, user_id, memo, "대기중", now_str])
+
+def get_pending_rest_names():
+    try:
+        rdf = load_edit_requests()
+    except Exception:
+        return set()
+    if rdf.empty or "상태" not in rdf.columns or "휴게소명" not in rdf.columns:
+        return set()
+    pending = rdf[rdf["상태"].astype(str).str.strip() == "대기중"]
+    return set(pending["휴게소명"].astype(str).str.strip())
+
 def normalize_value(value):
-    """
-    시트에서 읽어온 값(문자열/정수/실수 등 어떤 타입이든)을
-    비교 가능한 순수 문자열로 안전하게 통일합니다.
-    - 숫자로 자동 변환되어 860422.0 처럼 .0이 붙는 경우를 제거합니다.
-    - 앞뒤 공백, 보이지 않는 특수 공백 문자도 제거합니다.
-    - 사번처럼 '00501580'이 시트에서 숫자로 읽혀 앞자리 0이 사라지는 문제를
-      해결하기 위해, 숫자로만 이루어진 값은 앞자리 0을 떼고(정수화) 비교합니다.
-    """
     if value is None:
         return ""
     if isinstance(value, float) and value.is_integer():
@@ -82,19 +94,31 @@ def normalize_value(value):
     if s.isdigit():
         s = str(int(s))
     return s
+
 def find_column(df, target_name):
-    """
-    데이터프레임의 컬럼명 중, 공백/대소문자를 무시했을 때
-    target_name과 일치하는 실제 컬럼명을 찾아 반환합니다.
-    """
     normalized_target = target_name.replace(" ", "").strip()
     for col in df.columns:
         if str(col).replace(" ", "").strip() == normalized_target:
             return col
     return None
-# --- 2. 로그인 시스템 (사번 + 생년월일 6자리 / 구글 시트 대조) ---
+
+def format_thousands(value):
+    if value is None:
+        return ""
+    if isinstance(value, str) and value.strip() == "":
+        return ""
+    try:
+        num = float(value)
+        if num.is_integer():
+            return f"{int(num):,}"
+        return f"{num:,.2f}"
+    except (ValueError, TypeError):
+        return value
+
+# --- 2. 로그인 시스템 ---
 if "logged_in" not in st.session_state:
     st.session_state["logged_in"] = False
+
 if not st.session_state["logged_in"]:
     st.title("🔐 로그인 (Powered by 특수개발팀)")
     with st.form("login_form"):
@@ -113,7 +137,7 @@ if not st.session_state["logged_in"]:
         pw_col = find_column(login_df, "생년월일")
         name_col = find_column(login_df, "이름")
         matched = False
-        matched_name = ""  # 로그 기록에 사용할 이름
+        matched_name = ""
         if id_col is not None and pw_col is not None:
             for _, row in login_df.iterrows():
                 sheet_id = normalize_value(row.get(id_col, ""))
@@ -124,31 +148,28 @@ if not st.session_state["logged_in"]:
                         matched_name = str(row.get(name_col, "")).strip()
                     break
         if matched:
-            # 접속_로그 시트에 접속시간 + 이름 기록 (실패해도 로그인은 진행)
+            st.session_state["logged_in"] = True
+            st.session_state["user_id"] = input_id
+            st.session_state["user_name"] = matched_name
             try:
                 write_login_log(matched_name)
             except Exception:
                 pass
-            st.session_state["logged_in"] = True
             st.rerun()
         else:
             st.error("사번 또는 비밀번호가 올바르지 않습니다.")
     st.stop()
-# --- 여기부터는 로그인 성공 시에만 실행 ---
+
+# --- 로그인 성공 시 ---
 st.markdown('<div class="app-title">🛣️ 휴게소 데이터 허브 (Powered by 특수개발팀)</div>', unsafe_allow_html=True)
-# 데이터 로드
+
 try:
     df = load_data()
 except Exception as e:
     st.error(f"데이터 로드 오류: {e}")
     st.stop()
-# --- 3. 위도/경도 값 검증 함수 (기존 로직 그대로 유지) ---
+
 def parse_coordinate(value):
-    """
-    위도/경도 값을 안전하게 float으로 변환합니다.
-    변환에 실패하면(빈칸, None, 문자 오타 등) None을 반환합니다.
-    호출부에서 None이면 해당 행을 건너뛰도록 처리합니다.
-    """
     if value is None:
         return None
     if isinstance(value, str) and value.strip() == "":
@@ -157,29 +178,13 @@ def parse_coordinate(value):
         return float(value)
     except (ValueError, TypeError):
         return None
-# --- 3-1. [신규] 숫자에 천 단위 쉼표를 넣어주는 포맷 함수 ---
-def format_thousands(value):
-    """
-    숫자 값에 천 단위 쉼표를 넣어 문자열로 반환합니다.
-    예: 3287 -> "3,287"
-    구글 시트는 셀 표시 서식(쉼표)이 아니라 순수 숫자값을 넘겨주기 때문에,
-    화면에 표시할 때 이 함수로 다시 쉼표를 넣어줍니다.
-    숫자로 변환할 수 없는 값(빈칸, 텍스트 등)은 원본 그대로 반환합니다.
-    """
-    if value is None:
-        return ""
-    if isinstance(value, str) and value.strip() == "":
-        return ""
-    try:
-        num = float(value)
-        if num.is_integer():
-            return f"{int(num):,}"
-        return f"{num:,.2f}"
-    except (ValueError, TypeError):
-        return value
-# --- 4. 지도용 데이터 구성 (좌표 검증 포함, 기존 스킵 로직 유지) ---
+
+# --- 대기중 수정요청 휴게소 목록 ---
+pending_names = get_pending_rest_names()
+
+# --- 지도용 데이터 구성 ---
 points = []
-skipped_rows = []  # 어떤 행이 왜 제외됐는지 기록 (화면 안내용)
+skipped_rows = []
 for idx, r in df.iterrows():
     name = r.get("휴게소명", f"{idx}행")
     lat = parse_coordinate(r.get("위도"))
@@ -205,6 +210,7 @@ for idx, r in df.iterrows():
             "contract_step": r.get("계약차수", ""),
             "manager": r.get("담당자", ""),
             "highway": r.get("고속도로명", ""),
+            "has_pending": (str(name).strip() in pending_names),
         })
     except Exception as e:
         skipped_rows.append({
@@ -214,23 +220,45 @@ for idx, r in df.iterrows():
             "사유": f"알 수 없는 오류: {e}",
         })
         continue
-# GitHub Pages 주소와, postMessage 수신 검증에 쓸 출처(origin)
+
 PAGE_URL = "https://k958677wpal-oss.github.io/rest-area-map/"
 TARGET_ORIGIN = "https://k958677wpal-oss.github.io"
 MAP_HEIGHT = 560
-# --- 5. 탭 분리 (지도 vs 데이터) ---
+
 tab_map, tab_data = st.tabs(["🗺️ 스마트 노선 맵", "📊 상세 데이터 및 필터"])
+
 with tab_map:
     valid_names = [p["name"] for p in points]
     name_options = [""] + valid_names
+
     query = st.selectbox(
         "🔍 휴게소 검색",
         options=name_options,
         index=0,
         help="휴게소명을 타이핑하면 자동완성 목록에서 정확한 휴게소를 선택할 수 있습니다.",
     )
+
+    # ── 수정 요청 폼 (모든 담당자 가능) ──
+    with st.expander("✏️ 이 휴게소 정보 수정 요청하기"):
+        with st.form("edit_request_form", clear_on_submit=True):
+            target = st.selectbox("수정 요청할 휴게소", options=[""] + valid_names)
+            memo = st.text_area("수정 요청 메모", placeholder="예: 브랜드가 CU에서 GS25로 변경되었습니다.")
+            sent = st.form_submit_button("요청 제출")
+        if sent:
+            if not target or not memo.strip():
+                st.warning("휴게소와 메모를 모두 입력해 주세요.")
+            else:
+                try:
+                    add_edit_request(target, st.session_state.get("user_id", ""), memo.strip())
+                    load_edit_requests.clear()
+                    st.success(f"'{target}' 수정 요청이 접수되었습니다. (상태: 대기중)")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"요청 저장 중 오류: {e}")
+
     points_json = json.dumps(points, ensure_ascii=False)
     query_json = json.dumps(query if query else "")
+
     component_html = f"""
     <iframe
         id="kakaoMapFrame"
@@ -245,25 +273,21 @@ with tab_map:
         var iframe = document.getElementById('kakaoMapFrame');
         function sendData() {{
           iframe.contentWindow.postMessage(
-            {{
-              type: 'INIT_MAP_DATA',
-              points: mapPoints,
-              query: searchQuery
-            }},
+            {{ type: 'INIT_MAP_DATA', points: mapPoints, query: searchQuery }},
             '{TARGET_ORIGIN}'
           );
         }}
-        iframe.onload = function () {{
-          sendData();
-        }};
+        iframe.onload = function () {{ sendData(); }};
       }})();
     </script>
     """
     components.html(component_html, height=MAP_HEIGHT, scrolling=False)
+
     if skipped_rows:
         with st.expander(f"⚠️ 좌표 오류로 지도에 표시되지 않은 휴게소 {len(skipped_rows)}건 (클릭하여 확인)"):
             st.dataframe(pd.DataFrame(skipped_rows), use_container_width=True)
             st.caption("구글 시트에서 해당 휴게소의 '위도'/'경도' 값을 채워주시면 다음 새로고침 시 지도에 반영됩니다.")
+
 with tab_data:
     if "브랜드" in df.columns:
         brands = ["전체"] + sorted(df["브랜드"].dropna().unique().tolist())
