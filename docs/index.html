@@ -165,6 +165,7 @@
       transition: transform .2s ease;
     }
     .marker-pin .pin-circle {
+      position: relative;   /* 느낌표 뱃지 기준점 */
       width: 42px;
       height: 42px;
       border-radius: 50%;
@@ -193,6 +194,20 @@
     }
     .marker-pin.is-dim { opacity: 0.3; }
     .marker-pin.is-small .pin-graphics { transform: scale(0.55); }
+
+    /* [신규] 대기중 수정요청 느낌표 뱃지 */
+    .pin-badge {
+      position: absolute;
+      top: -6px; right: -6px;
+      width: 18px; height: 18px;
+      background: #E6194B; color: #fff;
+      border: 2px solid #fff; border-radius: 50%;
+      font-size: 11px; font-weight: 700;
+      line-height: 15px; text-align: center;
+      box-shadow: 0 1px 3px rgba(0,0,0,.4);
+      z-index: 5;
+      overflow: visible;
+    }
 
     .pin-tooltip {
       position: absolute;
@@ -596,7 +611,6 @@
     var activeBrandKey = null;
     var filteredMarkerItems = [];
 
-    // [신규] routes.json에서 읽어온 노선별 실제 도로 좌표
     var PRECOMPUTED_ROUTES = {};
     var precomputedRoutesLoaded = false;
 
@@ -619,7 +633,6 @@
       return (s == null ? "" : String(s)).replace(/\s+/g, "").trim();
     }
 
-    // [신규] docs/routes.json 을 미리 불러옵니다. 실패해도 기존 방식으로 자연스럽게 대체됩니다.
     function loadPrecomputedRoutes() {
       fetch('routes.json')
         .then(function (res) {
@@ -656,9 +669,13 @@
     }
 
     function buildContent(p) {
+      var pendingNotice = p.has_pending
+        ? '<div style="color:#E6194B;font-weight:700;margin-bottom:4px;">❗ 수정 요청 대기중</div>'
+        : '';
       return '<div class="iw-wrap">' +
                '<span class="iw-close" onclick="closeInfoWindow()">×</span>' +
                '<div class="iw-title">' + buildTitle(p) + '</div>' +
+               pendingNotice +
                '연매출액: ' + p.revenue + '<br>' +
                '추정매출: ' + formatEstimated(p.estimated_revenue) + '<br>' +
                '브랜드: ' + p.brand + '<br>' +
@@ -670,7 +687,8 @@
     }
 
     function buildTooltipContent(p) {
-      return '<b>' + buildTitle(p) + '</b><br>' +
+      var badge = p.has_pending ? ' ❗' : '';
+      return '<b>' + buildTitle(p) + badge + '</b><br>' +
              '연매출액: ' + p.revenue + '<br>' +
              '추정매출: ' + formatEstimated(p.estimated_revenue) + '<br>' +
              '브랜드: ' + p.brand;
@@ -695,6 +713,14 @@
       img.src = resolveBrandImage(p.brand);
       img.alt = p.brand || '';
       circle.appendChild(img);
+
+      // [신규] 대기중 수정 요청이 있으면 느낌표 뱃지
+      if (p.has_pending) {
+        var badge = document.createElement('div');
+        badge.className = 'pin-badge';
+        badge.textContent = '!';
+        circle.appendChild(badge);
+      }
 
       var tail = document.createElement('div');
       tail.className = 'pin-tail';
@@ -754,8 +780,6 @@
       return sorted;
     }
 
-    // [수정] routes.json에 이 노선의 실제 도로 좌표가 있으면 우선 사용,
-    // 없으면 기존처럼 휴게소 좌표를 최근접 이웃으로 연결
     function drawSingleRoute(highway) {
       var precomputed = PRECOMPUTED_ROUTES[highway];
       var path;
