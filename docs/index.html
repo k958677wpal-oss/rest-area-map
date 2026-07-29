@@ -195,6 +195,7 @@
     .marker-pin.is-dim { opacity: 0.3; }
     .marker-pin.is-small .pin-graphics { transform: scale(0.55); }
 
+    /* 수정요청 대기중 뱃지 (우측 상단, 빨강 느낌표) */
     .pin-badge {
       position: absolute;
       top: -6px; right: -6px;
@@ -202,6 +203,20 @@
       background: #E6194B; color: #fff;
       border: 2px solid #fff; border-radius: 50%;
       font-size: 11px; font-weight: 700;
+      line-height: 15px; text-align: center;
+      box-shadow: 0 1px 3px rgba(0,0,0,.4);
+      z-index: 5;
+      overflow: visible;
+    }
+
+    /* [신규] 방문 이력 뱃지 (좌측 상단, 파란 책 아이콘) */
+    .pin-history-badge {
+      position: absolute;
+      top: -6px; left: -6px;
+      width: 18px; height: 18px;
+      background: #2F5597; color: #fff;
+      border: 2px solid #fff; border-radius: 50%;
+      font-size: 10px; font-weight: 700;
       line-height: 15px; text-align: center;
       box-shadow: 0 1px 3px rgba(0,0,0,.4);
       z-index: 5;
@@ -792,11 +807,20 @@
       img.alt = p.brand || '';
       circle.appendChild(img);
 
+      // 수정요청 대기중 뱃지 (우측 상단, 빨강)
       if (p.has_pending) {
         var badge = document.createElement('div');
         badge.className = 'pin-badge';
         badge.textContent = '!';
         circle.appendChild(badge);
+      }
+
+      // [신규] 방문 이력 뱃지 (좌측 상단, 파랑 책 아이콘) - 이력이 1건 이상일 때만
+      if (p.history && p.history.length > 0) {
+        var historyBadge = document.createElement('div');
+        historyBadge.className = 'pin-history-badge';
+        historyBadge.textContent = '📖';
+        circle.appendChild(historyBadge);
       }
 
       var tail = document.createElement('div');
