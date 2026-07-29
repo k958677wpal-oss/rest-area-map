@@ -14,7 +14,10 @@ KST = timezone(timedelta(hours=9))
 DASHBOARD_EXCLUDE = ["임진현", "박영진"]
 
 # --- 관리자 사번 목록 (앞자리 0 제외 형태로 입력) ---
-ADMIN_IDS = ["507583", "501580"]
+ADMIN_IDS = ["507583"]
+
+# --- 관리자 통계 대시보드에서 기본으로 펼쳐 보여줄 최근 주차 수 ---
+RECENT_WEEKS_SHOWN = 5
 
 # --- 모바일 헤더 최적화 CSS ---
 st.markdown(
@@ -242,6 +245,65 @@ def _render_delete_button(row_code, row_uid, row_time, current_uid, is_admin):
             st.session_state[confirm_key] = True
             st.rerun()
 
+def build_admin_stats(wdf, members):
+    """
+    관리자 통계 대시보드용 데이터를 만듭니다.
+    반환: (표시용 DataFrame, 최근 표시 주차 리스트, 전체 주차 리스트)
+    각 셀 내용: "방문 N / 전체 M" 형태. 방문 0건이면 셀 배경에 미작성 표시용 플래그도 별도 관리.
+    """
+    if wdf.empty or "주차코드" not in wdf.columns or "주차표시" not in wdf.columns:
+        return pd.DataFrame(), [], []
+
+    # 주차코드 -> 주차표시 매핑, 최신순 정렬 (주차코드는 "연-월-주" 형식이라 문자열 정렬로도 대략 맞지만
+    # 안전하게 실제 값 기준으로 정렬)
+    week_map = (
+        wdf[["주차코드", "주차표시"]]
+        .drop_duplicates()
+        .dropna()
+    )
+    week_map = week_map[week_map["주차코드"].astype(str).str.strip() != ""]
+
+    def week_sort_key(code):
+        # "2026-07-1" -> (2026, 7, 1)
+        try:
+            y, m, w = str(code).split("-")
+            return (int(y), int(m), int(w))
+        except Exception:
+            return (0, 0, 0)
+
+    week_map["_sort"] = week_map["주차코드"].apply(week_sort_key)
+    week_map = week_map.sort_values("_sort", ascending=False)
+    all_week_codes = week_map["주차코드"].tolist()
+    code_to_label = dict(zip(week_map["주차코드"], week_map["주차표시"]))
+
+    visits = wdf[wdf["방문휴게소"].astype(str).str.strip() != ""]
+    items = wdf[
+        (wdf["방문휴게소"].astype(str).str.strip() == "")
+        & (wdf["추진물건"].astype(str).str.strip() != "")
+    ]
+
+    rows = []
+    for member in members:
+        row = {"담당자": member}
+        for code in all_week_codes:
+            v_cnt = len(visits[(visits["이름"].astype(str).str.strip() == member) & (visits["주차코드"].astype(str) == str(code))])
+            it_cnt = len(items[(items["이름"].astype(str).str.strip() == member) & (items["주차코드"].astype(str) == str(code))])
+            total_cnt = v_cnt + it_cnt
+            label = code_to_label.get(code, code)
+            if v_cnt == 0 and total_cnt == 0:
+                cell = "미작성"
+            elif v_cnt == 0:
+                cell = f"방문 0 · 전체 {total_cnt} (방문 미작성)"
+            else:
+                cell = f"방문 {v_cnt} · 전체 {total_cnt}"
+            row[label] = cell
+        rows.append(row)
+
+    result_df = pd.DataFrame(rows)
+    recent_labels = [code_to_label[c] for c in all_week_codes[:RECENT_WEEKS_SHOWN]]
+    older_labels = [code_to_label[c] for c in all_week_codes[RECENT_WEEKS_SHOWN:]]
+    return result_df, recent_labels, older_labels
+
 # --- 2. 로그인 시스템 ---
 if "logged_in" not in st.session_state:
     st.session_state["logged_in"] = False
@@ -379,15 +441,16 @@ PAGE_URL = "https://k958677wpal-oss.github.io/rest-area-map/"
 TARGET_ORIGIN = "https://k958677wpal-oss.github.io"
 MAP_HEIGHT = 560
 
-# --- 탭 구성: 관리자면 상세 데이터 탭 포함, 아니면 제외 ---
+# --- 탭 구성: 관리자면 통계 대시보드 + 상세 데이터 탭 포함, 아니면 제외 ---
 if is_admin:
-    tab_map, tab_weekly, tab_data = st.tabs(
-        ["🗺️ 스마트 노선 맵", "🗒️ 주간 활동 보고", "📊 상세 데이터 및 필터"]
+    tab_map, tab_weekly, tab_admin_stats, tab_data = st.tabs(
+        ["🗺️ 스마트 노선 맵", "🗒️ 주간 활동 보고", "📈 담당자 작성 현황 (관리자)", "📊 상세 데이터 및 필터"]
     )
 else:
     tab_map, tab_weekly = st.tabs(
         ["🗺️ 스마트 노선 맵", "🗒️ 주간 활동 보고"]
     )
+    tab_admin_stats = None
     tab_data = None
 
 with tab_map:
@@ -496,7 +559,7 @@ with tab_weekly:
                                 row_uid = str(row.get("사번", "")).strip()
                                 row_code = str(row.get("주차코드", "")).strip()
                                 row_time = str(row.get("작성시각", "")).strip()
-                                st.markdown(f"✅ **미팅 내용 및 추진물건**: {it}")
+                                st.markdown(f"📦 **추진물건**: {it}")
                                 can_delete = (row_uid == current_uid) or is_admin
                                 if can_delete:
                                     _render_delete_button(row_code, row_uid, row_time, current_uid, is_admin)
@@ -550,7 +613,7 @@ with tab_weekly:
 
         st.markdown("---")
 
-        st.markdown("**✅ 운영사 미팅 및 추진 물건** (이번 주 전체 기준으로 1회만 작성)")
+        st.markdown("**📦 추진 물건 등록** (이번 주 전체 기준으로 1회만 작성)")
         with st.form("item_form", clear_on_submit=True):
             item = st.text_input("추진 물건", placeholder="예: OO휴게소 브랜드 교체 협의")
             item_sent = st.form_submit_button("추진물건 등록")
@@ -568,6 +631,40 @@ with tab_weekly:
                     st.rerun()
                 except Exception as e:
                     st.error(f"등록 중 오류: {e}")
+
+# --- 담당자 작성 현황 (관리자 전용) ---
+if tab_admin_stats is not None:
+    with tab_admin_stats:
+        st.subheader("📈 담당자별 주간 활동 보고 작성 현황")
+        st.caption("각 칸: '방문 보고 건수 · 방문+추진물건 전체 건수'. 방문 보고가 0건이면 미작성으로 표시됩니다.")
+
+        try:
+            stat_wdf = load_weekly_reports()
+        except Exception as e:
+            st.error(f"활동 보고 로드 오류: {e}")
+            stat_wdf = pd.DataFrame()
+
+        stat_members = load_all_member_names()
+        if not stat_members:
+            stat_members = []
+        stat_members = [m for m in stat_members if m not in DASHBOARD_EXCLUDE]
+
+        if stat_wdf.empty or not stat_members:
+            st.info("표시할 데이터가 없습니다.")
+        else:
+            result_df, recent_labels, older_labels = build_admin_stats(stat_wdf, stat_members)
+
+            if result_df.empty:
+                st.info("표시할 데이터가 없습니다.")
+            else:
+                display_cols = ["담당자"] + [c for c in recent_labels if c in result_df.columns]
+                st.markdown("**🗓️ 최근 " + str(RECENT_WEEKS_SHOWN) + "주**")
+                st.dataframe(result_df[display_cols], use_container_width=True, hide_index=True)
+
+                if older_labels:
+                    with st.expander(f"📂 이전 주차 더보기 ({len(older_labels)}개 주차)"):
+                        older_cols = ["담당자"] + [c for c in older_labels if c in result_df.columns]
+                        st.dataframe(result_df[older_cols], use_container_width=True, hide_index=True)
 
 # --- 상세 데이터 및 필터 (관리자 전용) ---
 if tab_data is not None:
