@@ -433,7 +433,7 @@ with tab_weekly:
                             row_time = str(row.get("작성시각", "")).strip()
                             if v: st.markdown(f"🏠 **방문**: {v}")
                             if a: st.markdown(f"📝 **활동**: {a}")
-                            if it: st.markdown(f"📦 **추진물건**: {it}")
+                            if it: st.markdown(f"✅ **추진물건**: {it}")
                             if n: st.markdown(f"❗ **특이사항**: {n}")
 
                             # 삭제 권한: 본인 글이거나 관리자
