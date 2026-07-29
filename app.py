@@ -559,7 +559,7 @@ with tab_weekly:
                                 row_uid = str(row.get("사번", "")).strip()
                                 row_code = str(row.get("주차코드", "")).strip()
                                 row_time = str(row.get("작성시각", "")).strip()
-                                st.markdown(f"📦 **추진물건**: {it}")
+                                st.markdown(f"✅ **운영사 미팅 및 추진물건**: {it}")
                                 can_delete = (row_uid == current_uid) or is_admin
                                 if can_delete:
                                     _render_delete_button(row_code, row_uid, row_time, current_uid, is_admin)
@@ -613,13 +613,13 @@ with tab_weekly:
 
         st.markdown("---")
 
-        st.markdown("**📦 추진 물건 등록** (이번 주 전체 기준으로 1회만 작성)")
+        st.markdown("**✅ 운영사 미팅 및 추진 물건** (이번 주 전체 기준으로 1회만 작성)")
         with st.form("item_form", clear_on_submit=True):
             item = st.text_input("추진 물건", placeholder="예: OO휴게소 브랜드 교체 협의")
             item_sent = st.form_submit_button("추진물건 등록")
         if item_sent:
             if not item.strip():
-                st.warning("추진 물건 내용을 입력해 주세요.")
+                st.warning("미팅 및 추진 물건 내용을 입력해 주세요.")
             else:
                 try:
                     add_weekly_report(
