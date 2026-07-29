@@ -197,7 +197,19 @@ def find_column(df, target_name):
     return None
 
 def format_thousands(value):
-    def _render_delete_button(row_code, row_uid, row_time, current_uid, is_admin):
+    if value is None:
+        return ""
+    if isinstance(value, str) and value.strip() == "":
+        return ""
+    try:
+        num = float(value)
+        if num.is_integer():
+            return f"{int(num):,}"
+        return f"{num:,.2f}"
+    except (ValueError, TypeError):
+        return value
+
+def _render_delete_button(row_code, row_uid, row_time, current_uid, is_admin):
     """
     확인 절차가 있는 삭제 버튼을 렌더링합니다.
     본인 글이거나 관리자일 때만 호출부에서 이 함수를 부릅니다.
@@ -229,17 +241,6 @@ def format_thousands(value):
         if st.button("🗑️ 삭제", key="del_" + uid_key):
             st.session_state[confirm_key] = True
             st.rerun()
-    if value is None:
-        return ""
-    if isinstance(value, str) and value.strip() == "":
-        return ""
-    try:
-        num = float(value)
-        if num.is_integer():
-            return f"{int(num):,}"
-        return f"{num:,.2f}"
-    except (ValueError, TypeError):
-        return value
 
 # --- 2. 로그인 시스템 ---
 if "logged_in" not in st.session_state:
@@ -312,7 +313,6 @@ def parse_coordinate(value):
 pending_names = get_pending_rest_names()
 
 # --- 휴게소별 방문 이력 인덱스 구성 (지도 '이력 보기'용) ---
-# '방문휴게소'가 채워진 행만 방문 이력으로 취급 (추진물건 행은 자동 제외됨)
 try:
     wdf_all = load_weekly_reports()
 except Exception:
@@ -490,7 +490,6 @@ with tab_weekly:
                     if visits.empty and items.empty:
                         st.caption("미작성")
                     else:
-                        # 추진물건 먼저 표시
                         if not items.empty:
                             for _, row in items.iterrows():
                                 it = str(row.get("추진물건", "")).strip()
@@ -503,7 +502,6 @@ with tab_weekly:
                                     _render_delete_button(row_code, row_uid, row_time, current_uid, is_admin)
                             st.markdown("---")
 
-                        # 방문 이력
                         for _, row in visits.iterrows():
                             v = str(row.get("방문휴게소", "")).strip()
                             a = str(row.get("활동내용", "")).strip()
@@ -527,7 +525,6 @@ with tab_weekly:
     with st.expander("✏️ 이번 주 활동 작성하기"):
         st.caption(f"작성 주차: {cur_label}")
 
-        # -- 1) 휴게소 방문 보고 (방문한 곳마다 반복 제출) --
         st.markdown("**📍 휴게소 방문 보고** (방문한 휴게소마다 각각 제출해 주세요)")
         with st.form("visit_form", clear_on_submit=True):
             visit_target = st.selectbox("방문 휴게소", options=[""] + valid_names)
@@ -553,7 +550,6 @@ with tab_weekly:
 
         st.markdown("---")
 
-        # -- 2) 추진물건 등록 (이번 주 1회) --
         st.markdown("**📦 추진 물건 등록** (이번 주 전체 기준으로 1회만 작성)")
         with st.form("item_form", clear_on_submit=True):
             item = st.text_input("추진 물건", placeholder="예: OO휴게소 브랜드 교체 협의")
