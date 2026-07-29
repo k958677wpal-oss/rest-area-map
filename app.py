@@ -4,6 +4,7 @@ import gspread
 import json
 import streamlit.components.v1 as components
 from datetime import datetime, timezone, timedelta
+import datetime as _dt
 
 # --- 페이지 기본 설정 ---
 st.set_page_config(page_title="휴게소 데이터 허브", layout="wide")
@@ -43,6 +44,7 @@ def load_data():
 
 LOGIN_SHEET_KEY = "1zD20Om2mHH7M9ppcialvqB1SxA9IyVq2aCLM9IWoo8c"
 REQUEST_SHEET_TAB = "수정_요청_이력"
+WEEKLY_SHEET_TAB = "주간_활동보고"
 
 @st.cache_data(ttl=300)
 def load_login_data():
@@ -58,7 +60,7 @@ def write_login_log(user_name):
     now_str = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
     worksheet.append_row([now_str, user_name, "로그인 성공"])
 
-# --- 수정 요청 이력: 읽기 / 쓰기 / 대기중 목록 ---
+# --- 수정 요청 이력 ---
 @st.cache_data(ttl=60)
 def load_edit_requests():
     gc = init_connection()
@@ -82,6 +84,59 @@ def get_pending_rest_names():
         return set()
     pending = rdf[rdf["상태"].astype(str).str.strip() == "대기중"]
     return set(pending["휴게소명"].astype(str).str.strip())
+
+# --- 주간 활동 보고 ---
+def get_week_info(target_date=None):
+    """
+    주어진 날짜(기본: 오늘 KST)가 속한 주의 정보를 반환.
+    - 주는 월요일 시작 ~ 일요일 끝
+    - '그 달 1일이 포함된 주 = 1주차' 기준
+    반환: (주차코드, 주차표시)
+      예: ("2026-07-1", "2026년 7월 1주차 (06/30~07/06)")
+    """
+    if target_date is None:
+        target_date = datetime.now(KST).date()
+
+    monday = target_date - _dt.timedelta(days=target_date.weekday())
+    sunday = monday + _dt.timedelta(days=6)
+
+    base = monday
+    year = base.year
+    month = base.month
+
+    first_day = _dt.date(year, month, 1)
+    first_monday = first_day - _dt.timedelta(days=first_day.weekday())
+    week_num = ((monday - first_monday).days // 7) + 1
+
+    code = f"{year}-{month:02d}-{week_num}"
+    label = f"{year}년 {month}월 {week_num}주차 ({monday.strftime('%m/%d')}~{sunday.strftime('%m/%d')})"
+    return code, label
+
+@st.cache_data(ttl=60)
+def load_weekly_reports():
+    gc = init_connection()
+    doc = gc.open("휴게소_통합_데이터")
+    ws = doc.worksheet(WEEKLY_SHEET_TAB)
+    return pd.DataFrame(ws.get_all_records())
+
+def add_weekly_report(week_code, week_label, user_id, user_name, visited, activity, item, note):
+    gc = init_connection()
+    doc = gc.open("휴게소_통합_데이터")
+    ws = doc.worksheet(WEEKLY_SHEET_TAB)
+    now_str = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
+    ws.append_row([week_code, week_label, user_id, user_name,
+                   visited, activity, item, note, now_str])
+
+@st.cache_data(ttl=300)
+def load_all_member_names():
+    gc = init_connection()
+    doc = gc.open_by_key(LOGIN_SHEET_KEY)
+    ws = doc.worksheet("사용자 명단")
+    df = pd.DataFrame(ws.get_all_records())
+    name_col = find_column(df, "이름")
+    if name_col is None:
+        return []
+    return [str(n).strip() for n in df[name_col].tolist() if str(n).strip()]
 
 def normalize_value(value):
     if value is None:
@@ -179,10 +234,8 @@ def parse_coordinate(value):
     except (ValueError, TypeError):
         return None
 
-# --- 대기중 수정요청 휴게소 목록 ---
 pending_names = get_pending_rest_names()
 
-# --- 지도용 데이터 구성 ---
 points = []
 skipped_rows = []
 for idx, r in df.iterrows():
@@ -225,7 +278,9 @@ PAGE_URL = "https://k958677wpal-oss.github.io/rest-area-map/"
 TARGET_ORIGIN = "https://k958677wpal-oss.github.io"
 MAP_HEIGHT = 560
 
-tab_map, tab_data = st.tabs(["🗺️ 스마트 노선 맵", "📊 상세 데이터 및 필터"])
+tab_map, tab_data, tab_weekly = st.tabs(
+    ["🗺️ 스마트 노선 맵", "📊 상세 데이터 및 필터", "🗒️ 주간 활동 보고"]
+)
 
 with tab_map:
     valid_names = [p["name"] for p in points]
@@ -238,8 +293,7 @@ with tab_map:
         help="휴게소명을 타이핑하면 자동완성 목록에서 정확한 휴게소를 선택할 수 있습니다.",
     )
 
-    # ── 수정 요청 폼 (모든 담당자 가능) ──
-    with st.expander("✏️ 휴게소 정보 수정 요청하기"):
+    with st.expander("✏️ 이 휴게소 정보 수정 요청하기"):
         with st.form("edit_request_form", clear_on_submit=True):
             target = st.selectbox("수정 요청할 휴게소", options=[""] + valid_names)
             memo = st.text_area("수정 요청 메모", placeholder="예: 브랜드가 CU에서 GS25로 변경되었습니다.")
@@ -296,3 +350,75 @@ with tab_data:
     else:
         view_df = df
     st.dataframe(view_df, use_container_width=True)
+
+with tab_weekly:
+    cur_code, cur_label = get_week_info()
+
+    # ── 작성 폼 ──
+    st.subheader("✏️ 이번 주 활동 작성")
+    st.caption(f"작성 주차: {cur_label}")
+    with st.form("weekly_form", clear_on_submit=True):
+        visited = st.text_input("방문 휴게소", placeholder="예: 죽암(부산), 안성(서울)")
+        activity = st.text_area("활동 내용", placeholder="이번 주 수행한 활동을 적어주세요.")
+        item = st.text_input("추진 물건", placeholder="예: OO휴게소 브랜드 교체 협의")
+        note = st.text_area("특이 사항", placeholder="공유할 이슈나 참고사항이 있으면 적어주세요.")
+        sent = st.form_submit_button("보고 제출")
+    if sent:
+        if not (visited.strip() or activity.strip() or item.strip() or note.strip()):
+            st.warning("최소 한 개 항목은 입력해 주세요.")
+        else:
+            try:
+                add_weekly_report(
+                    cur_code, cur_label,
+                    st.session_state.get("user_id", ""),
+                    st.session_state.get("user_name", ""),
+                    visited.strip(), activity.strip(), item.strip(), note.strip()
+                )
+                load_weekly_reports.clear()
+                st.success("주간 활동 보고가 제출되었습니다.")
+                st.rerun()
+            except Exception as e:
+                st.error(f"제출 중 오류: {e}")
+
+    st.divider()
+
+    # ── 대시보드 ──
+    st.subheader("📋 주차별 활동 대시보드")
+    try:
+        wdf = load_weekly_reports()
+    except Exception as e:
+        st.error(f"활동 보고 로드 오류: {e}")
+        wdf = pd.DataFrame()
+
+    if wdf.empty or "주차표시" not in wdf.columns:
+        st.info("아직 작성된 활동 보고가 없습니다.")
+    else:
+        week_labels = wdf["주차표시"].dropna().astype(str).unique().tolist()
+        week_labels = sorted(week_labels, reverse=True)
+        selected_week = st.selectbox("주차 선택", options=week_labels, index=0)
+
+        week_df = wdf[wdf["주차표시"].astype(str) == selected_week]
+
+        members = load_all_member_names()
+        if not members:
+            members = week_df["이름"].dropna().astype(str).unique().tolist()
+
+        cols = st.columns(2)
+        for i, member in enumerate(members):
+            with cols[i % 2]:
+                mrow = week_df[week_df["이름"].astype(str).str.strip() == member]
+                with st.container(border=True):
+                    st.markdown(f"**👤 {member}**")
+                    if mrow.empty:
+                        st.caption("미작성")
+                    else:
+                        for _, row in mrow.iterrows():
+                            v = str(row.get("방문휴게소", "")).strip()
+                            a = str(row.get("활동내용", "")).strip()
+                            it = str(row.get("추진물건", "")).strip()
+                            n = str(row.get("특이사항", "")).strip()
+                            if v: st.markdown(f"🏠 **방문**: {v}")
+                            if a: st.markdown(f"📝 **활동**: {a}")
+                            if it: st.markdown(f"📦 **추진물건**: {it}")
+                            if n: st.markdown(f"❗ **특이사항**: {n}")
+                            st.markdown("---")
