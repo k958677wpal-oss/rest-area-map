@@ -14,7 +14,7 @@ KST = timezone(timedelta(hours=9))
 DASHBOARD_EXCLUDE = ["임진현", "박영진"]
 
 # --- 관리자 사번 목록 (앞자리 0 제외 형태로 입력) ---
-ADMIN_IDS = ["507583"]
+ADMIN_IDS = ["507583", "501580"]
 
 # --- 모바일 헤더 최적화 CSS ---
 st.markdown(
