@@ -14,7 +14,6 @@ KST = timezone(timedelta(hours=9))
 DASHBOARD_EXCLUDE = ["임진현", "박영진"]
 
 # --- 관리자 사번 목록 (앞자리 0 제외 형태로 입력) ---
-# 김영진 사번 00507583 -> 507583
 ADMIN_IDS = ["507583"]
 
 # --- 모바일 헤더 최적화 CSS ---
@@ -124,6 +123,10 @@ def load_weekly_reports():
     return pd.DataFrame(ws.get_all_records())
 
 def add_weekly_report(week_code, week_label, user_id, user_name, visited, activity, item, note):
+    """
+    visited·activity·note 가 채워지면 '방문 보고' 행,
+    item 만 채워지고 나머지가 비면 '추진물건' 행이 됩니다. (같은 시트, 컬럼 값으로 구분)
+    """
     gc = init_connection()
     doc = gc.open("휴게소_통합_데이터")
     ws = doc.worksheet(WEEKLY_SHEET_TAB)
@@ -194,6 +197,38 @@ def find_column(df, target_name):
     return None
 
 def format_thousands(value):
+    def _render_delete_button(row_code, row_uid, row_time, current_uid, is_admin):
+    """
+    확인 절차가 있는 삭제 버튼을 렌더링합니다.
+    본인 글이거나 관리자일 때만 호출부에서 이 함수를 부릅니다.
+    """
+    uid_key = f"{row_code}_{row_uid}_{row_time}"
+    confirm_key = "confirm_del_" + uid_key
+
+    if st.session_state.get(confirm_key, False):
+        st.warning("정말 삭제하시겠습니까? 되돌릴 수 없습니다.")
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("✅ 예, 삭제", key="yes_" + uid_key):
+                try:
+                    ok = delete_weekly_report(row_code, row_uid, row_time)
+                    st.session_state[confirm_key] = False
+                    if ok:
+                        load_weekly_reports.clear()
+                        st.success("삭제되었습니다.")
+                        st.rerun()
+                    else:
+                        st.error("해당 항목을 찾지 못했습니다.")
+                except Exception as e:
+                    st.error(f"삭제 중 오류: {e}")
+        with c2:
+            if st.button("취소", key="no_" + uid_key):
+                st.session_state[confirm_key] = False
+                st.rerun()
+    else:
+        if st.button("🗑️ 삭제", key="del_" + uid_key):
+            st.session_state[confirm_key] = True
+            st.rerun()
     if value is None:
         return ""
     if isinstance(value, str) and value.strip() == "":
@@ -276,6 +311,31 @@ def parse_coordinate(value):
 
 pending_names = get_pending_rest_names()
 
+# --- 휴게소별 방문 이력 인덱스 구성 (지도 '이력 보기'용) ---
+# '방문휴게소'가 채워진 행만 방문 이력으로 취급 (추진물건 행은 자동 제외됨)
+try:
+    wdf_all = load_weekly_reports()
+except Exception:
+    wdf_all = pd.DataFrame()
+
+history_index = {}
+if not wdf_all.empty and "방문휴게소" in wdf_all.columns:
+    visit_rows = wdf_all[wdf_all["방문휴게소"].astype(str).str.strip() != ""]
+    for _, row in visit_rows.iterrows():
+        key = str(row.get("방문휴게소", "")).strip()
+        if not key:
+            continue
+        entry = {
+            "date": str(row.get("주차표시", "")).strip(),
+            "manager": str(row.get("이름", "")).strip(),
+            "activity": str(row.get("활동내용", "")).strip(),
+            "note": str(row.get("특이사항", "")).strip(),
+            "created_at": str(row.get("작성시각", "")).strip(),
+        }
+        history_index.setdefault(key, []).append(entry)
+    for k in history_index:
+        history_index[k].sort(key=lambda e: e["created_at"], reverse=True)
+
 points = []
 skipped_rows = []
 for idx, r in df.iterrows():
@@ -304,6 +364,7 @@ for idx, r in df.iterrows():
             "manager": r.get("담당자", ""),
             "highway": r.get("고속도로명", ""),
             "has_pending": (str(name).strip() in pending_names),
+            "history": history_index.get(str(name).strip(), []),
         })
     except Exception as e:
         skipped_rows.append({
@@ -418,82 +479,99 @@ with tab_weekly:
         for i, member in enumerate(members):
             with cols[i % 2]:
                 mrow = week_df[week_df["이름"].astype(str).str.strip() == member]
+                visits = mrow[mrow["방문휴게소"].astype(str).str.strip() != ""]
+                items = mrow[
+                    (mrow["방문휴게소"].astype(str).str.strip() == "")
+                    & (mrow["추진물건"].astype(str).str.strip() != "")
+                ]
+
                 with st.container(border=True):
                     st.markdown(f"**👤 {member}**")
-                    if mrow.empty:
+                    if visits.empty and items.empty:
                         st.caption("미작성")
                     else:
-                        for _, row in mrow.iterrows():
+                        # 추진물건 먼저 표시
+                        if not items.empty:
+                            for _, row in items.iterrows():
+                                it = str(row.get("추진물건", "")).strip()
+                                row_uid = str(row.get("사번", "")).strip()
+                                row_code = str(row.get("주차코드", "")).strip()
+                                row_time = str(row.get("작성시각", "")).strip()
+                                st.markdown(f"📦 **추진물건**: {it}")
+                                can_delete = (row_uid == current_uid) or is_admin
+                                if can_delete:
+                                    _render_delete_button(row_code, row_uid, row_time, current_uid, is_admin)
+                            st.markdown("---")
+
+                        # 방문 이력
+                        for _, row in visits.iterrows():
                             v = str(row.get("방문휴게소", "")).strip()
                             a = str(row.get("활동내용", "")).strip()
-                            it = str(row.get("추진물건", "")).strip()
                             n = str(row.get("특이사항", "")).strip()
                             row_uid = str(row.get("사번", "")).strip()
                             row_code = str(row.get("주차코드", "")).strip()
                             row_time = str(row.get("작성시각", "")).strip()
-                            if v: st.markdown(f"🏠 **방문**: {v}")
+
+                            st.markdown(f"🏠 **방문**: {v}")
                             if a: st.markdown(f"📝 **활동**: {a}")
-                            if it: st.markdown(f"✅ **추진물건**: {it}")
                             if n: st.markdown(f"❗ **특이사항**: {n}")
 
-                            # 삭제 권한: 본인 글이거나 관리자
                             can_delete = (row_uid == current_uid) or is_admin
                             if can_delete:
-                                uid_key = f"{row_code}_{row_uid}_{row_time}"
-                                confirm_key = "confirm_del_" + uid_key
-
-                                # 확인 대기 상태가 아니면 '삭제' 버튼, 맞으면 예/취소 버튼
-                                if st.session_state.get(confirm_key, False):
-                                    st.warning("정말 삭제하시겠습니까? 되돌릴 수 없습니다.")
-                                    c1, c2 = st.columns(2)
-                                    with c1:
-                                        if st.button("✅ 예, 삭제", key="yes_" + uid_key):
-                                            try:
-                                                ok = delete_weekly_report(row_code, row_uid, row_time)
-                                                st.session_state[confirm_key] = False
-                                                if ok:
-                                                    load_weekly_reports.clear()
-                                                    st.success("삭제되었습니다.")
-                                                    st.rerun()
-                                                else:
-                                                    st.error("해당 항목을 찾지 못했습니다.")
-                                            except Exception as e:
-                                                st.error(f"삭제 중 오류: {e}")
-                                    with c2:
-                                        if st.button("취소", key="no_" + uid_key):
-                                            st.session_state[confirm_key] = False
-                                            st.rerun()
-                                else:
-                                    if st.button("🗑️ 삭제", key="del_" + uid_key):
-                                        st.session_state[confirm_key] = True
-                                        st.rerun()
+                                _render_delete_button(row_code, row_uid, row_time, current_uid, is_admin)
                             st.markdown("---")
 
     st.divider()
 
-    # ── 이번 주 활동 작성 (기본 접힘) ──
+    # ── 활동 작성 (기본 접힘) ──
     with st.expander("✏️ 이번 주 활동 작성하기"):
         st.caption(f"작성 주차: {cur_label}")
-        with st.form("weekly_form", clear_on_submit=True):
-            visited = st.text_input("방문 휴게소", placeholder="예: 죽암(부산), 안성(서울)")
-            activity = st.text_area("활동 내용", placeholder="이번 주 수행한 활동을 적어주세요.")
-            item = st.text_input("추진 물건", placeholder="예: OO휴게소 브랜드 교체 협의")
+
+        # -- 1) 휴게소 방문 보고 (방문한 곳마다 반복 제출) --
+        st.markdown("**📍 휴게소 방문 보고** (방문한 휴게소마다 각각 제출해 주세요)")
+        with st.form("visit_form", clear_on_submit=True):
+            visit_target = st.selectbox("방문 휴게소", options=[""] + valid_names)
+            activity = st.text_area("활동 내용", placeholder="이번 방문에서 수행한 활동을 적어주세요.")
             note = st.text_area("특이 사항", placeholder="공유할 이슈나 참고사항이 있으면 적어주세요.")
-            sent = st.form_submit_button("보고 제출")
-        if sent:
-            if not (visited.strip() or activity.strip() or item.strip() or note.strip()):
-                st.warning("최소 한 개 항목은 입력해 주세요.")
+            visit_sent = st.form_submit_button("방문 보고 제출")
+        if visit_sent:
+            if not visit_target:
+                st.warning("방문 휴게소를 선택해 주세요.")
+            elif not activity.strip():
+                st.warning("활동 내용을 입력해 주세요.")
             else:
                 try:
                     add_weekly_report(
                         cur_code, cur_label, current_uid, current_name,
-                        visited.strip(), activity.strip(), item.strip(), note.strip()
+                        visit_target, activity.strip(), "", note.strip()
                     )
                     load_weekly_reports.clear()
-                    st.success("주간 활동 보고가 제출되었습니다.")
+                    st.success(f"'{visit_target}' 방문 보고가 제출되었습니다.")
                     st.rerun()
                 except Exception as e:
                     st.error(f"제출 중 오류: {e}")
+
+        st.markdown("---")
+
+        # -- 2) 추진물건 등록 (이번 주 1회) --
+        st.markdown("**📦 추진 물건 등록** (이번 주 전체 기준으로 1회만 작성)")
+        with st.form("item_form", clear_on_submit=True):
+            item = st.text_input("추진 물건", placeholder="예: OO휴게소 브랜드 교체 협의")
+            item_sent = st.form_submit_button("추진물건 등록")
+        if item_sent:
+            if not item.strip():
+                st.warning("추진 물건 내용을 입력해 주세요.")
+            else:
+                try:
+                    add_weekly_report(
+                        cur_code, cur_label, current_uid, current_name,
+                        "", "", item.strip(), ""
+                    )
+                    load_weekly_reports.clear()
+                    st.success("추진물건이 등록되었습니다.")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"등록 중 오류: {e}")
 
 # --- 상세 데이터 및 필터 (관리자 전용) ---
 if tab_data is not None:
