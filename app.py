@@ -14,7 +14,7 @@ KST = timezone(timedelta(hours=9))
 DASHBOARD_EXCLUDE = ["임진현", "박영진"]
 
 # --- 관리자 사번 목록 (앞자리 0 제외 형태로 입력) ---
-ADMIN_IDS = ["507583"]
+ADMIN_IDS = ["507583", "501580"]
 
 # --- 관리자 통계 대시보드에서 기본으로 펼쳐 보여줄 최근 주차 수 ---
 RECENT_WEEKS_SHOWN = 5
