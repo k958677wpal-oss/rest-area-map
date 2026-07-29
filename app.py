@@ -11,8 +11,11 @@ st.set_page_config(page_title="휴게소 데이터 허브", layout="wide")
 KST = timezone(timedelta(hours=9))
 
 # --- 대시보드에서 제외할 담당자 (임시) ---
-# 나중에 대시보드에 다시 넣고 싶으면 이 목록에서 이름을 빼면 됩니다.
 DASHBOARD_EXCLUDE = ["임진현", "박영진"]
+
+# --- 관리자 사번 목록 (앞자리 0 제외 형태로 입력) ---
+# 김영진 사번 00507583 -> 507583
+ADMIN_IDS = ["507583"]
 
 # --- 모바일 헤더 최적화 CSS ---
 st.markdown(
@@ -128,6 +131,38 @@ def add_weekly_report(week_code, week_label, user_id, user_name, visited, activi
     ws.append_row([week_code, week_label, user_id, user_name,
                    visited, activity, item, note, now_str])
 
+def delete_weekly_report(week_code, user_id, created_at):
+    """
+    주차코드 + 사번 + 작성시각이 모두 일치하는 행을 찾아 시트에서 삭제.
+    """
+    gc = init_connection()
+    doc = gc.open("휴게소_통합_데이터")
+    ws = doc.worksheet(WEEKLY_SHEET_TAB)
+    all_values = ws.get_all_values()
+    if not all_values:
+        return False
+    header = all_values[0]
+
+    def col_idx(name):
+        for i, h in enumerate(header):
+            if str(h).strip() == name:
+                return i
+        return -1
+    ci_code = col_idx("주차코드")
+    ci_uid = col_idx("사번")
+    ci_time = col_idx("작성시각")
+
+    for row_num in range(2, len(all_values) + 1):
+        row = all_values[row_num - 1]
+        def cell(i):
+            return str(row[i]).strip() if 0 <= i < len(row) else ""
+        if (cell(ci_code) == str(week_code).strip()
+                and cell(ci_uid) == str(user_id).strip()
+                and cell(ci_time) == str(created_at).strip()):
+            ws.delete_rows(row_num)
+            return True
+    return False
+
 @st.cache_data(ttl=300)
 def load_all_member_names():
     gc = init_connection()
@@ -219,6 +254,10 @@ if not st.session_state["logged_in"]:
 # --- 로그인 성공 시 ---
 st.markdown('<div class="app-title">🛣️ 휴게소 데이터 허브 (Powered by 특수개발팀)</div>', unsafe_allow_html=True)
 
+current_uid = st.session_state.get("user_id", "")
+current_name = st.session_state.get("user_name", "")
+is_admin = current_uid in ADMIN_IDS
+
 try:
     df = load_data()
 except Exception as e:
@@ -279,10 +318,16 @@ PAGE_URL = "https://k958677wpal-oss.github.io/rest-area-map/"
 TARGET_ORIGIN = "https://k958677wpal-oss.github.io"
 MAP_HEIGHT = 560
 
-# --- 탭 순서: 스마트 노선 맵 → 주간 활동 보고 → 상세 데이터 및 필터 ---
-tab_map, tab_weekly, tab_data = st.tabs(
-    ["🗺️ 스마트 노선 맵", "🗒️ 주간 활동 보고", "📊 상세 데이터 및 필터"]
-)
+# --- 탭 구성: 관리자면 상세 데이터 탭 포함, 아니면 제외 ---
+if is_admin:
+    tab_map, tab_weekly, tab_data = st.tabs(
+        ["🗺️ 스마트 노선 맵", "🗒️ 주간 활동 보고", "📊 상세 데이터 및 필터"]
+    )
+else:
+    tab_map, tab_weekly = st.tabs(
+        ["🗺️ 스마트 노선 맵", "🗒️ 주간 활동 보고"]
+    )
+    tab_data = None
 
 with tab_map:
     valid_names = [p["name"] for p in points]
@@ -305,7 +350,7 @@ with tab_map:
                 st.warning("휴게소와 메모를 모두 입력해 주세요.")
             else:
                 try:
-                    add_edit_request(target, st.session_state.get("user_id", ""), memo.strip())
+                    add_edit_request(target, current_uid, memo.strip())
                     load_edit_requests.clear()
                     st.success(f"'{target}' 수정 요청이 접수되었습니다. (상태: 대기중)")
                     st.rerun()
@@ -347,7 +392,7 @@ with tab_map:
 with tab_weekly:
     cur_code, cur_label = get_week_info()
 
-    # ── 주차별 활동 대시보드 (먼저 표시) ──
+    # ── 주차별 활동 대시보드 ──
     st.subheader("📋 주차별 활동 대시보드")
     try:
         wdf = load_weekly_reports()
@@ -367,7 +412,6 @@ with tab_weekly:
         members = load_all_member_names()
         if not members:
             members = week_df["이름"].dropna().astype(str).unique().tolist()
-        # 대시보드 제외 대상 필터링
         members = [m for m in members if m not in DASHBOARD_EXCLUDE]
 
         cols = st.columns(2)
@@ -384,15 +428,50 @@ with tab_weekly:
                             a = str(row.get("활동내용", "")).strip()
                             it = str(row.get("추진물건", "")).strip()
                             n = str(row.get("특이사항", "")).strip()
+                            row_uid = str(row.get("사번", "")).strip()
+                            row_code = str(row.get("주차코드", "")).strip()
+                            row_time = str(row.get("작성시각", "")).strip()
                             if v: st.markdown(f"🏠 **방문**: {v}")
                             if a: st.markdown(f"📝 **활동**: {a}")
-                            if it: st.markdown(f"✅ **추진물건**: {it}")
+                            if it: st.markdown(f"📦 **추진물건**: {it}")
                             if n: st.markdown(f"❗ **특이사항**: {n}")
+
+                            # 삭제 권한: 본인 글이거나 관리자
+                            can_delete = (row_uid == current_uid) or is_admin
+                            if can_delete:
+                                uid_key = f"{row_code}_{row_uid}_{row_time}"
+                                confirm_key = "confirm_del_" + uid_key
+
+                                # 확인 대기 상태가 아니면 '삭제' 버튼, 맞으면 예/취소 버튼
+                                if st.session_state.get(confirm_key, False):
+                                    st.warning("정말 삭제하시겠습니까? 되돌릴 수 없습니다.")
+                                    c1, c2 = st.columns(2)
+                                    with c1:
+                                        if st.button("✅ 예, 삭제", key="yes_" + uid_key):
+                                            try:
+                                                ok = delete_weekly_report(row_code, row_uid, row_time)
+                                                st.session_state[confirm_key] = False
+                                                if ok:
+                                                    load_weekly_reports.clear()
+                                                    st.success("삭제되었습니다.")
+                                                    st.rerun()
+                                                else:
+                                                    st.error("해당 항목을 찾지 못했습니다.")
+                                            except Exception as e:
+                                                st.error(f"삭제 중 오류: {e}")
+                                    with c2:
+                                        if st.button("취소", key="no_" + uid_key):
+                                            st.session_state[confirm_key] = False
+                                            st.rerun()
+                                else:
+                                    if st.button("🗑️ 삭제", key="del_" + uid_key):
+                                        st.session_state[confirm_key] = True
+                                        st.rerun()
                             st.markdown("---")
 
     st.divider()
 
-    # ── 이번 주 활동 작성 (아래로 이동 + 기본 접힘) ──
+    # ── 이번 주 활동 작성 (기본 접힘) ──
     with st.expander("✏️ 이번 주 활동 작성하기"):
         st.caption(f"작성 주차: {cur_label}")
         with st.form("weekly_form", clear_on_submit=True):
@@ -407,9 +486,7 @@ with tab_weekly:
             else:
                 try:
                     add_weekly_report(
-                        cur_code, cur_label,
-                        st.session_state.get("user_id", ""),
-                        st.session_state.get("user_name", ""),
+                        cur_code, cur_label, current_uid, current_name,
                         visited.strip(), activity.strip(), item.strip(), note.strip()
                     )
                     load_weekly_reports.clear()
@@ -418,11 +495,13 @@ with tab_weekly:
                 except Exception as e:
                     st.error(f"제출 중 오류: {e}")
 
-with tab_data:
-    if "브랜드" in df.columns:
-        brands = ["전체"] + sorted(df["브랜드"].dropna().unique().tolist())
-        selected = st.selectbox("브랜드 필터", brands)
-        view_df = df if selected == "전체" else df[df["브랜드"] == selected]
-    else:
-        view_df = df
-    st.dataframe(view_df, use_container_width=True)
+# --- 상세 데이터 및 필터 (관리자 전용) ---
+if tab_data is not None:
+    with tab_data:
+        if "브랜드" in df.columns:
+            brands = ["전체"] + sorted(df["브랜드"].dropna().unique().tolist())
+            selected = st.selectbox("브랜드 필터", brands)
+            view_df = df if selected == "전체" else df[df["브랜드"] == selected]
+        else:
+            view_df = df
+        st.dataframe(view_df, use_container_width=True)
