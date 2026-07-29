@@ -10,6 +10,10 @@ import datetime as _dt
 st.set_page_config(page_title="휴게소 데이터 허브", layout="wide")
 KST = timezone(timedelta(hours=9))
 
+# --- 대시보드에서 제외할 담당자 (임시) ---
+# 나중에 대시보드에 다시 넣고 싶으면 이 목록에서 이름을 빼면 됩니다.
+DASHBOARD_EXCLUDE = ["임진현", "박영진"]
+
 # --- 모바일 헤더 최적화 CSS ---
 st.markdown(
     """
@@ -91,8 +95,6 @@ def get_week_info(target_date=None):
     주어진 날짜(기본: 오늘 KST)가 속한 주의 정보를 반환.
     - 주는 월요일 시작 ~ 일요일 끝
     - '그 달 1일이 포함된 주 = 1주차' 기준
-    반환: (주차코드, 주차표시)
-      예: ("2026-07-1", "2026년 7월 1주차 (06/30~07/06)")
     """
     if target_date is None:
         target_date = datetime.now(KST).date()
@@ -100,9 +102,8 @@ def get_week_info(target_date=None):
     monday = target_date - _dt.timedelta(days=target_date.weekday())
     sunday = monday + _dt.timedelta(days=6)
 
-    base = monday
-    year = base.year
-    month = base.month
+    year = monday.year
+    month = monday.month
 
     first_day = _dt.date(year, month, 1)
     first_monday = first_day - _dt.timedelta(days=first_day.weekday())
@@ -278,8 +279,9 @@ PAGE_URL = "https://k958677wpal-oss.github.io/rest-area-map/"
 TARGET_ORIGIN = "https://k958677wpal-oss.github.io"
 MAP_HEIGHT = 560
 
-tab_map, tab_data, tab_weekly = st.tabs(
-    ["🗺️ 스마트 노선 맵", "📊 상세 데이터 및 필터", "🗒️ 주간 활동 보고"]
+# --- 탭 순서: 스마트 노선 맵 → 주간 활동 보고 → 상세 데이터 및 필터 ---
+tab_map, tab_weekly, tab_data = st.tabs(
+    ["🗺️ 스마트 노선 맵", "🗒️ 주간 활동 보고", "📊 상세 데이터 및 필터"]
 )
 
 with tab_map:
@@ -342,47 +344,10 @@ with tab_map:
             st.dataframe(pd.DataFrame(skipped_rows), use_container_width=True)
             st.caption("구글 시트에서 해당 휴게소의 '위도'/'경도' 값을 채워주시면 다음 새로고침 시 지도에 반영됩니다.")
 
-with tab_data:
-    if "브랜드" in df.columns:
-        brands = ["전체"] + sorted(df["브랜드"].dropna().unique().tolist())
-        selected = st.selectbox("브랜드 필터", brands)
-        view_df = df if selected == "전체" else df[df["브랜드"] == selected]
-    else:
-        view_df = df
-    st.dataframe(view_df, use_container_width=True)
-
 with tab_weekly:
     cur_code, cur_label = get_week_info()
 
-    # ── 작성 폼 ──
-    st.subheader("✏️ 이번 주 활동 작성")
-    st.caption(f"작성 주차: {cur_label}")
-    with st.form("weekly_form", clear_on_submit=True):
-        visited = st.text_input("방문 휴게소", placeholder="예: 죽암(부산), 안성(서울)")
-        activity = st.text_area("활동 내용", placeholder="이번 주 수행한 활동을 적어주세요.")
-        item = st.text_input("추진 물건", placeholder="예: OO휴게소 브랜드 교체 협의")
-        note = st.text_area("특이 사항", placeholder="공유할 이슈나 참고사항이 있으면 적어주세요.")
-        sent = st.form_submit_button("보고 제출")
-    if sent:
-        if not (visited.strip() or activity.strip() or item.strip() or note.strip()):
-            st.warning("최소 한 개 항목은 입력해 주세요.")
-        else:
-            try:
-                add_weekly_report(
-                    cur_code, cur_label,
-                    st.session_state.get("user_id", ""),
-                    st.session_state.get("user_name", ""),
-                    visited.strip(), activity.strip(), item.strip(), note.strip()
-                )
-                load_weekly_reports.clear()
-                st.success("주간 활동 보고가 제출되었습니다.")
-                st.rerun()
-            except Exception as e:
-                st.error(f"제출 중 오류: {e}")
-
-    st.divider()
-
-    # ── 대시보드 ──
+    # ── 주차별 활동 대시보드 (먼저 표시) ──
     st.subheader("📋 주차별 활동 대시보드")
     try:
         wdf = load_weekly_reports()
@@ -402,6 +367,8 @@ with tab_weekly:
         members = load_all_member_names()
         if not members:
             members = week_df["이름"].dropna().astype(str).unique().tolist()
+        # 대시보드 제외 대상 필터링
+        members = [m for m in members if m not in DASHBOARD_EXCLUDE]
 
         cols = st.columns(2)
         for i, member in enumerate(members):
@@ -422,3 +389,40 @@ with tab_weekly:
                             if it: st.markdown(f"📦 **추진물건**: {it}")
                             if n: st.markdown(f"❗ **특이사항**: {n}")
                             st.markdown("---")
+
+    st.divider()
+
+    # ── 이번 주 활동 작성 (아래로 이동 + 기본 접힘) ──
+    with st.expander("✏️ 이번 주 활동 작성하기"):
+        st.caption(f"작성 주차: {cur_label}")
+        with st.form("weekly_form", clear_on_submit=True):
+            visited = st.text_input("방문 휴게소", placeholder="예: 죽암(부산), 안성(서울)")
+            activity = st.text_area("활동 내용", placeholder="이번 주 수행한 활동을 적어주세요.")
+            item = st.text_input("추진 물건", placeholder="예: OO휴게소 브랜드 교체 협의")
+            note = st.text_area("특이 사항", placeholder="공유할 이슈나 참고사항이 있으면 적어주세요.")
+            sent = st.form_submit_button("보고 제출")
+        if sent:
+            if not (visited.strip() or activity.strip() or item.strip() or note.strip()):
+                st.warning("최소 한 개 항목은 입력해 주세요.")
+            else:
+                try:
+                    add_weekly_report(
+                        cur_code, cur_label,
+                        st.session_state.get("user_id", ""),
+                        st.session_state.get("user_name", ""),
+                        visited.strip(), activity.strip(), item.strip(), note.strip()
+                    )
+                    load_weekly_reports.clear()
+                    st.success("주간 활동 보고가 제출되었습니다.")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"제출 중 오류: {e}")
+
+with tab_data:
+    if "브랜드" in df.columns:
+        brands = ["전체"] + sorted(df["브랜드"].dropna().unique().tolist())
+        selected = st.selectbox("브랜드 필터", brands)
+        view_df = df if selected == "전체" else df[df["브랜드"] == selected]
+    else:
+        view_df = df
+    st.dataframe(view_df, use_container_width=True)
