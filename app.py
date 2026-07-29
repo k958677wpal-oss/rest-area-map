@@ -496,7 +496,7 @@ with tab_weekly:
                                 row_uid = str(row.get("사번", "")).strip()
                                 row_code = str(row.get("주차코드", "")).strip()
                                 row_time = str(row.get("작성시각", "")).strip()
-                                st.markdown(f"📦 **추진물건**: {it}")
+                                st.markdown(f"✅ **미팅 내용 및 추진물건**: {it}")
                                 can_delete = (row_uid == current_uid) or is_admin
                                 if can_delete:
                                     _render_delete_button(row_code, row_uid, row_time, current_uid, is_admin)
