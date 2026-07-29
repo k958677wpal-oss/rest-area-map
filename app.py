@@ -550,7 +550,7 @@ with tab_weekly:
 
         st.markdown("---")
 
-        st.markdown("**📦 추진 물건 등록** (이번 주 전체 기준으로 1회만 작성)")
+        st.markdown("**✅ 운영사 미팅 및 추진 물건** (이번 주 전체 기준으로 1회만 작성)")
         with st.form("item_form", clear_on_submit=True):
             item = st.text_input("추진 물건", placeholder="예: OO휴게소 브랜드 교체 협의")
             item_sent = st.form_submit_button("추진물건 등록")
