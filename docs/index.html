@@ -165,7 +165,7 @@
       transition: transform .2s ease;
     }
     .marker-pin .pin-circle {
-      position: relative;   /* 느낌표 뱃지 기준점 */
+      position: relative;
       width: 42px;
       height: 42px;
       border-radius: 50%;
@@ -195,7 +195,6 @@
     .marker-pin.is-dim { opacity: 0.3; }
     .marker-pin.is-small .pin-graphics { transform: scale(0.55); }
 
-    /* [신규] 대기중 수정요청 느낌표 뱃지 */
     .pin-badge {
       position: absolute;
       top: -6px; right: -6px;
@@ -241,7 +240,8 @@
       padding: 10px 12px;
       font-size: 13px;
       line-height: 1.6;
-      min-width: 180px;
+      min-width: 190px;
+      max-width: 260px;
       background: #fff;
       border-radius: 8px;
       box-shadow: 0 2px 10px rgba(0,0,0,.25);
@@ -263,6 +263,47 @@
     }
     .iw-close:hover { background: #eee; color: #333; }
     .iw-title { font-size: 14px; font-weight: 700; padding-right: 18px; }
+
+    /* [신규] 이력 보기 버튼 및 이력 목록 */
+    .iw-history-btn {
+      pointer-events: auto;
+      margin-top: 8px;
+      padding: 5px 10px;
+      font-size: 12px;
+      font-weight: 700;
+      border: none;
+      border-radius: 6px;
+      background: #2F5597;
+      color: #fff;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .iw-history-btn:hover { background: #24407a; }
+    .iw-history-box {
+      pointer-events: auto;
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px dashed rgba(0,0,0,0.15);
+      max-height: 180px;
+      overflow-y: auto;
+    }
+    .history-item {
+      background: #f7f8fa;
+      border-radius: 6px;
+      padding: 6px 8px;
+      margin-bottom: 6px;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .history-item .h-meta {
+      color: #2F5597;
+      font-weight: 700;
+      margin-bottom: 2px;
+    }
+    .history-empty {
+      font-size: 12px;
+      color: #999;
+    }
   </style>
 </head>
 <body>
@@ -622,6 +663,19 @@
       if (infowindow) infowindow.close();
     };
 
+    // [신규] 이력 보기 토글: 버튼 다음에 있는 이력 상자를 열고 닫음
+    window.toggleHistory = function (btn) {
+      var box = btn.nextElementSibling;
+      if (!box) return;
+      if (box.style.display === 'none' || !box.style.display) {
+        box.style.display = 'block';
+        btn.textContent = '📖 이력 닫기';
+      } else {
+        box.style.display = 'none';
+        btn.textContent = btn.getAttribute('data-label-open');
+      }
+    };
+
     function log(msg) {
       if (!DEBUG) return;
       var el = document.getElementById('debugPanel');
@@ -668,10 +722,35 @@
       return s + "천원";
     }
 
+    function escapeHtml(s) {
+      return (s == null ? "" : String(s))
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+
+    // [신규] 방문 이력 목록 HTML 생성
+    function buildHistoryHtml(p) {
+      var list = p.history || [];
+      if (!list.length) {
+        return '<div class="history-empty">아직 등록된 방문 이력이 없습니다.</div>';
+      }
+      var html = "";
+      list.forEach(function (h) {
+        html += '<div class="history-item">' +
+                  '<div class="h-meta">' + escapeHtml(h.date) + ' · ' + escapeHtml(h.manager) + '</div>' +
+                  (h.activity ? ('📝 ' + escapeHtml(h.activity) + '<br>') : '') +
+                  (h.note ? ('❗ ' + escapeHtml(h.note)) : '') +
+                '</div>';
+      });
+      return html;
+    }
+
     function buildContent(p) {
       var pendingNotice = p.has_pending
         ? '<div style="color:#E6194B;font-weight:700;margin-bottom:4px;">❗ 수정 요청 대기중</div>'
         : '';
+      var historyCount = (p.history || []).length;
+      var historyBtnLabel = '📖 이력 보기 (' + historyCount + ')';
+
       return '<div class="iw-wrap">' +
                '<span class="iw-close" onclick="closeInfoWindow()">×</span>' +
                '<div class="iw-title">' + buildTitle(p) + '</div>' +
@@ -683,6 +762,8 @@
                '계약기간: ' + p.contract + '<br>' +
                '계약차수: ' + (p.contract_step != null ? p.contract_step : '') + '<br>' +
                '담당자: ' + p.manager +
+               '<button class="iw-history-btn" data-label-open="' + historyBtnLabel + '" onclick="toggleHistory(this)">' + historyBtnLabel + '</button>' +
+               '<div class="iw-history-box" style="display:none;">' + buildHistoryHtml(p) + '</div>' +
              '</div>';
     }
 
@@ -714,7 +795,6 @@
       img.alt = p.brand || '';
       circle.appendChild(img);
 
-      // [신규] 대기중 수정 요청이 있으면 느낌표 뱃지
       if (p.has_pending) {
         var badge = document.createElement('div');
         badge.className = 'pin-badge';
@@ -1065,178 +1145,3 @@
     }
 
     function highlightMarkers(highway) {
-      var target = normalize(highway);
-      allMarkers.forEach(function (item) {
-        if (normalize(item.point.highway) === target) {
-          item.el.classList.remove('is-dim');
-          setMarkerZ(item, Z_HIGHLIGHT, true);
-        } else {
-          item.el.classList.add('is-dim');
-          setMarkerZ(item, Z_DIM, true);
-        }
-      });
-    }
-
-    function resetAll() {
-      clearRoute();
-      if (infowindow) infowindow.close();
-      isShowingAllRoutes = false;
-      clearMarkerFilter();
-      allMarkers.forEach(function (item) {
-        item.el.classList.remove('is-dim');
-        setMarkerZ(item, Z_BASE, true);
-      });
-      updateBrandStats(allMarkers, '전체노선');
-    }
-
-    function selectHighway(p) {
-      isShowingAllRoutes = false;
-      clearMarkerFilter();
-      drawRoute(p.highway);
-      highlightMarkers(p.highway);
-
-      var target = normalize(p.highway);
-      var group = allMarkers.filter(function (item) {
-        return normalize(item.point.highway) === target;
-      });
-      if (group.length && target) updateBrandStats(group, p.highway);
-      else updateBrandStats(allMarkers, '전체노선');
-    }
-
-    function onMarkerActivate(pos, p, content) {
-      if (filterMode) {
-        infowindow.setContent(content);
-        infowindow.setPosition(pos);
-        infowindow.open(map);
-      } else {
-        activate(pos, p, content);
-      }
-    }
-
-    function activate(pos, p, content) {
-      infowindow.setContent(content);
-      infowindow.setPosition(pos);
-      infowindow.open(map);
-      selectHighway(p);
-    }
-
-    function applyMarkerScale() {
-      if (!map) return;
-      var level = map.getLevel();
-      var small = level >= SMALL_MARKER_ZOOM_LEVEL;
-      allMarkers.forEach(function (item) {
-        if (small) item.el.classList.add('is-small');
-        else item.el.classList.remove('is-small');
-      });
-    }
-
-    function initMap(points, query) {
-      log('총 마커 수: ' + (points ? points.length : 0));
-      var container = document.getElementById('map');
-
-      if (!map) {
-        var center = (points && points.length)
-          ? new kakao.maps.LatLng(points[0].lat, points[0].lng)
-          : new kakao.maps.LatLng(36.5, 127.8);
-        map = new kakao.maps.Map(container, { center: center, level: 8 });
-        infowindow = new kakao.maps.InfoWindow({ zIndex: 20000 });
-        document.getElementById('resetBtn').addEventListener('click', resetAll);
-        document.getElementById('showAllRoutesBtn').addEventListener('click', showAllRoutes);
-        kakao.maps.event.addListener(map, 'idle', refreshOverlays);
-        kakao.maps.event.addListener(map, 'zoom_changed', function () {
-          applyMarkerScale();
-          refreshOverlays();
-        });
-
-        var leftPanels = document.getElementById('leftPanels');
-        var masterBtn = document.getElementById('filterMasterBtn');
-        masterBtn.addEventListener('click', function () {
-          var collapsed = leftPanels.classList.toggle('master-collapsed');
-          masterBtn.textContent = collapsed ? '🔎 필터 열기' : '✖ 필터 닫기';
-        });
-
-        ['leftPanels'].forEach(function (id) {
-          var el = document.getElementById(id);
-          ['click', 'mousedown', 'touchstart', 'dblclick'].forEach(function (evt) {
-            el.addEventListener(evt, function (e) { e.stopPropagation(); });
-          });
-        });
-      } else {
-        allMarkers.forEach(function (item) {
-          item.overlay.setMap(null);
-          if (item.nameLabel) item.nameLabel.setMap(null);
-        });
-        allMarkers = [];
-        resetAll();
-      }
-
-      (points || []).forEach(function (p) {
-        var pos = new kakao.maps.LatLng(p.lat, p.lng);
-        var content = buildContent(p);
-        var pinEl = createPinElement(p);
-
-        var overlay = new kakao.maps.CustomOverlay({
-          position: pos, content: pinEl,
-          xAnchor: 0.5, yAnchor: 1, clickable: true, zIndex: Z_BASE
-        });
-        overlay.setMap(map);
-        kakao.maps.event.preventMap(pinEl);
-
-        var item = { overlay: overlay, el: pinEl, point: p, baseZIndex: Z_BASE, nameLabel: null };
-        allMarkers.push(item);
-        setMarkerZ(item, Z_BASE, true);
-
-        pinEl.addEventListener('click', function () { onMarkerActivate(pos, p, content); });
-        pinEl.addEventListener('mouseup', function () { onMarkerActivate(pos, p, content); });
-        pinEl.addEventListener('touchstart', function (e) { e.preventDefault(); onMarkerActivate(pos, p, content); }, { passive: false });
-        pinEl.addEventListener('mouseenter', function () { setMarkerZ(item, Z_HOVER, false); });
-        pinEl.addEventListener('mouseleave', function () { setMarkerZ(item, item.baseZIndex, false); });
-      });
-
-      applyMarkerScale();
-      updateBrandStats(allMarkers, '전체노선');
-      updateContractPanel();
-      updateOperatorPanel();
-
-      if (query) {
-        var hit = null;
-        for (var i = 0; i < allMarkers.length; i++) {
-          if (allMarkers[i].point.name === query) { hit = allMarkers[i]; break; }
-        }
-        if (hit) {
-          var hitPos = hit.overlay.getPosition();
-          map.setLevel(6);
-          map.panTo(hitPos);
-          activate(hitPos, hit.point, buildContent(hit.point));
-        }
-      }
-    }
-
-    window.addEventListener('message', function (event) {
-      if (event.source !== window.parent) return;
-      var data = event.data;
-      if (!data || data.type !== 'INIT_MAP_DATA') return;
-      log('📩 postMessage 수신 (' + (data.points ? data.points.length : 0) + '건)');
-      if (mapReady) {
-        initMap(data.points, data.query);
-      } else {
-        pendingMapData = data;
-      }
-    });
-
-    kakao.maps.load(function () {
-      var params = new URLSearchParams(window.location.search);
-      DEBUG = params.get('debug') === '1';
-      if (DEBUG) document.getElementById('debugPanel').style.display = 'block';
-      mapReady = true;
-
-      loadPrecomputedRoutes();
-
-      if (pendingMapData) {
-        initMap(pendingMapData.points, pendingMapData.query);
-        pendingMapData = null;
-      }
-    });
-  </script>
-</body>
-</html>
