@@ -181,7 +181,6 @@
     .neighbor-info.is-current { border-left-color: #2F5597; }
     .neighbor-info.is-current .ni-role { background: #2F5597; }
 
-    /* [신규] 거리 보기 종료용 X 버튼 (현재 휴게소 카드에만 표시) */
     .ni-close {
       position: absolute;
       top: 3px;
@@ -781,14 +780,18 @@
       }
     };
 
-    // [신규] 거리 보기 종료 (마커/선/카드를 모두 원상복구)
     window.exitDistanceView = function () {
       resetAll();
     };
 
+    // [수정] DEBUG 여부와 무관하게 항상 브라우저 콘솔(F12)에도 로그를 남김
+    // -> Streamlit iframe은 ?debug=1이 안 붙어 하단 로그창은 안 보여도,
+    //    개발자도구 콘솔에서 iframe 프레임을 선택하면 이 로그를 그대로 볼 수 있음
     function log(msg) {
+      try { console.log('[지도]', msg); } catch (e) {}
       if (!DEBUG) return;
       var el = document.getElementById('debugPanel');
+      if (!el) return;
       el.textContent += msg + "\n";
       el.scrollTop = el.scrollHeight;
     }
@@ -813,11 +816,8 @@
           }
           precomputedRoutesLoaded = true;
           log('📁 routes.json 로드 완료 (' + Object.keys(PRECOMPUTED_ROUTES).length + '개 노선)');
-          log('   정규화 키: ' + Object.keys(PRECOMPUTED_LOOKUP).join(', '));
-          var firstKey = Object.keys(PRECOMPUTED_LOOKUP)[0];
-          if (firstKey && PRECOMPUTED_LOOKUP[firstKey] && PRECOMPUTED_LOOKUP[firstKey][0]) {
-            log('   첫 좌표: [' + PRECOMPUTED_LOOKUP[firstKey][0].join(', ') + '] / 총 ' + PRECOMPUTED_LOOKUP[firstKey].length + '개');
-          }
+          log('   routes.json 원본 키 목록: ' + Object.keys(PRECOMPUTED_ROUTES).join(' | '));
+          log('   정규화된 키 목록: ' + Object.keys(PRECOMPUTED_LOOKUP).join(' | '));
           rerenderLastState();
         })
         .catch(function (err) {
@@ -1071,7 +1071,6 @@
       });
     }
 
-    // [수정] 정밀 노선(routes.json)일 때와 대체(휴게소 연결)일 때 시각적으로 구분
     function drawSingleRoute(highway) {
       var precomputed = PRECOMPUTED_LOOKUP[normalize(highway)];
       var path;
@@ -1082,7 +1081,7 @@
         isPrecise = true;
         log('✅ 정밀 노선 사용: "' + highway + '" (' + path.length + '개 좌표)');
       } else {
-        log('⚠ 정밀 노선 없음, 휴게소 연결로 대체: "' + highway + '" (정규화="' + normalize(highway) + '")');
+        log('⚠ 정밀 노선 없음, 휴게소 연결로 대체: 마커의 highway 값="' + highway + '" / 정규화="' + normalize(highway) + '" / routes.json에 있는 정규화 키들=[' + Object.keys(PRECOMPUTED_LOOKUP).join(', ') + ']');
         var group = computeSortedGroup(highway);
         if (group.length < 2) {
           return;
@@ -1092,7 +1091,6 @@
         });
       }
 
-      // 정밀 노선은 굵은 남색 실선, 대체 노선은 기존 색상 + 점선으로 구분
       var color = isPrecise ? '#1F4E9C' : getRouteColor(highway);
       var weight = isPrecise ? 6 : 4;
       var style = isPrecise ? 'solid' : 'shortdash';
@@ -1229,7 +1227,6 @@
       allLabels.push({ overlay: labelOverlay, path: path, color: color });
     }
 
-    // [수정] 현재 휴게소 카드에 X(닫기) 버튼 추가, 연매출액 -> 추정매출로 변경
     function drawNeighborInfo(name, roleLabel, isCurrent) {
       var item = findMarkerByName(name);
       if (!item) return;
@@ -1594,6 +1591,14 @@
         allMarkers = [];
         resetAll();
       }
+
+      // [추가] 마커 highway 값들을 항상 콘솔에 남겨서 routes.json 키와 직접 비교 가능하게 함
+      var hwSet = {};
+      (points || []).forEach(function (p) {
+        var hw = (p.highway == null ? "" : String(p.highway));
+        if (hw) hwSet[hw] = true;
+      });
+      log('📌 마커에 실려있는 고속도로명 원본 목록: ' + Object.keys(hwSet).join(' | '));
 
       (points || []).forEach(function (p) {
         var pos = new kakao.maps.LatLng(p.lat, p.lng);
