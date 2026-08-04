@@ -136,6 +136,20 @@
       transform: translate(-50%, -130%);
     }
 
+    /* [신규] 거리 보기 시 구간 위에 뜨는 km 라벨 */
+    .distance-label {
+      background: #333;
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 10px;
+      box-shadow: 0 1px 4px rgba(0,0,0,.3);
+      white-space: nowrap;
+      transform: translate(-50%, -50%);
+    }
+    .distance-label.is-detour { background: #E6194B; }
+
     .name-label {
       transform: translateY(-56px);
       background: rgba(33,33,33,0.85);
@@ -195,7 +209,6 @@
     .marker-pin.is-dim { opacity: 0.3; }
     .marker-pin.is-small .pin-graphics { transform: scale(0.55); }
 
-    /* 수정요청 대기중 뱃지 (우측 상단, 빨강 느낌표) */
     .pin-badge {
       position: absolute;
       top: -6px; right: -6px;
@@ -209,7 +222,6 @@
       overflow: visible;
     }
 
-    /* [신규] 방문 이력 뱃지 (좌측 상단, 파란 책 아이콘) */
     .pin-history-badge {
       position: absolute;
       top: -6px; left: -6px;
@@ -282,6 +294,7 @@
     .iw-history-btn {
       pointer-events: auto;
       margin-top: 8px;
+      margin-right: 6px;
       padding: 5px 10px;
       font-size: 12px;
       font-weight: 700;
@@ -293,6 +306,23 @@
       white-space: nowrap;
     }
     .iw-history-btn:hover { background: #24407a; }
+
+    /* [신규] 거리 보기 버튼 */
+    .iw-distance-btn {
+      pointer-events: auto;
+      margin-top: 8px;
+      padding: 5px 10px;
+      font-size: 12px;
+      font-weight: 700;
+      border: none;
+      border-radius: 6px;
+      background: #E67E22;
+      color: #fff;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .iw-distance-btn:hover { background: #c0691b; }
+
     .iw-history-box {
       pointer-events: auto;
       margin-top: 8px;
@@ -669,6 +699,11 @@
     var PRECOMPUTED_ROUTES = {};
     var precomputedRoutesLoaded = false;
 
+    // [신규] 거리 보기 관련 전역 상태
+    var DISTANCES_DATA = { routes: {}, segments: {} };
+    var distancesLoaded = false;
+    var isShowingDistanceView = false;
+
     var DEBUG = false;
     var mapReady = false;
     var pendingMapData = null;
@@ -686,6 +721,17 @@
       } else {
         box.style.display = 'none';
         btn.textContent = btn.getAttribute('data-label-open');
+      }
+    };
+
+    // [신규] 거리 보기 버튼 클릭 핸들러 (전역에서 호출되도록 등록)
+    window.showDistanceView = function (name) {
+      var target = null;
+      for (var i = 0; i < allMarkers.length; i++) {
+        if (allMarkers[i].point.name === name) { target = allMarkers[i]; break; }
+      }
+      if (target) {
+        showDistanceViewFor(target.point);
       }
     };
 
@@ -715,6 +761,43 @@
           log('⚠ routes.json 로드 실패, 기존 휴게소 연결 방식으로 대체: ' + err);
           precomputedRoutesLoaded = true;
         });
+    }
+
+    // [신규] distances.json 로드
+    function loadDistancesData() {
+      fetch('distances.json')
+        .then(function (res) {
+          if (!res.ok) throw new Error('distances.json 로드 실패: ' + res.status);
+          return res.json();
+        })
+        .then(function (data) {
+          DISTANCES_DATA = data || { routes: {}, segments: {} };
+          distancesLoaded = true;
+          log('📁 distances.json 로드 완료');
+        })
+        .catch(function (err) {
+          log('⚠ distances.json 로드 실패, 거리 보기 기능이 제한됩니다: ' + err);
+          distancesLoaded = true;
+        });
+    }
+
+    // [신규] 특정 휴게소명의 전/후 정보를 DISTANCES_DATA에서 찾음
+    function findDistanceEntry(name) {
+      var routes = DISTANCES_DATA.routes || {};
+      for (var highway in routes) {
+        if (!routes.hasOwnProperty(highway)) continue;
+        var directions = routes[highway];
+        for (var direction in directions) {
+          if (!directions.hasOwnProperty(direction)) continue;
+          var list = directions[direction];
+          for (var i = 0; i < list.length; i++) {
+            if (list[i].name === name) {
+              return { highway: highway, direction: direction, entry: list[i] };
+            }
+          }
+        }
+      }
+      return null;
     }
 
     function setMarkerZ(item, z, isBaseChange) {
@@ -763,6 +846,13 @@
       var historyCount = (p.history || []).length;
       var historyBtnLabel = '📖 이력 보기 (' + historyCount + ')';
 
+      // 거리 보기 버튼: distances.json에서 이 휴게소 정보를 찾을 수 있을 때만 노출
+      var distanceBtnHtml = '';
+      var distEntry = findDistanceEntry(p.name);
+      if (distEntry) {
+        distanceBtnHtml = '<button class="iw-distance-btn" onclick="showDistanceView(\'' + escapeHtml(p.name).replace(/'/g, "\\'") + '\')">📏 거리 보기</button>';
+      }
+
       return '<div class="iw-wrap">' +
                '<span class="iw-close" onclick="closeInfoWindow()">×</span>' +
                '<div class="iw-title">' + buildTitle(p) + '</div>' +
@@ -775,6 +865,7 @@
                '계약차수: ' + (p.contract_step != null ? p.contract_step : '') + '<br>' +
                '담당자: ' + p.manager + '<br>' +
                '<button class="iw-history-btn" data-label-open="' + historyBtnLabel + '" onclick="toggleHistory(this)">' + historyBtnLabel + '</button>' +
+               distanceBtnHtml +
                '<div class="iw-history-box" style="display:none;">' + buildHistoryHtml(p) + '</div>' +
              '</div>';
     }
@@ -807,7 +898,6 @@
       img.alt = p.brand || '';
       circle.appendChild(img);
 
-      // 수정요청 대기중 뱃지 (우측 상단, 빨강)
       if (p.has_pending) {
         var badge = document.createElement('div');
         badge.className = 'pin-badge';
@@ -815,7 +905,6 @@
         circle.appendChild(badge);
       }
 
-      // [신규] 방문 이력 뱃지 (좌측 상단, 파랑 책 아이콘) - 이력이 1건 이상일 때만
       if (p.history && p.history.length > 0) {
         var historyBadge = document.createElement('div');
         historyBadge.className = 'pin-history-badge';
@@ -927,6 +1016,7 @@
       clearRoute();
       if (infowindow) infowindow.close();
       isShowingAllRoutes = true;
+      isShowingDistanceView = false;
       clearMarkerFilter();
 
       allMarkers.forEach(function (item) {
@@ -946,8 +1036,89 @@
       updateBrandStats(allMarkers, '전체노선');
     }
 
+    // =========================================================
+    // [신규] 거리 보기: 클릭한 휴게소 + 전/후 휴게소만 남기고
+    // 실제 도로 곡선(segments) 두 구간을 이어 그리고 거리 라벨을 표시
+    // =========================================================
+    function showDistanceViewFor(p) {
+      var found = findDistanceEntry(p.name);
+      if (!found) {
+        log('❌ "' + p.name + '"의 거리 정보를 찾을 수 없습니다.');
+        return;
+      }
+
+      clearRoute();
+      if (infowindow) infowindow.close();
+      isShowingAllRoutes = false;
+      isShowingDistanceView = true;
+      clearMarkerFilter();
+
+      var entry = found.entry;
+      var segmentsData = DISTANCES_DATA.segments || {};
+
+      // 표시할 이름 집합(현재+전+후)
+      var showNames = {};
+      showNames[entry.name] = true;
+      if (entry.prev) showNames[entry.prev.name] = true;
+      if (entry.next) showNames[entry.next.name] = true;
+
+      allMarkers.forEach(function (item) {
+        if (showNames[item.point.name]) {
+          item.el.classList.remove('is-dim');
+          setMarkerZ(item, Z_HIGHLIGHT, true);
+        } else {
+          item.el.classList.add('is-dim');
+          setMarkerZ(item, Z_DIM, true);
+        }
+      });
+
+      // 이전 구간 그리기
+      if (entry.prev && entry.prev.segment && segmentsData[entry.prev.segment]) {
+        drawDistanceSegment(segmentsData[entry.prev.segment], entry.prev.km, entry.prev.detour);
+      }
+      // 다음 구간 그리기
+      if (entry.next && entry.next.segment && segmentsData[entry.next.segment]) {
+        drawDistanceSegment(segmentsData[entry.next.segment], entry.next.km, entry.next.detour);
+      }
+
+      updateBrandStats(
+        allMarkers.filter(function (item) { return showNames[item.point.name]; }),
+        p.name + ' 전후 거리'
+      );
+    }
+
+    function drawDistanceSegment(coordArray, km, isDetour) {
+      if (!coordArray || coordArray.length < 2) return;
+
+      var path = coordArray.map(function (c) {
+        return new kakao.maps.LatLng(c[0], c[1]);
+      });
+
+      var color = isDetour ? '#E6194B' : '#E67E22';
+
+      var polyline = new kakao.maps.Polyline({
+        path: path, strokeWeight: 5, strokeColor: color,
+        strokeOpacity: 0.95, strokeStyle: 'solid'
+      });
+      polyline.setMap(map);
+      allPolylines.push(polyline);
+
+      var midPos = path[Math.floor(path.length / 2)];
+      var labelText = (isDetour ? '⚠ ' : '') + km + 'km';
+      var labelOverlay = new kakao.maps.CustomOverlay({
+        position: midPos,
+        content: '<div class="distance-label' + (isDetour ? ' is-detour' : '') + '">' + labelText + '</div>',
+        yAnchor: 0.5, zIndex: 20
+      });
+      labelOverlay.setMap(map);
+      allLabels.push({ overlay: labelOverlay, path: path, color: color });
+    }
+
     function updateLabelPosition() {
       if (!map || !allLabels.length) return;
+
+      // 거리 보기 모드에서는 라벨을 항상 표시 (숨김 로직 미적용)
+      if (isShowingDistanceView) return;
 
       if (isShowingAllRoutes && map.getLevel() > LABEL_MAX_ZOOM_LEVEL) {
         allLabels.forEach(function (lb) { lb.overlay.setMap(null); });
@@ -1102,6 +1273,7 @@
       clearRoute();
       if (infowindow) infowindow.close();
       isShowingAllRoutes = false;
+      isShowingDistanceView = false;
       contractFilterState = null;
       activeOperator = null; operatorEtcExpanded = false;
       updateContractPanel(); updateOperatorPanel();
@@ -1118,6 +1290,7 @@
       clearRoute();
       if (infowindow) infowindow.close();
       isShowingAllRoutes = false;
+      isShowingDistanceView = false;
       activeBrandKey = null;
       activeOperator = null; operatorEtcExpanded = false;
       updateOperatorPanel();
@@ -1151,6 +1324,7 @@
       clearRoute();
       if (infowindow) infowindow.close();
       isShowingAllRoutes = false;
+      isShowingDistanceView = false;
       activeBrandKey = null;
       contractFilterState = null;
       updateContractPanel();
@@ -1180,6 +1354,7 @@
       clearRoute();
       if (infowindow) infowindow.close();
       isShowingAllRoutes = false;
+      isShowingDistanceView = false;
       clearMarkerFilter();
       allMarkers.forEach(function (item) {
         item.el.classList.remove('is-dim');
@@ -1190,152 +1365,7 @@
 
     function selectHighway(p) {
       isShowingAllRoutes = false;
+      isShowingDistanceView = false;
       clearMarkerFilter();
       drawRoute(p.highway);
-      highlightMarkers(p.highway);
-
-      var target = normalize(p.highway);
-      var group = allMarkers.filter(function (item) {
-        return normalize(item.point.highway) === target;
-      });
-      if (group.length && target) updateBrandStats(group, p.highway);
-      else updateBrandStats(allMarkers, '전체노선');
-    }
-
-    function onMarkerActivate(pos, p, content) {
-      if (filterMode) {
-        infowindow.setContent(content);
-        infowindow.setPosition(pos);
-        infowindow.open(map);
-      } else {
-        activate(pos, p, content);
-      }
-    }
-
-    function activate(pos, p, content) {
-      infowindow.setContent(content);
-      infowindow.setPosition(pos);
-      infowindow.open(map);
-      selectHighway(p);
-    }
-
-    function applyMarkerScale() {
-      if (!map) return;
-      var level = map.getLevel();
-      var small = level >= SMALL_MARKER_ZOOM_LEVEL;
-      allMarkers.forEach(function (item) {
-        if (small) item.el.classList.add('is-small');
-        else item.el.classList.remove('is-small');
-      });
-    }
-
-    function initMap(points, query) {
-      log('총 마커 수: ' + (points ? points.length : 0));
-      var container = document.getElementById('map');
-
-      if (!map) {
-        var center = (points && points.length)
-          ? new kakao.maps.LatLng(points[0].lat, points[0].lng)
-          : new kakao.maps.LatLng(36.5, 127.8);
-        map = new kakao.maps.Map(container, { center: center, level: 8 });
-        infowindow = new kakao.maps.InfoWindow({ zIndex: 20000 });
-        document.getElementById('resetBtn').addEventListener('click', resetAll);
-        document.getElementById('showAllRoutesBtn').addEventListener('click', showAllRoutes);
-        kakao.maps.event.addListener(map, 'idle', refreshOverlays);
-        kakao.maps.event.addListener(map, 'zoom_changed', function () {
-          applyMarkerScale();
-          refreshOverlays();
-        });
-
-        var leftPanels = document.getElementById('leftPanels');
-        var masterBtn = document.getElementById('filterMasterBtn');
-        masterBtn.addEventListener('click', function () {
-          var collapsed = leftPanels.classList.toggle('master-collapsed');
-          masterBtn.textContent = collapsed ? '🔎 필터 열기' : '✖ 필터 닫기';
-        });
-
-        ['leftPanels'].forEach(function (id) {
-          var el = document.getElementById(id);
-          ['click', 'mousedown', 'touchstart', 'dblclick'].forEach(function (evt) {
-            el.addEventListener(evt, function (e) { e.stopPropagation(); });
-          });
-        });
-      } else {
-        allMarkers.forEach(function (item) {
-          item.overlay.setMap(null);
-          if (item.nameLabel) item.nameLabel.setMap(null);
-        });
-        allMarkers = [];
-        resetAll();
-      }
-
-      (points || []).forEach(function (p) {
-        var pos = new kakao.maps.LatLng(p.lat, p.lng);
-        var content = buildContent(p);
-        var pinEl = createPinElement(p);
-
-        var overlay = new kakao.maps.CustomOverlay({
-          position: pos, content: pinEl,
-          xAnchor: 0.5, yAnchor: 1, clickable: true, zIndex: Z_BASE
-        });
-        overlay.setMap(map);
-        kakao.maps.event.preventMap(pinEl);
-
-        var item = { overlay: overlay, el: pinEl, point: p, baseZIndex: Z_BASE, nameLabel: null };
-        allMarkers.push(item);
-        setMarkerZ(item, Z_BASE, true);
-
-        pinEl.addEventListener('click', function () { onMarkerActivate(pos, p, content); });
-        pinEl.addEventListener('mouseup', function () { onMarkerActivate(pos, p, content); });
-        pinEl.addEventListener('touchstart', function (e) { e.preventDefault(); onMarkerActivate(pos, p, content); }, { passive: false });
-        pinEl.addEventListener('mouseenter', function () { setMarkerZ(item, Z_HOVER, false); });
-        pinEl.addEventListener('mouseleave', function () { setMarkerZ(item, item.baseZIndex, false); });
-      });
-
-      applyMarkerScale();
-      updateBrandStats(allMarkers, '전체노선');
-      updateContractPanel();
-      updateOperatorPanel();
-
-      if (query) {
-        var hit = null;
-        for (var i = 0; i < allMarkers.length; i++) {
-          if (allMarkers[i].point.name === query) { hit = allMarkers[i]; break; }
-        }
-        if (hit) {
-          var hitPos = hit.overlay.getPosition();
-          map.setLevel(6);
-          map.panTo(hitPos);
-          activate(hitPos, hit.point, buildContent(hit.point));
-        }
-      }
-    }
-
-    window.addEventListener('message', function (event) {
-      if (event.source !== window.parent) return;
-      var data = event.data;
-      if (!data || data.type !== 'INIT_MAP_DATA') return;
-      log('📩 postMessage 수신 (' + (data.points ? data.points.length : 0) + '건)');
-      if (mapReady) {
-        initMap(data.points, data.query);
-      } else {
-        pendingMapData = data;
-      }
-    });
-
-    kakao.maps.load(function () {
-      var params = new URLSearchParams(window.location.search);
-      DEBUG = params.get('debug') === '1';
-      if (DEBUG) document.getElementById('debugPanel').style.display = 'block';
-      mapReady = true;
-
-      loadPrecomputedRoutes();
-
-      if (pendingMapData) {
-        initMap(pendingMapData.points, pendingMapData.query);
-        pendingMapData = null;
-      }
-    });
-  </script>
-</body>
-</html>
+      high
