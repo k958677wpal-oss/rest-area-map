@@ -14,7 +14,7 @@ KST = timezone(timedelta(hours=9))
 DASHBOARD_EXCLUDE = ["임진현", "박영진"]
 
 # --- 관리자 사번 목록 (앞자리 0 제외 형태로 입력) ---
-ADMIN_IDS = ["507583", "501580"]
+ADMIN_IDS = ["507583","501580"]
 
 # --- 관리자 통계 대시보드에서 기본으로 펼쳐 보여줄 최근 주차 수 ---
 RECENT_WEEKS_SHOWN = 5
@@ -248,14 +248,10 @@ def _render_delete_button(row_code, row_uid, row_time, current_uid, is_admin):
 def build_admin_stats(wdf, members):
     """
     관리자 통계 대시보드용 데이터를 만듭니다.
-    반환: (표시용 DataFrame, 최근 표시 주차 리스트, 전체 주차 리스트)
-    각 셀 내용: "방문 N / 전체 M" 형태. 방문 0건이면 셀 배경에 미작성 표시용 플래그도 별도 관리.
     """
     if wdf.empty or "주차코드" not in wdf.columns or "주차표시" not in wdf.columns:
         return pd.DataFrame(), [], []
 
-    # 주차코드 -> 주차표시 매핑, 최신순 정렬 (주차코드는 "연-월-주" 형식이라 문자열 정렬로도 대략 맞지만
-    # 안전하게 실제 값 기준으로 정렬)
     week_map = (
         wdf[["주차코드", "주차표시"]]
         .drop_duplicates()
@@ -264,7 +260,6 @@ def build_admin_stats(wdf, members):
     week_map = week_map[week_map["주차코드"].astype(str).str.strip() != ""]
 
     def week_sort_key(code):
-        # "2026-07-1" -> (2026, 7, 1)
         try:
             y, m, w = str(code).split("-")
             return (int(y), int(m), int(w))
@@ -303,6 +298,44 @@ def build_admin_stats(wdf, members):
     recent_labels = [code_to_label[c] for c in all_week_codes[:RECENT_WEEKS_SHOWN]]
     older_labels = [code_to_label[c] for c in all_week_codes[RECENT_WEEKS_SHOWN:]]
     return result_df, recent_labels, older_labels
+
+@st.cache_data(ttl=300)
+def load_distances_data():
+    """
+    로컬 build_distances.py 로 미리 만들어 GitHub Pages(docs/)에 올려둔
+    distances.json 을 읽어옵니다. app.py 는 이 파일을 직접 갖고 있지 않으므로,
+    지도(index.html)가 fetch로 읽도록 하고, app.py 에서는 휴게소별 prev/next만
+    보조적으로 구성해 지도로 넘겨줍니다. (routes/segments 원본은 index.html이 직접 로드)
+    이 함수는 로컬에 distances.json 파일이 app.py와 같은 위치에 있을 때만 사용됩니다.
+    없으면 빈 데이터로 처리되고 index.html이 자체적으로 fetch합니다.
+    """
+    try:
+        with open("distances.json", "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {"routes": {}, "segments": {}}
+
+def get_prev_next_map(distances_data):
+    """
+    {휴게소명: {"prev": {...} or None, "next": {...} or None}} 형태로 변환.
+    같은 이름이 여러 노선/방향에 나오면 마지막 것으로 덮어써질 수 있으므로,
+    노선명+방향까지 포함한 세부 정보는 history처럼 리스트로 관리합니다.
+    """
+    pn_map = {}
+    routes = distances_data.get("routes", {})
+    for highway, directions in routes.items():
+        for direction, entries in directions.items():
+            for entry in entries:
+                name = entry.get("name")
+                if not name:
+                    continue
+                pn_map.setdefault(name, []).append({
+                    "highway": highway,
+                    "direction": direction,
+                    "prev": entry.get("prev"),
+                    "next": entry.get("next"),
+                })
+    return pn_map
 
 # --- 2. 로그인 시스템 ---
 if "logged_in" not in st.session_state:
@@ -398,6 +431,12 @@ if not wdf_all.empty and "방문휴게소" in wdf_all.columns:
     for k in history_index:
         history_index[k].sort(key=lambda e: e["created_at"], reverse=True)
 
+# --- 휴게소별 전/후 거리 정보 (지도 '거리 보기'용) ---
+# distances.json 자체(routes/segments)는 index.html이 직접 fetch로 읽으므로,
+# app.py는 여기서 별도로 무겁게 실을 필요가 없습니다. (선택적 보조 정보만 시도)
+distances_data = load_distances_data()
+prev_next_map = get_prev_next_map(distances_data)
+
 points = []
 skipped_rows = []
 for idx, r in df.iterrows():
@@ -427,6 +466,7 @@ for idx, r in df.iterrows():
             "highway": r.get("고속도로명", ""),
             "has_pending": (str(name).strip() in pending_names),
             "history": history_index.get(str(name).strip(), []),
+            "distance_info": prev_next_map.get(str(name).strip(), []),
         })
     except Exception as e:
         skipped_rows.append({
@@ -444,7 +484,7 @@ MAP_HEIGHT = 560
 # --- 탭 구성: 관리자면 통계 대시보드 + 상세 데이터 탭 포함, 아니면 제외 ---
 if is_admin:
     tab_map, tab_weekly, tab_admin_stats, tab_data = st.tabs(
-        ["🗺️ 스마트 노선 맵", "🗒️ 주간 활동 보고", "📈 담당자 작성 현황 (관리자)", "📊 상세 데이터 및 필터 (관리자)"]
+        ["🗺️ 스마트 노선 맵", "🗒️ 주간 활동 보고", "📈 담당자 작성 현황 (관리자)", "📊 상세 데이터 및 필터"]
     )
 else:
     tab_map, tab_weekly = st.tabs(
@@ -559,7 +599,7 @@ with tab_weekly:
                                 row_uid = str(row.get("사번", "")).strip()
                                 row_code = str(row.get("주차코드", "")).strip()
                                 row_time = str(row.get("작성시각", "")).strip()
-                                st.markdown(f"✅ **운영사 미팅 및 추진물건**: {it}")
+                                st.markdown(f"📦 **추진물건**: {it}")
                                 can_delete = (row_uid == current_uid) or is_admin
                                 if can_delete:
                                     _render_delete_button(row_code, row_uid, row_time, current_uid, is_admin)
@@ -613,13 +653,13 @@ with tab_weekly:
 
         st.markdown("---")
 
-        st.markdown("**✅ 운영사 미팅 및 추진 물건** (이번 주 전체 기준으로 1회만 작성)")
+        st.markdown("**📦 추진 물건 등록** (이번 주 전체 기준으로 1회만 작성)")
         with st.form("item_form", clear_on_submit=True):
             item = st.text_input("추진 물건", placeholder="예: OO휴게소 브랜드 교체 협의")
             item_sent = st.form_submit_button("추진물건 등록")
         if item_sent:
             if not item.strip():
-                st.warning("미팅 및 추진 물건 내용을 입력해 주세요.")
+                st.warning("추진 물건 내용을 입력해 주세요.")
             else:
                 try:
                     add_weekly_report(
