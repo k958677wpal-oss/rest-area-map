@@ -149,6 +149,7 @@
     }
     .distance-label.is-detour { background: #E6194B; }
 
+    /* [수정] 겹치는 transform/margin-top 제거, 다른 라벨과 동일한 방식으로 통일 */
     .neighbor-info {
       background: rgba(255,255,255,0.97);
       border-radius: 8px;
@@ -157,8 +158,7 @@
       font-size: 11px;
       line-height: 1.5;
       white-space: nowrap;
-      transform: translate(-50%, -100%);
-      margin-top: -52px;
+      transform: translateY(-56px);
       border-left: 4px solid #E67E22;
     }
     .neighbor-info .ni-title {
@@ -730,8 +730,8 @@
     var precomputedRoutesLoaded = false;
 
     var DISTANCES_DATA = null;
-    var DISTANCE_ENTRY_LOOKUP = {};   // { 휴게소명: {highway, direction, entry} }
-    var DISTANCE_SEGMENTS = {};       // { segmentKey: [[lat,lng], ...] }
+    var DISTANCE_ENTRY_LOOKUP = {};
+    var DISTANCE_SEGMENTS = {};
     var distancesLoaded = false;
     var isShowingDistanceView = false;
     var lastRenderState = null;
@@ -791,7 +791,6 @@
           precomputedRoutesLoaded = true;
           log('📁 routes.json 로드 완료 (' + Object.keys(PRECOMPUTED_ROUTES).length + '개 노선)');
           log('   정규화 키: ' + Object.keys(PRECOMPUTED_LOOKUP).join(', '));
-          // 좌표 형식 확인용 첫 좌표 로그
           var firstKey = Object.keys(PRECOMPUTED_LOOKUP)[0];
           if (firstKey && PRECOMPUTED_LOOKUP[firstKey] && PRECOMPUTED_LOOKUP[firstKey][0]) {
             log('   첫 좌표 원본값: [' + PRECOMPUTED_LOOKUP[firstKey][0].join(', ') + ']');
@@ -804,8 +803,6 @@
         });
     }
 
-    // distances.json 로드 후, 휴게소명 -> 항목 조회용 룩업을 미리 구성
-    // (최상위에 routes/segments 래퍼가 있는 구조와 없는 구조 모두 안전하게 처리)
     function loadDistancesData() {
       fetch('distances.json')
         .then(function (res) {
@@ -820,7 +817,6 @@
             routesObj = DISTANCES_DATA.routes;
             segmentsObj = DISTANCES_DATA.segments || {};
           } else {
-            // 래퍼가 없는 구조: 최상위가 곧 노선명
             routesObj = DISTANCES_DATA;
             segmentsObj = {};
           }
@@ -848,7 +844,6 @@
 
           distancesLoaded = true;
           log('📁 distances.json 로드 완료 (거리정보 ' + Object.keys(DISTANCE_ENTRY_LOOKUP).length + '개 휴게소, 구간 ' + Object.keys(DISTANCE_SEGMENTS).length + '개)');
-          log('   거리정보 휴게소: ' + Object.keys(DISTANCE_ENTRY_LOOKUP).join(', '));
         })
         .catch(function (err) {
           log('⚠ distances.json 로드 실패, 거리 보기 비활성화: ' + err);
@@ -917,10 +912,6 @@
       return html;
     }
 
-    // [핵심 수정] 정보창 HTML을 '열 때마다' 새로 생성합니다.
-    // 이전에는 마커 생성 시점(initMap)에 한 번만 만들어 저장했는데,
-    // 그 시점에는 distances.json 로딩이 끝나지 않아 '거리 보기' 버튼이
-    // 영구히 누락되는 문제가 있었습니다.
     function buildContent(p) {
       var pendingNotice = p.has_pending
         ? '<div style="color:#E6194B;font-weight:700;margin-bottom:4px;">❗ 수정 요청 대기중</div>'
@@ -1051,10 +1042,10 @@
       return sorted;
     }
 
-    // [수정] 좌표 배열을 [경도, 위도] 순서로 해석하여 LatLng(c[1], c[0]) 으로 생성
+    // [수정] 파이썬이 [위도, 경도] 순서로 저장하므로 LatLng(c[0], c[1]) 그대로 사용
     function coordsToLatLngPath(coordArray) {
       return coordArray.map(function (c) {
-        return new kakao.maps.LatLng(c[1], c[0]);
+        return new kakao.maps.LatLng(c[0], c[1]);
       });
     }
 
@@ -1156,7 +1147,6 @@
         }
       });
 
-      // 구간 곡선: segments 데이터가 있으면 실제 도로 곡선, 없으면 두 지점을 직접 연결
       if (entry.prev) {
         drawNeighborSegment(entry.prev.name, entry.name, entry.prev, entry.prev.segment);
       }
@@ -1174,7 +1164,6 @@
       );
     }
 
-    // segments 곡선이 있으면 그것으로, 없으면 두 마커를 직접 이어 그림
     function drawNeighborSegment(fromName, toName, info, segmentKey) {
       var path = null;
 
@@ -1503,7 +1492,6 @@
       else updateBrandStats(allMarkers, '전체노선');
     }
 
-    // [수정] 정보창을 열 때마다 buildContent(p)를 새로 호출 (거리 보기 버튼 누락 방지)
     function onMarkerActivate(pos, p) {
       if (filterMode) {
         infowindow.setContent(buildContent(p));
