@@ -149,8 +149,8 @@
     }
     .distance-label.is-detour { background: #E6194B; }
 
-    /* [수정] 겹치는 transform/margin-top 제거, 다른 라벨과 동일한 방식으로 통일 */
     .neighbor-info {
+      position: relative;
       background: rgba(255,255,255,0.97);
       border-radius: 8px;
       box-shadow: 0 2px 8px rgba(0,0,0,.3);
@@ -166,6 +166,7 @@
       font-size: 12px;
       margin-bottom: 2px;
       color: #333;
+      padding-right: 16px;
     }
     .neighbor-info .ni-role {
       display: inline-block;
@@ -179,6 +180,23 @@
     }
     .neighbor-info.is-current { border-left-color: #2F5597; }
     .neighbor-info.is-current .ni-role { background: #2F5597; }
+
+    /* [신규] 거리 보기 종료용 X 버튼 (현재 휴게소 카드에만 표시) */
+    .ni-close {
+      position: absolute;
+      top: 3px;
+      right: 5px;
+      width: 16px;
+      height: 16px;
+      line-height: 15px;
+      text-align: center;
+      font-size: 13px;
+      font-weight: 700;
+      color: #888;
+      cursor: pointer;
+      border-radius: 50%;
+    }
+    .ni-close:hover { background: #eee; color: #333; }
 
     .name-label {
       transform: translateY(-56px);
@@ -763,6 +781,11 @@
       }
     };
 
+    // [신규] 거리 보기 종료 (마커/선/카드를 모두 원상복구)
+    window.exitDistanceView = function () {
+      resetAll();
+    };
+
     function log(msg) {
       if (!DEBUG) return;
       var el = document.getElementById('debugPanel');
@@ -793,7 +816,7 @@
           log('   정규화 키: ' + Object.keys(PRECOMPUTED_LOOKUP).join(', '));
           var firstKey = Object.keys(PRECOMPUTED_LOOKUP)[0];
           if (firstKey && PRECOMPUTED_LOOKUP[firstKey] && PRECOMPUTED_LOOKUP[firstKey][0]) {
-            log('   첫 좌표 원본값: [' + PRECOMPUTED_LOOKUP[firstKey][0].join(', ') + ']');
+            log('   첫 좌표: [' + PRECOMPUTED_LOOKUP[firstKey][0].join(', ') + '] / 총 ' + PRECOMPUTED_LOOKUP[firstKey].length + '개');
           }
           rerenderLastState();
         })
@@ -1042,19 +1065,21 @@
       return sorted;
     }
 
-    // [수정] 파이썬이 [위도, 경도] 순서로 저장하므로 LatLng(c[0], c[1]) 그대로 사용
     function coordsToLatLngPath(coordArray) {
       return coordArray.map(function (c) {
         return new kakao.maps.LatLng(c[0], c[1]);
       });
     }
 
+    // [수정] 정밀 노선(routes.json)일 때와 대체(휴게소 연결)일 때 시각적으로 구분
     function drawSingleRoute(highway) {
       var precomputed = PRECOMPUTED_LOOKUP[normalize(highway)];
       var path;
+      var isPrecise = false;
 
       if (precomputed && precomputed.length >= 2) {
         path = coordsToLatLngPath(precomputed);
+        isPrecise = true;
         log('✅ 정밀 노선 사용: "' + highway + '" (' + path.length + '개 좌표)');
       } else {
         log('⚠ 정밀 노선 없음, 휴게소 연결로 대체: "' + highway + '" (정규화="' + normalize(highway) + '")');
@@ -1067,18 +1092,22 @@
         });
       }
 
-      var color = getRouteColor(highway);
+      // 정밀 노선은 굵은 남색 실선, 대체 노선은 기존 색상 + 점선으로 구분
+      var color = isPrecise ? '#1F4E9C' : getRouteColor(highway);
+      var weight = isPrecise ? 6 : 4;
+      var style = isPrecise ? 'solid' : 'shortdash';
 
       var polyline = new kakao.maps.Polyline({
-        path: path, strokeWeight: 4, strokeColor: color,
-        strokeOpacity: 0.9, strokeStyle: 'solid'
+        path: path, strokeWeight: weight, strokeColor: color,
+        strokeOpacity: 0.9, strokeStyle: style
       });
       polyline.setMap(map);
       allPolylines.push(polyline);
 
+      var labelText = highway + (isPrecise ? '' : ' (근사)');
       var labelOverlay = new kakao.maps.CustomOverlay({
         position: path[Math.floor(path.length / 2)],
-        content: '<div class="highway-label" style="background:' + color + ';">' + highway + '</div>',
+        content: '<div class="highway-label" style="background:' + color + ';">' + labelText + '</div>',
         yAnchor: 1, zIndex: 15
       });
       allLabels.push({ overlay: labelOverlay, path: path, color: color });
@@ -1200,25 +1229,32 @@
       allLabels.push({ overlay: labelOverlay, path: path, color: color });
     }
 
+    // [수정] 현재 휴게소 카드에 X(닫기) 버튼 추가, 연매출액 -> 추정매출로 변경
     function drawNeighborInfo(name, roleLabel, isCurrent) {
       var item = findMarkerByName(name);
       if (!item) return;
 
       var p = item.point;
+      var closeBtn = isCurrent
+        ? '<span class="ni-close" onclick="exitDistanceView()">×</span>'
+        : '';
+
       var html =
         '<div class="neighbor-info' + (isCurrent ? ' is-current' : '') + '">' +
+          closeBtn +
           '<div class="ni-title">' + escapeHtml(p.name) +
             '<span class="ni-role">' + escapeHtml(roleLabel) + '</span>' +
           '</div>' +
           '브랜드: ' + escapeHtml(p.brand) + '<br>' +
-          '연매출액: ' + escapeHtml(p.revenue) +
+          '추정매출: ' + escapeHtml(formatEstimated(p.estimated_revenue)) +
         '</div>';
 
       var overlay = new kakao.maps.CustomOverlay({
         position: item.overlay.getPosition(),
         content: html,
         yAnchor: 1,
-        zIndex: 30
+        zIndex: 30,
+        clickable: true
       });
       overlay.setMap(map);
       allLabels.push({ overlay: overlay, path: [item.overlay.getPosition()], color: '#E67E22' });
