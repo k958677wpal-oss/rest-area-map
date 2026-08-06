@@ -484,7 +484,7 @@ MAP_HEIGHT = 560
 # --- 탭 구성: 관리자면 통계 대시보드 + 상세 데이터 탭 포함, 아니면 제외 ---
 if is_admin:
     tab_map, tab_weekly, tab_admin_stats, tab_data = st.tabs(
-        ["🗺️ 스마트 노선 맵", "🗒️ 주간 활동 보고", "📈 담당자 작성 현황 (관리자)", "📊 상세 데이터 및 필터"]
+        ["🗺️ 스마트 노선 맵", "🗒️ 주간 활동 보고", "📈 담당자 작성 현황(관리자)", "📊 상세 데이터 및 필터(관리자)"]
     )
 else:
     tab_map, tab_weekly = st.tabs(
