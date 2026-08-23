@@ -9,7 +9,7 @@ import datetime as _dt
 st.set_page_config(page_title="휴게소 데이터 허브", layout="wide")
 KST = timezone(timedelta(hours=9))
 # --- 대시보드에서 제외할 담당자 (임시) ---
-DASHBOARD_EXCLUDE = ["임진현", "박영진"]
+DASHBOARD_EXCLUDE = ["임진현", "박영진", "김영진"]
 # --- 관리자 사번 목록 (앞자리 0 제외 형태로 입력) ---
 ADMIN_IDS = ["507583","501580"]
 # --- 관리자 통계 대시보드에서 기본으로 펼쳐 보여줄 최근 주차 수 ---
