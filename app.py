@@ -161,9 +161,25 @@ def save_material(rest_name, photo1_id, photo2_id, c_name, c_phone, c_memo, uplo
     if old_row_num is not None:
         ws.delete_rows(old_row_num)
 
+def make_thumb(uploaded_file, max_side=480):
+    """미리보기용 작은 이미지(원본 대용량 사진을 화면에 그대로 보내지 않기 위함)."""
+    try:
+        uploaded_file.seek(0)
+        img = Image.open(uploaded_file)
+        img = ImageOps.exif_transpose(img)
+        img = img.convert("RGB")
+        img.thumbnail((max_side, max_side), Image.LANCZOS)
+        buf = io.BytesIO()
+        img.save(buf, "JPEG", quality=70)
+        uploaded_file.seek(0)
+        return buf.getvalue()
+    except Exception:
+        return None
+
 def process_image(uploaded_file):
     """업로드된 사진을 회전 보정 후 긴 변 1280px, JPEG 품질 75로 줄여 bytes 반환."""
     try:
+        uploaded_file.seek(0)
         img = Image.open(uploaded_file)
         img = ImageOps.exif_transpose(img)
         img = img.convert("RGB")
@@ -387,7 +403,7 @@ def normalize_value(value):
         value = int(value)
     s = str(value)
     s = s.strip()
-    s = s.replace("\u00a0", "").replace("\u200b", "")
+    s = s.replace(" ", "").replace("​", "")
     if s.isdigit():
         s = str(int(s))
     return s
@@ -755,7 +771,11 @@ with tab_map:
 
     # ── 📎 휴게소 자료 등록 (사진 2장 + 현장 담당자 연락처) ──
     # form 을 쓰지 않는 이유: form 안에서는 제출 전까지 파일이 앱에 전달되지 않아 미리보기를 보여줄 수 없습니다.
-    with st.expander("📎 휴게소 자료 등록 (사진·연락처)"):
+    # st.fragment: 이 영역 안의 조작(사진 선택, 글자 입력)은 이 영역만 다시 실행합니다.
+    # (지도·시트 데이터 전체가 다시 실행되지 않아 휴대폰에서 사진 업로드가 훨씬 안정적입니다)
+    @st.fragment
+    def material_register_fragment():
+      with st.expander("📎 휴게소 자료 등록 (사진·연락처)", expanded=True):
         rc = st.session_state.get("mat_reset", 0)
 
         flash = st.session_state.pop("mat_flash", None)
@@ -787,11 +807,11 @@ with tab_map:
         with pc1:
             up1 = st.file_uploader("매장 사진 1", type=IMG_TYPES, key=f"mat_p1_{rc}")
             if up1 is not None:
-                st.image(up1, caption="미리보기", width=240)
+                st.image(make_thumb(up1), caption="미리보기", width=240)
         with pc2:
             up2 = st.file_uploader("매장 사진 2", type=IMG_TYPES, key=f"mat_p2_{rc}")
             if up2 is not None:
-                st.image(up2, caption="미리보기", width=240)
+                st.image(make_thumb(up2), caption="미리보기", width=240)
 
         c_name = st.text_input("현장 담당자 이름", key=f"mat_cname_{rc}", placeholder="예: 홍길동 점장")
         c_phone = st.text_input("연락처", key=f"mat_cphone_{rc}", placeholder="예: 010-1234-5678")
@@ -831,6 +851,8 @@ with tab_map:
                     st.error(str(e))
                 except Exception as e:
                     st.error(f"등록 중 오류: {e}")
+
+    material_register_fragment()
 
     # ── 🔎 등록된 자료 확인 (3단계에서 지도 팝업의 '사진 보기'로 대체될 임시 확인용) ──
     with st.expander("🔎 등록된 자료 확인"):
