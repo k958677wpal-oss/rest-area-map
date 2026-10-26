@@ -2,9 +2,22 @@ import streamlit as st
 import pandas as pd
 import gspread
 import json
+import io
+import base64
+import requests
 import streamlit.components.v1 as components
 from datetime import datetime, timezone, timedelta
 import datetime as _dt
+
+from PIL import Image, ImageOps
+
+# iPhone HEIC 사진 지원(선택): requirements.txt 에 pillow-heif 가 있을 때만 활성화
+try:
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+    HEIC_OK = True
+except Exception:
+    HEIC_OK = False
 
 # --- 페이지 기본 설정 ---
 st.set_page_config(page_title="휴게소 데이터 허브", layout="wide")
@@ -18,6 +31,17 @@ ADMIN_IDS = ["507583","501580"]
 
 # --- 관리자 통계 대시보드에서 기본으로 펼쳐 보여줄 최근 주차 수 ---
 RECENT_WEEKS_SHOWN = 5
+
+# --- 사진 저장(Apps Script 중계) 설정: Streamlit Secrets 에서 읽음 ---
+DRIVE_URL = str(st.secrets.get("drive_script_url", "")).strip()
+DRIVE_KEY = str(st.secrets.get("drive_script_key", "")).strip()
+DRIVE_READY = bool(DRIVE_URL and DRIVE_KEY)
+
+MATERIAL_SHEET_TAB = "휴게소_자료"
+MATERIAL_HEADERS = ["휴게소명", "사진1_ID", "사진2_ID", "담당자이름", "연락처", "메모", "올린사람", "올린시각"]
+PHOTO_MAX_SIDE = 1280     # 긴 변 최대 픽셀
+PHOTO_QUALITY = 75        # JPEG 품질
+IMG_TYPES = ["jpg", "jpeg", "png", "webp"] + (["heic", "heif"] if HEIC_OK else [])
 
 # --- 모바일 헤더 최적화 CSS ---
 st.markdown(
@@ -93,6 +117,103 @@ def get_pending_rest_names():
         return set()
     pending = rdf[rdf["상태"].astype(str).str.strip() == "대기중"]
     return set(pending["휴게소명"].astype(str).str.strip())
+
+# --- 휴게소 자료(사진·연락처) ---
+def get_material_ws(create=False):
+    """'휴게소_자료' 탭을 반환. create=True 이면 없을 때 자동으로 만들고 헤더를 넣습니다."""
+    gc = init_connection()
+    doc = gc.open("휴게소_통합_데이터")
+    try:
+        return doc.worksheet(MATERIAL_SHEET_TAB)
+    except gspread.exceptions.WorksheetNotFound:
+        if not create:
+            return None
+        ws = doc.add_worksheet(title=MATERIAL_SHEET_TAB, rows=500, cols=len(MATERIAL_HEADERS))
+        ws.append_row(MATERIAL_HEADERS)
+        return ws
+
+@st.cache_data(ttl=60)
+def load_materials():
+    """{휴게소명: {컬럼: 값}} 형태로 반환. 전화번호 앞자리 0이 사라지지 않도록 문자열 그대로 읽습니다."""
+    ws = get_material_ws(create=False)
+    if ws is None:
+        return {}
+    values = ws.get_all_values()
+    result = {}
+    for row in values[1:]:
+        row = list(row) + [""] * (len(MATERIAL_HEADERS) - len(row))
+        rec = dict(zip(MATERIAL_HEADERS, [str(c).strip() for c in row]))
+        if rec["휴게소명"]:
+            result[rec["휴게소명"]] = rec
+    return result
+
+def save_material(rest_name, photo1_id, photo2_id, c_name, c_phone, c_memo, uploader):
+    """휴게소당 1행 유지: 새 행을 추가한 뒤 기존 행을 삭제합니다. (중간에 실패해도 데이터가 사라지지 않게 추가를 먼저 함)"""
+    ws = get_material_ws(create=True)
+    values = ws.get_all_values()
+    old_row_num = None
+    for i, row in enumerate(values[1:], start=2):
+        if row and str(row[0]).strip() == rest_name:
+            old_row_num = i
+            break
+    now_str = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
+    ws.append_row([rest_name, photo1_id, photo2_id, c_name, c_phone, c_memo, uploader, now_str])
+    if old_row_num is not None:
+        ws.delete_rows(old_row_num)
+
+def process_image(uploaded_file):
+    """업로드된 사진을 회전 보정 후 긴 변 1280px, JPEG 품질 75로 줄여 bytes 반환."""
+    try:
+        img = Image.open(uploaded_file)
+        img = ImageOps.exif_transpose(img)
+        img = img.convert("RGB")
+        img.thumbnail((PHOTO_MAX_SIDE, PHOTO_MAX_SIDE), Image.LANCZOS)
+        buf = io.BytesIO()
+        img.save(buf, "JPEG", quality=PHOTO_QUALITY, optimize=True)
+        return buf.getvalue()
+    except Exception:
+        raise ValueError("사진을 읽을 수 없습니다. JPG 또는 PNG 사진인지 확인해 주세요.")
+
+def drive_call(payload, timeout=90):
+    """Apps Script 웹 앱 호출. text/plain 으로 보내 Apps Script가 안정적으로 받도록 합니다."""
+    body = dict(payload)
+    body["key"] = DRIVE_KEY
+    res = requests.post(
+        DRIVE_URL,
+        data=json.dumps(body),
+        headers={"Content-Type": "text/plain;charset=utf-8"},
+        timeout=timeout,
+    )
+    res.raise_for_status()
+    return res.json()
+
+def upload_photo(jpeg_bytes, rest_name, slot):
+    ts = datetime.now(KST).strftime("%Y%m%d_%H%M%S")
+    out = drive_call({
+        "action": "upload",
+        "name": f"{rest_name}_{slot}_{ts}.jpg",
+        "mime": "image/jpeg",
+        "data": base64.b64encode(jpeg_bytes).decode("ascii"),
+    })
+    if not out.get("ok"):
+        raise RuntimeError(f"사진 저장 실패: {out.get('error', '알 수 없는 오류')}")
+    return out["id"]
+
+@st.cache_data(ttl=3600, show_spinner="사진을 불러오는 중...")
+def fetch_photos(ids):
+    """파일 ID 튜플 -> [bytes 또는 None, ...] (한 번의 호출로 여러 장)"""
+    out = drive_call({"action": "get_many", "ids": list(ids)})
+    if not out.get("ok"):
+        return [None] * len(ids)
+    by_id = {it.get("id"): it for it in out.get("items", [])}
+    result = []
+    for i in ids:
+        it = by_id.get(i)
+        if it and it.get("ok"):
+            result.append(base64.b64decode(it["data"]))
+        else:
+            result.append(None)
+    return result
 
 # --- 주간 활동 보고 ---
 def get_week_info(target_date=None):
@@ -631,6 +752,126 @@ with tab_map:
         with st.expander(f"⚠️ 좌표 오류로 지도에 표시되지 않은 휴게소 {len(skipped_rows)}건 (클릭하여 확인)"):
             st.dataframe(pd.DataFrame(skipped_rows), use_container_width=True)
             st.caption("구글 시트에서 해당 휴게소의 '위도'/'경도' 값을 채워주시면 다음 새로고침 시 지도에 반영됩니다.")
+
+    # ── 📎 휴게소 자료 등록 (사진 2장 + 현장 담당자 연락처) ──
+    # form 을 쓰지 않는 이유: form 안에서는 제출 전까지 파일이 앱에 전달되지 않아 미리보기를 보여줄 수 없습니다.
+    with st.expander("📎 휴게소 자료 등록 (사진·연락처)"):
+        rc = st.session_state.get("mat_reset", 0)
+
+        flash = st.session_state.pop("mat_flash", None)
+        if flash:
+            st.success(flash)
+
+        if not DRIVE_READY:
+            st.warning("사진 저장 설정(drive_script_url / drive_script_key)이 아직 없어 사진 등록은 사용할 수 없습니다. 연락처만 등록할 수 있습니다.")
+        elif not HEIC_OK:
+            st.caption("JPG·PNG 사진을 올려 주세요.")
+
+        try:
+            all_materials = load_materials()
+        except Exception as e:
+            all_materials = {}
+            st.error(f"자료 목록 로드 오류: {e}")
+
+        mat_target = st.selectbox("휴게소 선택", options=[""] + valid_names, key=f"mat_target_{rc}")
+        old_rec = all_materials.get(mat_target) if mat_target else None
+        if old_rec:
+            n_photos = sum(1 for k in ("사진1_ID", "사진2_ID") if old_rec.get(k))
+            st.caption(
+                f"현재 등록: 사진 {n_photos}장 · 담당자 {old_rec.get('담당자이름') or '-'} · "
+                f"연락처 {old_rec.get('연락처') or '-'} · {old_rec.get('올린사람') or '-'} ({old_rec.get('올린시각') or '-'}). "
+                f"비워 둔 항목은 기존 값이 유지되고, 새로 올린 항목만 교체됩니다."
+            )
+
+        pc1, pc2 = st.columns(2)
+        with pc1:
+            up1 = st.file_uploader("매장 사진 1", type=IMG_TYPES, key=f"mat_p1_{rc}")
+            if up1 is not None:
+                st.image(up1, caption="미리보기", width=240)
+        with pc2:
+            up2 = st.file_uploader("매장 사진 2", type=IMG_TYPES, key=f"mat_p2_{rc}")
+            if up2 is not None:
+                st.image(up2, caption="미리보기", width=240)
+
+        c_name = st.text_input("현장 담당자 이름", key=f"mat_cname_{rc}", placeholder="예: 홍길동 점장")
+        c_phone = st.text_input("연락처", key=f"mat_cphone_{rc}", placeholder="예: 010-1234-5678")
+        c_memo = st.text_input("메모", key=f"mat_cmemo_{rc}", placeholder="예: 평일 오전 통화 가능")
+
+        if st.button("이대로 등록", key=f"mat_submit_{rc}", type="primary"):
+            has_photo = (up1 is not None) or (up2 is not None)
+            has_text = any(v.strip() for v in (c_name, c_phone, c_memo))
+            if not mat_target:
+                st.warning("휴게소를 선택해 주세요.")
+            elif not has_photo and not has_text:
+                st.warning("사진이나 연락처 중 하나 이상을 입력해 주세요.")
+            elif has_photo and not DRIVE_READY:
+                st.error("사진 저장 설정이 없어 사진을 올릴 수 없습니다. 관리자에게 문의해 주세요.")
+            else:
+                try:
+                    with st.spinner("사진을 줄여서 올리는 중입니다... (잠시만 기다려 주세요)"):
+                        old = all_materials.get(mat_target, {})
+                        id1 = old.get("사진1_ID", "")
+                        id2 = old.get("사진2_ID", "")
+                        if up1 is not None:
+                            id1 = upload_photo(process_image(up1), mat_target, 1)
+                        if up2 is not None:
+                            id2 = upload_photo(process_image(up2), mat_target, 2)
+                        save_material(
+                            mat_target, id1, id2,
+                            c_name.strip() or old.get("담당자이름", ""),
+                            c_phone.strip() or old.get("연락처", ""),
+                            c_memo.strip() or old.get("메모", ""),
+                            current_name,
+                        )
+                    load_materials.clear()
+                    st.session_state["mat_reset"] = rc + 1
+                    st.session_state["mat_flash"] = f"'{mat_target}' 자료가 등록되었습니다."
+                    st.rerun()
+                except ValueError as e:
+                    st.error(str(e))
+                except Exception as e:
+                    st.error(f"등록 중 오류: {e}")
+
+    # ── 🔎 등록된 자료 확인 (3단계에서 지도 팝업의 '사진 보기'로 대체될 임시 확인용) ──
+    with st.expander("🔎 등록된 자료 확인"):
+        view_target = st.selectbox("휴게소 선택", options=[""] + valid_names, key="mat_view_target")
+        if view_target:
+            rec = load_materials().get(view_target)
+            if not rec:
+                st.info("이 휴게소에는 아직 등록된 자료가 없습니다.")
+            else:
+                phone = rec.get("연락처", "")
+                digits = "".join(ch for ch in phone if ch.isdigit() or ch == "+")
+                if rec.get("담당자이름") or phone or rec.get("메모"):
+                    line = f"👤 {rec.get('담당자이름') or '-'}"
+                    if phone:
+                        line += f" · [📞 {phone}](tel:{digits})"
+                    if rec.get("메모"):
+                        line += f" · {rec['메모']}"
+                    st.markdown(line)
+                st.caption(f"올린 사람: {rec.get('올린사람') or '-'} · {rec.get('올린시각') or '-'}")
+
+                photo_ids = [rec.get("사진1_ID", ""), rec.get("사진2_ID", "")]
+                photo_ids = [i for i in photo_ids if i]
+                if not photo_ids:
+                    st.caption("등록된 사진이 없습니다.")
+                elif not DRIVE_READY:
+                    st.warning("사진 저장 설정이 없어 사진을 불러올 수 없습니다.")
+                else:
+                    if st.button("📷 사진 불러오기", key="mat_view_btn"):
+                        st.session_state["mat_view_loaded"] = view_target
+                    if st.session_state.get("mat_view_loaded") == view_target:
+                        try:
+                            photos = fetch_photos(tuple(photo_ids))
+                            vcols = st.columns(2)
+                            for i, data in enumerate(photos):
+                                with vcols[i % 2]:
+                                    if data:
+                                        st.image(data, caption=f"사진 {i + 1}", width=360)
+                                    else:
+                                        st.caption(f"사진 {i + 1}: 불러오지 못했습니다.")
+                        except Exception as e:
+                            st.error(f"사진 불러오기 오류: {e}")
 
 with tab_weekly:
     cur_code, cur_label = get_week_info()
