@@ -653,6 +653,29 @@ if not wdf_all.empty and "방문휴게소" in wdf_all.columns:
 distances_data = load_distances_data()
 prev_next_map = get_prev_next_map(distances_data)
 
+# --- 휴게소별 자료(사진 ID·연락처) 인덱스 (지도 '사진 보기'용) ---
+# 사진 자체는 여기서 보내지 않고 파일 ID만 보냅니다. 사진은 팝업에서 '사진 보기'를 누를 때만 불러옵니다.
+try:
+    materials_map = load_materials()
+except Exception:
+    materials_map = {}
+
+def build_material_payload(rec):
+    if not rec:
+        return None
+    ids = [i for i in (rec.get("사진1_ID", ""), rec.get("사진2_ID", "")) if i]
+    has_contact = any(rec.get(k) for k in ("담당자이름", "연락처", "메모"))
+    if not ids and not has_contact:
+        return None
+    return {
+        "ids": ids,
+        "contact_name": rec.get("담당자이름", ""),
+        "phone": rec.get("연락처", ""),
+        "memo": rec.get("메모", ""),
+        "uploader": rec.get("올린사람", ""),
+        "uploaded_at": rec.get("올린시각", ""),
+    }
+
 points = []
 skipped_rows = []
 for idx, r in df.iterrows():
@@ -683,6 +706,7 @@ for idx, r in df.iterrows():
             "has_pending": (str(name).strip() in pending_names),
             "history": history_index.get(str(name).strip(), []),
             "distance_info": prev_next_map.get(str(name).strip(), []),
+            "material": build_material_payload(materials_map.get(str(name).strip())),
         })
     except Exception as e:
         skipped_rows.append({
@@ -739,6 +763,8 @@ with tab_map:
 
     points_json = json.dumps(points, ensure_ascii=False)
     query_json = json.dumps(query if query else "")
+    # 로그인한 사용자의 화면에서만 사진 서버 주소/키를 지도에 전달 (index.html 파일에는 적어두지 않음)
+    drive_json = json.dumps({"url": DRIVE_URL, "key": DRIVE_KEY}) if DRIVE_READY else "null"
 
     component_html = f"""
     <iframe
@@ -751,10 +777,11 @@ with tab_map:
       (function () {{
         var mapPoints = {points_json};
         var searchQuery = {query_json};
+        var driveCfg = {drive_json};
         var iframe = document.getElementById('kakaoMapFrame');
         function sendData() {{
           iframe.contentWindow.postMessage(
-            {{ type: 'INIT_MAP_DATA', points: mapPoints, query: searchQuery }},
+            {{ type: 'INIT_MAP_DATA', points: mapPoints, query: searchQuery, drive: driveCfg }},
             '{TARGET_ORIGIN}'
           );
         }}
@@ -775,7 +802,7 @@ with tab_map:
     # (지도·시트 데이터 전체가 다시 실행되지 않아 휴대폰에서 사진 업로드가 훨씬 안정적입니다)
     @st.fragment
     def material_register_fragment():
-      with st.expander("📎 휴게소 자료 등록 (사진·연락처)", expanded=True):
+      with st.expander("📎 휴게소 자료 등록 (사진·연락처)", expanded=False):
         rc = st.session_state.get("mat_reset", 0)
 
         flash = st.session_state.pop("mat_flash", None)
