@@ -916,47 +916,6 @@ with tab_map:
 
     material_register_fragment()
 
-    # ── 🔎 등록된 자료 확인 (3단계에서 지도 팝업의 '사진 보기'로 대체될 임시 확인용) ──
-    with st.expander("🔎 등록된 자료 확인"):
-        view_target = st.selectbox("휴게소 선택", options=[""] + valid_names, key="mat_view_target")
-        if view_target:
-            rec = load_materials().get(view_target)
-            if not rec:
-                st.info("이 휴게소에는 아직 등록된 자료가 없습니다.")
-            else:
-                phone = rec.get("연락처", "")
-                digits = "".join(ch for ch in phone if ch.isdigit() or ch == "+")
-                if rec.get("담당자이름") or phone or rec.get("메모"):
-                    line = f"👤 {rec.get('담당자이름') or '-'}"
-                    if phone:
-                        line += f" · [📞 {phone}](tel:{digits})"
-                    if rec.get("메모"):
-                        line += f" · {rec['메모']}"
-                    st.markdown(line)
-                st.caption(f"올린 사람: {rec.get('올린사람') or '-'} · {rec.get('올린시각') or '-'}")
-
-                photo_ids = [rec.get("사진1_ID", ""), rec.get("사진2_ID", "")]
-                photo_ids = [i for i in photo_ids if i]
-                if not photo_ids:
-                    st.caption("등록된 사진이 없습니다.")
-                elif not DRIVE_READY:
-                    st.warning("사진 저장 설정이 없어 사진을 불러올 수 없습니다.")
-                else:
-                    if st.button("📷 사진 불러오기", key="mat_view_btn"):
-                        st.session_state["mat_view_loaded"] = view_target
-                    if st.session_state.get("mat_view_loaded") == view_target:
-                        try:
-                            photos = fetch_photos(tuple(photo_ids))
-                            vcols = st.columns(2)
-                            for i, data in enumerate(photos):
-                                with vcols[i % 2]:
-                                    if data:
-                                        st.image(data, caption=f"사진 {i + 1}", width=360)
-                                    else:
-                                        st.caption(f"사진 {i + 1}: 불러오지 못했습니다.")
-                        except Exception as e:
-                            st.error(f"사진 불러오기 오류: {e}")
-
 with tab_weekly:
     cur_code, cur_label = get_week_info()
 
