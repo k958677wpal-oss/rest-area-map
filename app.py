@@ -820,7 +820,42 @@ with tab_map:
             all_materials = {}
             st.error(f"자료 목록 로드 오류: {e}")
 
-        mat_target = st.selectbox("휴게소 선택", options=[""] + valid_names, key=f"mat_target_{rc}")
+        # ── 등록 현황: 사진 또는 연락처가 하나라도 있으면 '등록됨' ──
+        done_names = [n for n in valid_names if build_material_payload(all_materials.get(str(n).strip())) is not None]
+        done_set = set(done_names)
+        missing_names = [n for n in valid_names if n not in done_set]
+        total_cnt = len(valid_names)
+        done_cnt = len(done_names)
+
+        st.markdown(f"**📊 등록 현황: {done_cnt} / {total_cnt}**  (미등록 {len(missing_names)}곳)")
+        st.progress(done_cnt / total_cnt if total_cnt else 0.0)
+
+        # 노선별 현황 (접어두기)
+        with st.expander("노선별 등록 현황 보기"):
+            hw_of = {p["name"]: (str(p.get("highway", "")).strip() or "(노선 없음)") for p in points}
+            stat = {}
+            for n in valid_names:
+                hw = hw_of.get(n, "(노선 없음)")
+                s = stat.setdefault(hw, {"전체": 0, "등록": 0})
+                s["전체"] += 1
+                if n in done_set:
+                    s["등록"] += 1
+            stat_rows = [
+                {"노선": hw, "등록": s["등록"], "전체": s["전체"], "미등록": s["전체"] - s["등록"]}
+                for hw, s in stat.items()
+            ]
+            stat_rows.sort(key=lambda r: (-r["미등록"], r["노선"]))
+            st.dataframe(pd.DataFrame(stat_rows), use_container_width=True, hide_index=True)
+
+        only_missing = st.checkbox("미등록 휴게소만 보기", key="mat_only_missing")
+        if only_missing:
+            select_options = [""] + missing_names
+            if not missing_names:
+                st.success("🎉 모든 휴게소의 자료가 등록되었습니다.")
+        else:
+            select_options = [""] + valid_names
+
+        mat_target = st.selectbox("휴게소 선택", options=select_options, key=f"mat_target_{rc}")
         old_rec = all_materials.get(mat_target) if mat_target else None
         if old_rec:
             n_photos = sum(1 for k in ("사진1_ID", "사진2_ID") if old_rec.get(k))
@@ -832,11 +867,11 @@ with tab_map:
 
         pc1, pc2 = st.columns(2)
         with pc1:
-            up1 = st.file_uploader("매장 사진 1", type=IMG_TYPES, key=f"mat_p1_{rc}")
+            up1 = st.file_uploader("휴게소 외부사진", type=IMG_TYPES, key=f"mat_p1_{rc}")
             if up1 is not None:
                 st.image(make_thumb(up1), caption="미리보기", width=240)
         with pc2:
-            up2 = st.file_uploader("매장 사진 2", type=IMG_TYPES, key=f"mat_p2_{rc}")
+            up2 = st.file_uploader("점포 사진", type=IMG_TYPES, key=f"mat_p2_{rc}")
             if up2 is not None:
                 st.image(make_thumb(up2), caption="미리보기", width=240)
 
