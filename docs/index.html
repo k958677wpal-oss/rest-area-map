@@ -348,7 +348,20 @@
     .iw-tab.is-empty { color: #8a97ad; font-weight: 600; }
     .iw-tab.is-disabled { color: #b5bdca; background: #f7f8fa; cursor: default; }
     .iw-tab.is-disabled:hover { background: #f7f8fa; }
-    .iw-contact { margin-top: 2px; font-size: 13px; }
+    .iw-row { line-height: 1.6; }
+    .iw-dday {
+      display: inline-block; padding: 0 6px; margin-left: 2px;
+      border-radius: 8px; font-size: 11px; font-weight: 700; line-height: 17px;
+      background: #fff1e0; color: #c25e00; border: 1px solid #f3c48f;
+    }
+    .iw-dday.is-urgent { background: #fde8ec; color: #d0143c; border-color: #f4a9b8; }
+    .iw-row-label { color: #777; }
+    .iw-kpi {
+      margin: 4px 0 4px; padding: 5px 9px;
+      background: #f3f6fb; border-radius: 6px; border-left: 3px solid #2F5597;
+    }
+    .iw-kpi b { color: #1f3f7a; font-size: 14px; }
+    .iw-contact { margin-top: 4px; padding-top: 4px; border-top: 1px dashed rgba(0,0,0,0.12); font-size: 13px; }
     .iw-contact a { color: #1a5fb4; font-weight: 700; text-decoration: underline; pointer-events: auto; }
     .iw-contact-memo { font-size: 11px; color: #888; line-height: 1.4; }
     .iw-tail {
@@ -1372,6 +1385,47 @@
       });
     })();
 
+    // 값이 비어 있으면 줄 자체를 만들지 않음
+    function iwRow(label, v) {
+      var s = (v == null ? '' : String(v)).trim();
+      if (s === '' || s === 'nan' || s === 'None') return '';
+      return '<div class="iw-row"><span class="iw-row-label">' + label + '</span> ' + escapeHtml(s) + '</div>';
+    }
+
+    // 계약기간 줄 + 만료 6개월 전부터 D-day 표시
+    // (2030-10-23, 2030.10.23, 2030/10/23 형식만 날짜로 인식. '26.12예정' 같은 값은 표시 안 함)
+    function buildContractRow(p) {
+      var s = (p.contract == null ? '' : String(p.contract)).trim();
+      if (s === '' || s === 'nan' || s === 'None') return '';
+      var badge = '';
+      var m = s.match(/(\d{4})\s*[-./]\s*(\d{1,2})\s*[-./]\s*(\d{1,2})/);
+      if (m) {
+        var end = new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10));
+        var now = new Date();
+        var today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        var limit = new Date(today.getFullYear(), today.getMonth() + 6, today.getDate());
+        if (!isNaN(end.getTime()) && end >= today && end <= limit) {
+          var days = Math.round((end - today) / 86400000);
+          var cls = days <= 90 ? ' is-urgent' : '';
+          badge = ' <span class="iw-dday' + cls + '">D-' + days + '</span>';
+        }
+      }
+      return '<div class="iw-row"><span class="iw-row-label">계약기간</span> ' + escapeHtml(s) + badge + '</div>';
+    }
+
+    // 핵심 수치(연매출액·추정매출)는 한 묶음으로 강조
+    function buildKpiHtml(p) {
+      var rev = (p.revenue == null ? '' : String(p.revenue)).trim();
+      var est = formatEstimated(p.estimated_revenue);
+      if (rev === 'nan' || rev === 'None') rev = '';
+      if (!rev && !est) return '';
+      var html = '<div class="iw-kpi">';
+      if (rev) html += '<div><span class="iw-row-label">연매출액</span> <b>' + escapeHtml(rev) + '</b></div>';
+      if (est) html += '<div><span class="iw-row-label">추정매출</span> <b>' + escapeHtml(est) + '</b></div>';
+      html += '</div>';
+      return html;
+    }
+
     function buildContent(p) {
       var pendingNotice = p.has_pending
         ? '<div style="color:#E6194B;font-weight:700;margin-bottom:4px;">❗ 수정 요청 대기중</div>'
@@ -1403,13 +1457,12 @@
                '<span class="iw-close" onclick="closeInfoWindow()">×</span>' +
                '<div class="iw-title">' + buildTitle(p) + '</div>' +
                pendingNotice +
-               '연매출액: ' + p.revenue + '<br>' +
-               '추정매출: ' + formatEstimated(p.estimated_revenue) + '<br>' +
-               '브랜드: ' + p.brand + '<br>' +
-               '운영사: ' + p.operator + '<br>' +
-               '계약기간: ' + p.contract + '<br>' +
-               '계약차수: ' + (p.contract_step != null ? p.contract_step : '') + '<br>' +
-               '담당자: ' + p.manager + '<br>' +
+               buildKpiHtml(p) +
+               iwRow('브랜드', p.brand) +
+               iwRow('운영사', p.operator) +
+               buildContractRow(p) +
+               iwRow('계약차수', p.contract_step) +
+               iwRow('담당자', p.manager) +
                contactHtml +
                '<div class="iw-tabs">' + historyTab + distanceTab + photoTab + '</div>' +
                '<div class="iw-history-box" style="display:none;">' + buildHistoryHtml(p) + '</div>' +
