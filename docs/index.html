@@ -328,9 +328,29 @@
     }
     body.markers-small .iw-overlay { transform: translateY(-28px); }
     .iw-overlay .iw-wrap { pointer-events: auto; }
-    /* 버튼이 3개여도 팝업 폭 안에서 줄바꿈되도록 */
-    .iw-btn-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-    .iw-btn-row button { margin-top: 0 !important; margin-right: 0 !important; }
+    /* 탭 줄: 3칸 같은 폭, 한 줄 고정 */
+    .iw-tabs {
+      display: flex; gap: 0; margin-top: 8px;
+      border: 1px solid #c9d3e6; border-radius: 8px; overflow: hidden;
+      pointer-events: auto;
+    }
+    .iw-tab {
+      flex: 1 1 0; min-width: 0; height: 36px; padding: 0 2px;
+      border: none; border-left: 1px solid #c9d3e6;
+      background: #f3f6fb; color: #2F5597;
+      font-size: 12px; font-weight: 700; font-family: inherit;
+      white-space: nowrap; overflow: hidden; text-overflow: clip;
+      cursor: pointer; pointer-events: auto;
+    }
+    .iw-tab:first-child { border-left: none; }
+    .iw-tab:hover { background: #e4ebf7; }
+    .iw-tab.is-active { background: #2F5597; color: #fff; }
+    .iw-tab.is-empty { color: #8a97ad; font-weight: 600; }
+    .iw-tab.is-disabled { color: #b5bdca; background: #f7f8fa; cursor: default; }
+    .iw-tab.is-disabled:hover { background: #f7f8fa; }
+    .iw-contact { margin-top: 2px; font-size: 13px; }
+    .iw-contact a { color: #1a5fb4; font-weight: 700; text-decoration: underline; pointer-events: auto; }
+    .iw-contact-memo { font-size: 11px; color: #888; line-height: 1.4; }
     .iw-tail {
       width: 0; height: 0;
       margin: -8px auto 0;
@@ -906,30 +926,29 @@
     };
 
     // [수정] 버튼 바로 다음 요소가 아니라 같은 팝업 안의 이력 박스를 찾도록 변경
-    window.toggleHistory = function (btn) {
-      var box = btn.closest('.iw-wrap').querySelector('.iw-history-box');
-      if (!box) return;
-      if (box.style.display === 'none' || !box.style.display) {
-        box.style.display = 'block';
-        btn.textContent = '📖 이력 닫기';
-      } else {
-        box.style.display = 'none';
-        btn.textContent = btn.getAttribute('data-label-open');
-      }
-    };
+    // [수정] 탭 줄: 이력/사진은 한 번에 하나만 펼치고, 같은 탭을 다시 누르면 닫음
+    window.toggleTab = function (btn, which, name) {
+      var wrap = btn.closest('.iw-wrap');
+      if (!wrap || btn.classList.contains('is-disabled')) return;
+      var hist = wrap.querySelector('.iw-history-box');
+      var mat = wrap.querySelector('.iw-material-box');
+      var wasActive = btn.classList.contains('is-active');
 
-    // [신규] 사진 보기 버튼
-    window.toggleMaterial = function (btn, name) {
-      var box = btn.closest('.iw-wrap').querySelector('.iw-material-box');
-      var item = findMarkerByName(name);
-      if (!box || !item) return;
-      if (box.style.display === 'none' || !box.style.display) {
-        box.style.display = 'block';
-        btn.textContent = '📷 닫기';
-        renderMaterialBox(box, item.point);
-      } else {
-        box.style.display = 'none';
-        btn.textContent = btn.getAttribute('data-label-open');
+      var tabs = wrap.querySelectorAll('.iw-tab');
+      for (var i = 0; i < tabs.length; i++) tabs[i].classList.remove('is-active');
+      if (hist) hist.style.display = 'none';
+      if (mat) mat.style.display = 'none';
+      if (wasActive) return;
+
+      btn.classList.add('is-active');
+      if (which === 'history') {
+        if (hist) hist.style.display = 'block';
+      } else if (which === 'photo') {
+        var item = findMarkerByName(name);
+        if (mat && item) {
+          mat.style.display = 'block';
+          renderMaterialBox(mat, item.point);
+        }
       }
     };
 
@@ -1032,9 +1051,8 @@
           // 팝업이 먼저 열렸다면 거리 보기 버튼이 빠져 있으므로 다시 그려 줌
           try {
             if (currentPopup && infowindow && findDistanceEntry(currentPopup.p.name)) {
-              var openBox = document.querySelector('.iw-material-box');
-              var alreadyOpen = openBox && openBox.style.display === 'block';
-              if (!alreadyOpen && !document.querySelector('.iw-distance-btn')) {
+              var alreadyOpen = !!document.querySelector('.iw-tab.is-active');
+              if (!alreadyOpen && document.querySelector('.iw-tab[data-tab="distance"].is-disabled')) {
                 infowindow.setContent(buildContent(currentPopup.p));
                 infowindow.setPosition(currentPopup.pos);
                 infowindow.open(map);
@@ -1123,25 +1141,38 @@
     }
 
     // ───────── [신규] 사진·연락처 ─────────
-    function materialButtonLabel(m) {
-      var n = (m.ids || []).length;
-      if (n > 0) return '📷 사진 보기 (' + n + ')';
-      return '📞 연락처 보기';
+    // 화면 표시용 전화번호 정리 (시트 값은 그대로 두고 보이는 모양만 바꿈)
+    function formatPhone(raw) {
+      var s = (raw == null ? '' : String(raw)).trim();
+      if (!s) return '';
+      if (!/^[0-9\-\s]+$/.test(s)) return s;
+      var d = s.replace(/[^0-9]/g, '');
+      if (d.length === 11) return d.slice(0, 3) + '-' + d.slice(3, 7) + '-' + d.slice(7);
+      if (d.length === 10) {
+        if (d.indexOf('02') === 0) return d.slice(0, 2) + '-' + d.slice(2, 6) + '-' + d.slice(6);
+        return d.slice(0, 3) + '-' + d.slice(3, 6) + '-' + d.slice(6);
+      }
+      if (d.length === 9 && d.indexOf('02') === 0) return d.slice(0, 2) + '-' + d.slice(2, 5) + '-' + d.slice(5);
+      return s;
     }
 
-    function buildMaterialContactHtml(m) {
-      var parts = [];
+    // [수정] 연락처는 팝업 본문에 바로 표시 (없으면 줄 자체를 만들지 않음)
+    function buildContactLineHtml(p) {
+      var m = p.material;
+      if (!m) return '';
       var who = (m.contact_name || '').trim();
       var phone = (m.phone || '').trim();
       var memo = (m.memo || '').trim();
-      if (who) parts.push('👤 ' + escapeHtml(who));
+      if (!who && !phone && !memo) return '';
+      var parts = [];
+      if (who) parts.push(escapeHtml(who));
       if (phone) {
         var digits = phone.replace(/[^0-9+]/g, '');
-        parts.push('<a href="tel:' + digits + '">📞 ' + escapeHtml(phone) + '</a>');
+        parts.push('<a href="tel:' + digits + '">📞 ' + escapeHtml(formatPhone(phone)) + '</a>');
       }
-      var html = '';
-      if (parts.length) html += '<div class="mat-contact">' + parts.join(' · ') + '</div>';
-      if (memo) html += '<div class="mat-contact">📝 ' + escapeHtml(memo) + '</div>';
+      var html = '<div class="iw-contact">현장: ' + (parts.length ? parts.join(' · ') : '-');
+      if (memo) html += '<div class="iw-contact-memo">' + escapeHtml(memo) + '</div>';
+      html += '</div>';
       return html;
     }
 
@@ -1186,8 +1217,12 @@
         return;
       }
       var ids = m.ids || [];
-      var html = buildMaterialContactHtml(m);
+      var html = '';
 
+      if (!ids.length) {
+        box.innerHTML = '<div class="history-empty">등록된 사진이 없습니다.</div>';
+        return;
+      }
       if (ids.length) {
         html += '<div class="mat-photos">';
         for (var i = 0; i < ids.length; i++) {
@@ -1342,23 +1377,27 @@
         ? '<div style="color:#E6194B;font-weight:700;margin-bottom:4px;">❗ 수정 요청 대기중</div>'
         : '';
       var historyCount = (p.history || []).length;
-      var historyBtnLabel = '📖 이력 보기 (' + historyCount + ')';
+      var safeName = String(p.name).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 
-      var distanceBtnHtml = '';
+      // [수정] 탭 줄: 이력 / 거리 / 사진 (정보가 없는 탭은 흐리게)
+      var historyTab = '<button class="iw-tab' + (historyCount ? '' : ' is-empty') + '" data-tab="history" onclick="toggleTab(this, \'history\', \'' + safeName + '\')">📖 이력 ' + historyCount + '</button>';
+
+      var distanceTab;
       if (findDistanceEntry(p.name)) {
-        var safeName = String(p.name).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-        distanceBtnHtml = '<button class="iw-distance-btn" onclick="showDistanceView(\'' + safeName + '\')">📏 거리 보기</button>';
+        distanceTab = '<button class="iw-tab" data-tab="distance" onclick="showDistanceView(\'' + safeName + '\')">📏 거리</button>';
+      } else {
+        distanceTab = '<button class="iw-tab is-disabled" data-tab="distance" disabled>📏 거리</button>';
       }
 
-      // [신규] 자료(사진·연락처)가 있을 때만 버튼 표시
-      var materialBtnHtml = '';
-      var materialBoxHtml = '';
-      if (p.material) {
-        var matLabel = materialButtonLabel(p.material);
-        var safeName2 = String(p.name).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-        materialBtnHtml = '<button class="iw-material-btn" data-label-open="' + matLabel + '" onclick="toggleMaterial(this, \'' + safeName2 + '\')">' + matLabel + '</button>';
+      var photoCount = (p.material && p.material.ids) ? p.material.ids.length : 0;
+      var photoTab, materialBoxHtml = '';
+      if (photoCount > 0) {
+        photoTab = '<button class="iw-tab" data-tab="photo" onclick="toggleTab(this, \'photo\', \'' + safeName + '\')">📷 사진 ' + photoCount + '</button>';
         materialBoxHtml = '<div class="iw-material-box" style="display:none;"></div>';
+      } else {
+        photoTab = '<button class="iw-tab is-disabled" data-tab="photo" disabled>📷 사진 0</button>';
       }
+      var contactHtml = buildContactLineHtml(p);
 
       return '<div class="iw-wrap">' +
                '<span class="iw-close" onclick="closeInfoWindow()">×</span>' +
@@ -1371,11 +1410,8 @@
                '계약기간: ' + p.contract + '<br>' +
                '계약차수: ' + (p.contract_step != null ? p.contract_step : '') + '<br>' +
                '담당자: ' + p.manager + '<br>' +
-               '<div class="iw-btn-row">' +
-               '<button class="iw-history-btn" data-label-open="' + historyBtnLabel + '" onclick="toggleHistory(this)">' + historyBtnLabel + '</button>' +
-               distanceBtnHtml +
-               materialBtnHtml +
-               '</div>' +
+               contactHtml +
+               '<div class="iw-tabs">' + historyTab + distanceTab + photoTab + '</div>' +
                '<div class="iw-history-box" style="display:none;">' + buildHistoryHtml(p) + '</div>' +
                materialBoxHtml +
              '</div>';
