@@ -328,6 +328,9 @@
     }
     body.markers-small .iw-overlay { transform: translateY(-28px); }
     .iw-overlay .iw-wrap { pointer-events: auto; }
+    /* 버튼이 3개여도 팝업 폭 안에서 줄바꿈되도록 */
+    .iw-btn-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .iw-btn-row button { margin-top: 0 !important; margin-right: 0 !important; }
     .iw-tail {
       width: 0; height: 0;
       margin: -8px auto 0;
@@ -1356,9 +1359,11 @@
                '계약기간: ' + p.contract + '<br>' +
                '계약차수: ' + (p.contract_step != null ? p.contract_step : '') + '<br>' +
                '담당자: ' + p.manager + '<br>' +
+               '<div class="iw-btn-row">' +
                '<button class="iw-history-btn" data-label-open="' + historyBtnLabel + '" onclick="toggleHistory(this)">' + historyBtnLabel + '</button>' +
                distanceBtnHtml +
                materialBtnHtml +
+               '</div>' +
                '<div class="iw-history-box" style="display:none;">' + buildHistoryHtml(p) + '</div>' +
                materialBoxHtml +
              '</div>';
