@@ -123,6 +123,15 @@ if APPLY_THEME:
             border-color: #2c4a8a;
         }
 
+        /* 로그인 폼: 카드 모양 */
+        div[data-testid="stForm"] {
+            border: 1px solid #d5dcea !important;
+            border-radius: 14px !important;
+            background: #ffffff;
+            padding: 20px 22px !important;
+            box-shadow: 0 2px 10px rgba(31, 58, 115, 0.08);
+        }
+
         /* 진행 막대 */
         div[data-testid="stProgress"] div[role="progressbar"] > div { background-color: #2c4a8a !important; }
         </style>
@@ -644,7 +653,16 @@ if "logged_in" not in st.session_state:
     st.session_state["logged_in"] = False
 
 if not st.session_state["logged_in"]:
-    st.title("🔐 로그인 (Powered by 특수개발팀)")
+    if APPLY_THEME:
+        st.markdown(
+            '<div class="hub-header">'
+            '<div class="hub-title">🛣️ 휴게소 데이터 허브</div>'
+            '<div class="hub-sub">Powered by 특수개발팀 · GS25 점포개발 &nbsp;|&nbsp; 🔐 로그인</div>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        st.title("🔐 로그인 (Powered by 특수개발팀)")
     with st.form("login_form"):
         user_id = st.text_input("사번 (ID)")
         user_pw = st.text_input("생년월일 6자리 (PW)", type="password", max_chars=6)
