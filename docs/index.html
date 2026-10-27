@@ -907,7 +907,7 @@
 
     // [수정] 버튼 바로 다음 요소가 아니라 같은 팝업 안의 이력 박스를 찾도록 변경
     window.toggleHistory = function (btn) {
-      var box = btn.parentNode.querySelector('.iw-history-box');
+      var box = btn.closest('.iw-wrap').querySelector('.iw-history-box');
       if (!box) return;
       if (box.style.display === 'none' || !box.style.display) {
         box.style.display = 'block';
@@ -920,7 +920,7 @@
 
     // [신규] 사진 보기 버튼
     window.toggleMaterial = function (btn, name) {
-      var box = btn.parentNode.querySelector('.iw-material-box');
+      var box = btn.closest('.iw-wrap').querySelector('.iw-material-box');
       var item = findMarkerByName(name);
       if (!box || !item) return;
       if (box.style.display === 'none' || !box.style.display) {
@@ -1029,6 +1029,18 @@
           }
 
           distancesLoaded = true;
+          // 팝업이 먼저 열렸다면 거리 보기 버튼이 빠져 있으므로 다시 그려 줌
+          try {
+            if (currentPopup && infowindow && findDistanceEntry(currentPopup.p.name)) {
+              var openBox = document.querySelector('.iw-material-box');
+              var alreadyOpen = openBox && openBox.style.display === 'block';
+              if (!alreadyOpen && !document.querySelector('.iw-distance-btn')) {
+                infowindow.setContent(buildContent(currentPopup.p));
+                infowindow.setPosition(currentPopup.pos);
+                infowindow.open(map);
+              }
+            }
+          } catch (e) {}
           log('📁 distances.json 로드 완료 (거리정보 ' + Object.keys(DISTANCE_ENTRY_LOOKUP).length + '개 휴게소, 구간 ' + Object.keys(DISTANCE_SEGMENTS).length + '개)');
         })
         .catch(function (err) {
@@ -1944,7 +1956,11 @@
       else updateBrandStats(allMarkers, '전체노선');
     }
 
+    // 현재 열린 팝업 기억 (거리 데이터가 늦게 로드되었을 때 버튼을 추가하기 위함)
+    var currentPopup = null;
+
     function onMarkerActivate(pos, p) {
+      currentPopup = { pos: pos, p: p };
       if (filterMode) {
         infowindow.setContent(buildContent(p));
         infowindow.setPosition(pos);
@@ -1955,6 +1971,7 @@
     }
 
     function activate(pos, p) {
+      currentPopup = { pos: pos, p: p };
       infowindow.setContent(buildContent(p));
       infowindow.setPosition(pos);
       infowindow.open(map);
