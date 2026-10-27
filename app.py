@@ -242,6 +242,27 @@ def load_materials():
             result[rec["휴게소명"]] = rec
     return result
 
+@st.cache_data(ttl=600)
+def load_route_lengths():
+    """
+    노선별 총 길이를 {고속도로명: 길이(km)} 로 반환합니다.
+    시트 탭 이름이 무엇이든, 첫 줄이 '고속도로명 | 총길이(km)' 인 탭을 자동으로 찾아 읽습니다.
+    """
+    try:
+        gc = init_connection()
+        doc = gc.open("휴게소_통합_데이터")
+        for ws in doc.worksheets():
+            head = [str(c).strip().replace(" ", "") for c in ws.row_values(1)[:2]]
+            if len(head) == 2 and head[0] == "고속도로명" and head[1].startswith("총길이"):
+                result = {}
+                for row in ws.get_all_values()[1:]:
+                    if len(row) >= 2 and str(row[0]).strip() and str(row[1]).strip():
+                        result[str(row[0]).strip()] = str(row[1]).strip().replace(",", "")
+                return result
+    except Exception:
+        pass
+    return {}
+
 def save_material(rest_name, photo1_id, photo2_id, c_name, c_phone, c_memo, uploader):
     """휴게소당 1행 유지: 새 행을 추가한 뒤 기존 행을 삭제합니다. (중간에 실패해도 데이터가 사라지지 않게 추가를 먼저 함)"""
     ws = get_material_ws(create=True)
@@ -878,6 +899,8 @@ with tab_map:
     query_json = json.dumps(query if query else "")
     # 로그인한 사용자의 화면에서만 사진 서버 주소/키를 지도에 전달 (index.html 파일에는 적어두지 않음)
     drive_json = json.dumps({"url": DRIVE_URL, "key": DRIVE_KEY}) if DRIVE_READY else "null"
+    # 노선별 총 길이(km): 지도의 노선 이름표에 "총 길이 123km" 로 표시됩니다
+    route_lengths_json = json.dumps(load_route_lengths(), ensure_ascii=False)
 
     component_html = f"""
     <iframe
@@ -891,10 +914,11 @@ with tab_map:
         var mapPoints = {points_json};
         var searchQuery = {query_json};
         var driveCfg = {drive_json};
+        var routeLengths = {route_lengths_json};
         var iframe = document.getElementById('kakaoMapFrame');
         function sendData() {{
           iframe.contentWindow.postMessage(
-            {{ type: 'INIT_MAP_DATA', points: mapPoints, query: searchQuery, drive: driveCfg }},
+            {{ type: 'INIT_MAP_DATA', points: mapPoints, query: searchQuery, drive: driveCfg, routeLengths: routeLengths }},
             '{TARGET_ORIGIN}'
           );
         }}
