@@ -327,7 +327,9 @@
       transform: translateY(-52px);
     }
     body.markers-small .iw-overlay { transform: translateY(-28px); }
-    .iw-overlay .iw-wrap { pointer-events: auto; }
+    .iw-overlay .iw-wrap { pointer-events: auto; white-space: normal; word-break: break-word; overflow-wrap: anywhere; }
+    .iw-history-box { overflow-x: hidden !important; }
+    .history-item { white-space: normal; word-break: break-word; overflow-wrap: anywhere; }
     /* 탭 줄: 3칸 같은 폭, 한 줄 고정 */
     .iw-tabs {
       display: flex; gap: 0; margin-top: 8px;
