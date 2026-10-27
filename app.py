@@ -43,25 +43,111 @@ PHOTO_MAX_SIDE = 1280     # 긴 변 최대 픽셀
 PHOTO_QUALITY = 75        # JPEG 품질
 IMG_TYPES = ["jpg", "jpeg", "png", "webp"] + (["heic", "heif"] if HEIC_OK else [])
 
-# --- 모바일 헤더 최적화 CSS ---
-st.markdown(
-    """
-    <style>
-    .app-title {
-        font-size: 28px;
-        font-weight: 700;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        margin: 0 0 8px 0;
-    }
-    @media (max-width: 640px) {
-        .app-title { font-size: 18px; }
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+# --- 화면 디자인(테마) ---
+# True  : 네이비 헤더 + 카드 스타일 적용 (새 디자인)
+# False : 예전 모양 그대로 (이 한 단어만 False 로 바꾸면 원복됩니다)
+APPLY_THEME = True
+
+if APPLY_THEME:
+    st.markdown(
+        """
+        <style>
+        /* 상단 여백 줄이기 */
+        .block-container { padding-top: 3.2rem !important; }
+
+        /* 헤더 배너 */
+        .hub-header {
+            background: linear-gradient(135deg, #1f3a73 0%, #2c4a8a 55%, #3a5fa8 100%);
+            color: #ffffff;
+            border-radius: 14px;
+            padding: 18px 24px;
+            margin: 0 0 14px 0;
+            box-shadow: 0 4px 14px rgba(31, 58, 115, 0.22);
+        }
+        .hub-header .hub-title {
+            font-size: 26px;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+            line-height: 1.3;
+        }
+        .hub-header .hub-sub {
+            font-size: 13px;
+            opacity: 0.82;
+            margin-top: 4px;
+        }
+        @media (max-width: 640px) {
+            .hub-header { padding: 14px 16px; border-radius: 12px; }
+            .hub-header .hub-title { font-size: 18px; }
+            .hub-header .hub-sub { font-size: 11.5px; }
+        }
+
+        /* 탭: 선택색을 네이비로 */
+        button[data-baseweb="tab"][aria-selected="true"] {
+            color: #2c4a8a !important;
+            font-weight: 700;
+        }
+        div[data-baseweb="tab-highlight"] { background-color: #2c4a8a !important; }
+
+        /* 검색창·선택 상자: 둥글게 + 얇은 테두리 */
+        div[data-baseweb="select"] > div {
+            border-radius: 10px !important;
+            border: 1px solid #d5dcea !important;
+            background-color: #f6f8fc !important;
+        }
+
+        /* 접이식 메뉴(expander): 카드 모양 */
+        div[data-testid="stExpander"] {
+            border: 1px solid #d5dcea !important;
+            border-radius: 12px !important;
+            background: #ffffff;
+            box-shadow: 0 1px 4px rgba(31, 58, 115, 0.06);
+        }
+        div[data-testid="stExpander"] summary { font-weight: 600; color: #1f3a73; }
+
+        /* 지도 카드 */
+        iframe[title="streamlit_component"],
+        iframe#kakaoMapFrame {
+            border-radius: 14px;
+        }
+
+        /* 버튼: 네이비 포인트 */
+        div.stButton > button, div[data-testid="stFormSubmitButton"] > button {
+            border-radius: 10px;
+            border: 1px solid #2c4a8a;
+            color: #2c4a8a;
+            font-weight: 600;
+        }
+        div.stButton > button:hover, div[data-testid="stFormSubmitButton"] > button:hover {
+            background-color: #2c4a8a;
+            color: #ffffff;
+            border-color: #2c4a8a;
+        }
+
+        /* 진행 막대 */
+        div[data-testid="stProgress"] div[role="progressbar"] > div { background-color: #2c4a8a !important; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+else:
+    st.markdown(
+        """
+        <style>
+        .app-title {
+            font-size: 28px;
+            font-weight: 700;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            margin: 0 0 8px 0;
+        }
+        @media (max-width: 640px) {
+            .app-title { font-size: 18px; }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
 # --- 1. 구글 시트 연결 ---
 @st.cache_resource
@@ -599,7 +685,16 @@ if not st.session_state["logged_in"]:
     st.stop()
 
 # --- 로그인 성공 시 ---
-st.markdown('<div class="app-title">🛣️ 휴게소 데이터 허브 (Powered by 특수개발팀)</div>', unsafe_allow_html=True)
+if APPLY_THEME:
+    st.markdown(
+        '<div class="hub-header">'
+        '<div class="hub-title">🛣️ 휴게소 데이터 허브</div>'
+        '<div class="hub-sub">Powered by 특수개발팀 · GS25 점포개발</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+else:
+    st.markdown('<div class="app-title">🛣️ 휴게소 데이터 허브 (Powered by 특수개발팀)</div>', unsafe_allow_html=True)
 
 current_uid = st.session_state.get("user_id", "")
 current_name = st.session_state.get("user_name", "")
