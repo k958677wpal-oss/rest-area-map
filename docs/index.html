@@ -462,9 +462,8 @@
       font-weight: 700;
       margin-bottom: 2px;
     }
-    .history-item .h-meta { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
-    .history-item .h-date { white-space: nowrap; }
-    .history-item .h-who { white-space: nowrap; flex: 0 0 auto; color: #555; font-weight: 700; }
+    .history-item .h-date { display: block; }
+    .history-item .h-who { display: block; color: #555; font-weight: 700; margin-bottom: 3px; }
     .history-empty {
       font-size: 12px;
       color: #999;
@@ -1149,8 +1148,8 @@
       }
       var html = "";
       list.forEach(function (h) {
-        // 연도는 두 자리로 줄여 한 줄에 들어가게 함 (예: 2026년 7월 5주차 → 26년 7월 5주차)
-        var dateText = String(h.date == null ? '' : h.date).replace(/^20(\d{2})년\s*/, '$1년 ');
+        // 첫 줄: 연도 포함 전체 날짜, 둘째 줄: 담당자 이름
+        var dateText = String(h.date == null ? '' : h.date);
         html += '<div class="history-item">' +
                   '<div class="h-meta"><span class="h-date">' + escapeHtml(dateText) + '</span>' +
                   '<span class="h-who">' + escapeHtml(h.manager) + '</span></div>' +
