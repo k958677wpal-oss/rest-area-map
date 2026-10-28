@@ -1212,13 +1212,13 @@ with tab_weekly:
 
         st.markdown("---")
 
-        st.markdown("**📦 추진 물건 등록** (이번 주 전체 기준으로 1회만 작성)")
+        st.markdown("**✅ 운영사 미팅 및 추진 물건** (이번 주 전체 기준으로 1회만 작성)")
         with st.form("item_form", clear_on_submit=True):
-            item = st.text_input("추진 물건", placeholder="예: OO휴게소 브랜드 교체 협의")
-            item_sent = st.form_submit_button("추진물건 등록")
+            item = st.text_input("내용 작성", placeholder="예: OO휴게소 브랜드 교체 협의")
+            item_sent = st.form_submit_button("내용 등록")
         if item_sent:
             if not item.strip():
-                st.warning("추진 물건 내용을 입력해 주세요.")
+                st.warning("내용을 입력해 주세요.")
             else:
                 try:
                     add_weekly_report(
@@ -1226,7 +1226,7 @@ with tab_weekly:
                         "", "", item.strip(), ""
                     )
                     load_weekly_reports.clear()
-                    st.success("추진물건이 등록되었습니다.")
+                    st.success("등록되었습니다.")
                     st.rerun()
                 except Exception as e:
                     st.error(f"등록 중 오류: {e}")
