@@ -3,6 +3,7 @@ import pandas as pd
 import gspread
 import json
 import io
+import re
 import base64
 import requests
 import streamlit.components.v1 as components
@@ -262,6 +263,57 @@ def load_route_lengths():
     except Exception:
         pass
     return {}
+
+# --- 입찰 현황 ---
+BID_SHEET_TAB = "입찰"
+
+def _bid_num(v):
+    """'6,301' / '-7,094' / '' -> 숫자 또는 None"""
+    s = str(v).strip().replace(",", "")
+    if s == "":
+        return None
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+def _bid_date(v):
+    """'2026-11-20', '2026.11.20', '2026. 11. 20' -> '2026-11-20' (인식 못 하면 원본 그대로)"""
+    s = str(v).strip()
+    m = re.match(r"^(\d{4})\s*[-./]\s*(\d{1,2})\s*[-./]\s*(\d{1,2})\.?$", s)
+    if m:
+        return f"{int(m.group(1)):04d}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
+    return s
+
+def _bid_month(v):
+    """'2026-11', '2026.11', '2026. 11', '2026-11-01' -> '2026-11'"""
+    s = str(v).strip()
+    m = re.match(r"^(\d{4})\s*[-./년]\s*(\d{1,2})", s)
+    if m:
+        return f"{int(m.group(1)):04d}-{int(m.group(2)):02d}"
+    return s
+
+@st.cache_data(ttl=300)
+def load_bids():
+    """'입찰' 탭을 읽어 행(dict) 목록으로 반환. 탭이 없으면 빈 목록."""
+    try:
+        gc = init_connection()
+        doc = gc.open("휴게소_통합_데이터")
+        ws = doc.worksheet(BID_SHEET_TAB)
+        values = ws.get_all_values()
+    except Exception:
+        return []
+    if len(values) < 2:
+        return []
+    header = [str(h).strip() for h in values[0]]
+    rows = []
+    for raw in values[1:]:
+        raw = list(raw) + [""] * (len(header) - len(raw))
+        rec = dict(zip(header, [str(c).strip() for c in raw]))
+        if not rec.get("휴게소명"):
+            continue
+        rows.append(rec)
+    return rows
 
 def save_material(rest_name, photo1_id, photo2_id, c_name, c_phone, c_memo, uploader):
     """휴게소당 1행 유지: 새 행을 추가한 뒤 기존 행을 삭제합니다. (중간에 실패해도 데이터가 사라지지 않게 추가를 먼저 함)"""
@@ -857,12 +909,12 @@ MAP_HEIGHT = 560
 
 # --- 탭 구성: 관리자면 통계 대시보드 + 상세 데이터 탭 포함, 아니면 제외 ---
 if is_admin:
-    tab_map, tab_weekly, tab_admin_stats, tab_data = st.tabs(
-        ["🗺️ 스마트 노선 맵", "🗒️ 주간 활동 보고", "📈 담당자 작성 현황 (관리자)", "📊 상세 데이터 및 필터"]
+    tab_map, tab_bid, tab_weekly, tab_admin_stats, tab_data = st.tabs(
+        ["🗺️ 스마트 노선 맵", "🏷️ 입찰 현황", "🗒️ 주간 활동 보고", "📈 담당자 작성 현황 (관리자)", "📊 상세 데이터 및 필터"]
     )
 else:
-    tab_map, tab_weekly = st.tabs(
-        ["🗺️ 스마트 노선 맵", "🗒️ 주간 활동 보고"]
+    tab_map, tab_bid, tab_weekly = st.tabs(
+        ["🗺️ 스마트 노선 맵", "🏷️ 입찰 현황", "🗒️ 주간 활동 보고"]
     )
     tab_admin_stats = None
     tab_data = None
@@ -1053,6 +1105,80 @@ with tab_map:
 
     material_register_fragment()
 
+# --- 🏷️ 입찰 현황 (구글 시트 '입찰' 탭 기반) ---
+BID_PAGE_URL = "https://k958677wpal-oss.github.io/rest-area-map/bid.html?v=1"
+
+with tab_bid:
+    bid_rows = load_bids()
+
+    # 휴게소명 -> 좌표 (메인 시트 기준)
+    coord_map = {}
+    for p in points:
+        coord_map[str(p["name"]).strip()] = (p["lat"], p["lng"])
+
+    bid_points = []
+    bid_skipped = []
+    for rec in bid_rows:
+        nm = rec.get("휴게소명", "").strip()
+        xy = coord_map.get(nm)
+        if xy is None:
+            bid_skipped.append({"휴게소명": nm, "사업권": rec.get("사업권", ""),
+                                "사유": "메인 시트(휴게소명)에서 같은 이름을 찾지 못함"})
+            continue
+        bid_points.append({
+            "공고월": _bid_month(rec.get("공고월", "")),
+            "사업권": rec.get("사업권", ""),
+            "휴게소명": nm,
+            "하한": _bid_num(rec.get("복수예비요율하한", "")),
+            "상한": _bid_num(rec.get("복수예비요율상한", "")),
+            "서류제출마감": _bid_date(rec.get("서류제출마감", "")),
+            "PT": _bid_date(rec.get("PT", "")),
+            "점포개점": _bid_date(rec.get("점포개점", "")),
+            "상태": rec.get("상태", ""),
+            "예상매출": _bid_num(rec.get("예상매출(천원)", "")),
+            "예상손익": _bid_num(rec.get("예상손익(천원)", "")),
+            "현재운영사": rec.get("현재운영사", ""),
+            "현재브랜드": rec.get("현재브랜드", ""),
+            "메모": rec.get("메모", ""),
+            "lat": xy[0],
+            "lng": xy[1],
+            "material": build_material_payload(materials_map.get(nm)),
+        })
+
+    st.caption("구글 시트 '입찰' 탭의 내용이 지도에 표시됩니다. (수정 후 최대 5분 뒤 반영) 핀을 누르면 상세 정보, 왼쪽 위 필터로 공고월·사업권을 고를 수 있습니다.")
+
+    bid_json = json.dumps(bid_points, ensure_ascii=False)
+    bid_drive_json = json.dumps({"url": DRIVE_URL, "key": DRIVE_KEY}) if DRIVE_READY else "null"
+
+    bid_component_html = f"""
+    <iframe
+        id="bidMapFrame"
+        src="{BID_PAGE_URL}"
+        style="width:100%; height:{MAP_HEIGHT}px; border:none;"
+        scrolling="no"
+    ></iframe>
+    <script>
+      (function () {{
+        var bids = {bid_json};
+        var driveCfg = {bid_drive_json};
+        var iframe = document.getElementById('bidMapFrame');
+        function sendData() {{
+          iframe.contentWindow.postMessage(
+            {{ type: 'INIT_BID_DATA', bids: bids, drive: driveCfg }},
+            '{TARGET_ORIGIN}'
+          );
+        }}
+        iframe.onload = function () {{ sendData(); setTimeout(sendData, 1500); }};
+      }})();
+    </script>
+    """
+    components.html(bid_component_html, height=MAP_HEIGHT, scrolling=False)
+
+    if bid_skipped:
+        with st.expander(f"⚠️ 지도에 표시되지 않은 입찰 {len(bid_skipped)}건 (클릭하여 확인)"):
+            st.dataframe(pd.DataFrame(bid_skipped), use_container_width=True, hide_index=True)
+            st.caption("'입찰' 탭의 휴게소명이 메인 시트의 휴게소명과 정확히 같아야 합니다.")
+
 with tab_weekly:
     cur_code, cur_label = get_week_info()
 
@@ -1212,13 +1338,13 @@ with tab_weekly:
 
         st.markdown("---")
 
-        st.markdown("**✅ 운영사 미팅 및 추진 물건** (이번 주 전체 기준으로 1회만 작성)")
+        st.markdown("**📦 추진 물건 등록** (이번 주 전체 기준으로 1회만 작성)")
         with st.form("item_form", clear_on_submit=True):
-            item = st.text_input("내용 작성", placeholder="예: OO휴게소 브랜드 교체 협의")
-            item_sent = st.form_submit_button("내용 등록")
+            item = st.text_input("추진 물건", placeholder="예: OO휴게소 브랜드 교체 협의")
+            item_sent = st.form_submit_button("추진물건 등록")
         if item_sent:
             if not item.strip():
-                st.warning("내용을 입력해 주세요.")
+                st.warning("추진 물건 내용을 입력해 주세요.")
             else:
                 try:
                     add_weekly_report(
@@ -1226,7 +1352,7 @@ with tab_weekly:
                         "", "", item.strip(), ""
                     )
                     load_weekly_reports.clear()
-                    st.success("등록되었습니다.")
+                    st.success("추진물건이 등록되었습니다.")
                     st.rerun()
                 except Exception as e:
                     st.error(f"등록 중 오류: {e}")
