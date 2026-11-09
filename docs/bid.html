@@ -63,11 +63,15 @@
     .sc-body { padding: 8px 12px 10px; line-height: 1.6; }
     .sc-line { display: flex; justify-content: space-between; gap: 8px; }
     .sc-line .k { color: #777; }
-    .sc-list { margin-top: 6px; border-top: 1px dashed rgba(0,0,0,.15); padding-top: 6px; max-height: 120px; overflow-y: auto; }
-    .sc-item { display: flex; justify-content: space-between; gap: 8px; padding: 4px 6px; border-radius: 6px; cursor: pointer; }
+    .sc-list { margin-top: 6px; border-top: 1px dashed rgba(0,0,0,.15); padding-top: 4px; max-height: 190px; overflow-y: auto; }
+    .sc-row { display: grid; grid-template-columns: minmax(0, 1fr) 62px 62px; gap: 6px; align-items: center; padding: 4px 6px; }
+    .sc-row.hd { font-size: 11px; font-weight: 700; color: #777; padding-bottom: 2px; }
+    .sc-row.hd span:nth-child(n+2), .sc-item .num { text-align: right; white-space: nowrap; }
+    .sc-item { border-radius: 6px; cursor: pointer; }
     .sc-item:hover { background: #eef2fa; }
-    .sc-item .nm { font-weight: 700; color: #222; }
-    .sc-item .pl { font-weight: 700; white-space: nowrap; }
+    .sc-item .nm { font-weight: 700; color: #222; line-height: 1.25; }
+    .sc-item .nm small { display: block; font-size: 10px; font-weight: 500; color: #888; }
+    .sc-item .num { font-weight: 700; }
     .neg { color: #d0143c; }
     .pos { color: #1a6fd0; }
 
@@ -88,8 +92,10 @@
     .bid-pin .pin-name {
       position: absolute; top: 100%; left: 50%; transform: translateX(-50%); margin-top: 2px;
       background: rgba(33,33,33,.85); color: #fff; font-size: 11px; font-weight: 600;
-      padding: 1px 6px; border-radius: 6px; white-space: nowrap;
+      padding: 1px 6px; border-radius: 6px; white-space: nowrap; text-align: center; line-height: 1.3;
     }
+    .bid-pin .pin-name .pn-route { display: block; font-size: 9.5px; font-weight: 500; color: #cfd6e4; }
+    body.zoom-far .pin-name .pn-route { display: none; }
     .bid-pin.is-dim { opacity: .28; }
     .bid-pin.is-focus .pin-circle { box-shadow: 0 0 0 4px var(--ring), 0 3px 10px rgba(0,0,0,.45); }
     .bid-pin.is-focus::before {
@@ -307,7 +313,11 @@
       var next = nextSchedule(r);
       var st = r.상태 || "";
 
-      var head = '<div class="iw-title">' + esc(r.휴게소명) + ' <span style="font-weight:600;color:' + color + ';">(' + esc(r.사업권) + ')</span></div>' +
+      var sub = [];
+      if ((r.노선 || "").trim()) sub.push(esc(r.노선.trim()));
+      if ((r.사업권 || "").trim()) sub.push(esc(r.사업권));
+      var head = '<div class="iw-title">' + esc(r.휴게소명) + '</div>' +
+                 '<div style="font-size:12px;font-weight:700;color:' + color + ';margin-top:-2px;">' + sub.join(' · ') + '</div>' +
                  '<div style="margin:2px 0 2px;">' + (st ? '<span class="st-badge st-' + esc(st) + '">' + esc(st) + '</span>' : '') +
                  (next ? ddayBadge(next.diff, true, next.label) : '') + '</div>';
 
@@ -522,7 +532,8 @@
           '<span class="pin-no">' + esc(no || "입") + '</span><span class="pin-unit">사업권</span>' +
         '</div>' +
         '<div class="pin-tail" style="border-top-color:' + color + ';"></div>' +
-        '<div class="pin-name">' + esc(r.휴게소명) + '</div>';
+        '<div class="pin-name">' + esc(r.휴게소명) +
+          ((r.노선 || "").trim() ? '<span class="pn-route">' + esc(r.노선.trim()) + '</span>' : '') + '</div>';
       return wrap;
     }
 
@@ -616,11 +627,16 @@
       html += '<div class="sc-line"><span class="k">서류제출마감</span><span>' + esc(r0.서류제출마감 || "-") + (next ? ddayBadge(next.diff, true, next.label) : "") + '</span></div>' +
               '<div class="sc-line"><span class="k">예상매출 합계</span><b>' + fmtNum(sumRev) + '천원</b></div>' +
               '<div class="sc-line"><span class="k">예상손익 합계</span><b class="' + numCls(sumPl) + '">' + fmtNum(sumPl) + '천원</b></div>' +
-              '<div class="sc-list">';
+              '<div class="sc-list">' +
+              '<div class="sc-row hd"><span>휴게소명</span><span>예상매출</span><span>예상손익</span></div>';
       show.forEach(function (it) {
+        var rv = isNum(it.row.예상매출) ? fmtNum(it.row.예상매출) : "-";
         var pl = isNum(it.row.예상손익) ? fmtNum(it.row.예상손익) : "-";
-        html += '<div class="sc-item" data-name="' + esc(it.row.휴게소명) + '"><span class="nm">' + esc(it.row.휴게소명) + '</span>' +
-                '<span class="pl ' + (isNum(it.row.예상손익) ? numCls(it.row.예상손익) : "") + '">' + pl + '</span></div>';
+        var rt = (it.row.노선 || "").trim();
+        html += '<div class="sc-row sc-item" data-name="' + esc(it.row.휴게소명) + '">' +
+                '<span class="nm">' + esc(it.row.휴게소명) + (rt ? '<small>' + esc(rt) + '</small>' : '') + '</span>' +
+                '<span class="num">' + rv + '</span>' +
+                '<span class="num ' + (isNum(it.row.예상손익) ? numCls(it.row.예상손익) : "") + '">' + pl + '</span></div>';
       });
       html += '</div></div>';
       card.innerHTML = html;
@@ -692,6 +708,11 @@
         center: new kakao.maps.LatLng(36.0, 127.8), level: 12
       });
       kakao.maps.event.addListener(map, "click", closePopup);
+
+      // 많이 축소하면 이름표가 겹치므로 노선 줄만 숨김
+      function updateZoomClass() { document.body.classList.toggle("zoom-far", map.getLevel() >= 13); }
+      kakao.maps.event.addListener(map, "zoom_changed", updateZoomClass);
+      updateZoomClass();
 
       // 탭이 숨겨진 상태에서 만들어졌다가 나중에 보일 때(크기 0 → 정상) 지도를 다시 맞춤
       var lastW = 0, lastH = 0;
