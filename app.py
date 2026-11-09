@@ -123,6 +123,24 @@ if APPLY_THEME:
             color: #ffffff;
             border-color: #2c4a8a;
         }
+        /* 파란(primary) 버튼: 바탕이 네이비이므로 글씨는 항상 흰색 */
+        div.stButton > button[kind="primary"],
+        div.stButton > button[data-testid="stBaseButton-primary"],
+        div[data-testid="stFormSubmitButton"] > button[kind="primary"],
+        div[data-testid="stFormSubmitButton"] > button[data-testid="stBaseButton-primary"] {
+            background-color: #2c4a8a;
+            color: #ffffff !important;
+            border-color: #2c4a8a;
+        }
+        div.stButton > button[kind="primary"] *,
+        div.stButton > button[data-testid="stBaseButton-primary"] * {
+            color: #ffffff !important;
+        }
+        div.stButton > button[kind="primary"]:hover,
+        div.stButton > button[data-testid="stBaseButton-primary"]:hover {
+            background-color: #1f3a73;
+            border-color: #1f3a73;
+        }
 
         /* 로그인 폼: 카드 모양 */
         div[data-testid="stForm"] {
@@ -1106,7 +1124,7 @@ with tab_map:
     material_register_fragment()
 
 # --- 🏷️ 입찰 현황 (구글 시트 '입찰' 탭 기반) ---
-BID_PAGE_URL = "https://k958677wpal-oss.github.io/rest-area-map/bid.html?v=1"
+BID_PAGE_URL = "https://k958677wpal-oss.github.io/rest-area-map/bid.html?v=2"
 
 with tab_bid:
     bid_rows = load_bids()
@@ -1144,8 +1162,6 @@ with tab_bid:
             "lng": xy[1],
             "material": build_material_payload(materials_map.get(nm)),
         })
-
-    st.caption("구글 시트 '입찰' 탭의 내용이 지도에 표시됩니다. (수정 후 최대 5분 뒤 반영) 핀을 누르면 상세 정보, 왼쪽 위 필터로 공고월·사업권을 고를 수 있습니다.")
 
     bid_json = json.dumps(bid_points, ensure_ascii=False)
     bid_drive_json = json.dumps({"url": DRIVE_URL, "key": DRIVE_KEY}) if DRIVE_READY else "null"
