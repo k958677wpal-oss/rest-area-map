@@ -1124,7 +1124,7 @@ with tab_map:
     material_register_fragment()
 
 # --- 🏷️ 입찰 현황 (구글 시트 '입찰' 탭 기반) ---
-BID_PAGE_URL = "https://k958677wpal-oss.github.io/rest-area-map/bid.html?v=2"
+BID_PAGE_URL = "https://k958677wpal-oss.github.io/rest-area-map/bid.html?v=3"
 
 with tab_bid:
     bid_rows = load_bids()
@@ -1132,7 +1132,7 @@ with tab_bid:
     # 휴게소명 -> 좌표 (메인 시트 기준)
     coord_map = {}
     for p in points:
-        coord_map[str(p["name"]).strip()] = (p["lat"], p["lng"])
+        coord_map[str(p["name"]).strip()] = (p["lat"], p["lng"], str(p.get("highway", "")).strip())
 
     bid_points = []
     bid_skipped = []
@@ -1158,6 +1158,8 @@ with tab_bid:
             "현재운영사": rec.get("현재운영사", ""),
             "현재브랜드": rec.get("현재브랜드", ""),
             "메모": rec.get("메모", ""),
+            # 노선: 입찰 시트에 '노선' 열이 있고 값이 있으면 그 값, 없으면 메인 시트의 고속도로명
+            "노선": (rec.get("노선", "").strip() or xy[2]),
             "lat": xy[0],
             "lng": xy[1],
             "material": build_material_payload(materials_map.get(nm)),
