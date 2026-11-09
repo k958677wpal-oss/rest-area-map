@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>입찰 지도</title>
+  <style>
+    html, body, #map { width: 100%; height: 100%; margin: 0; padding: 0; font-family: -apple-system, "Malgun Gothic", "Apple SD Gothic Neo", sans-serif; }
+
+    #emptyNote {
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 90;
+      background: rgba(255,255,255,.95); border-radius: 10px; padding: 14px 20px;
+      box-shadow: 0 2px 10px rgba(0,0,0,.25); font-size: 14px; color: #555; display: none; text-align: center;
+    }
+
+    #leftPanels {
+      position: absolute; top: 10px; left: 10px; z-index: 100;
+      display: flex; flex-direction: column; gap: 8px;
+      width: max-content; max-width: calc(100% - 20px);
+    }
+    .panel-card {
+      background: rgba(255,255,255,0.95);
+      border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,.25);
+      font-size: 12px; overflow: hidden;
+    }
+    .panel-head { padding: 6px 10px; background: rgba(0,0,0,0.04); font-weight: 700; color: #333; }
+    .chip-body { padding: 8px 10px; }
+    .chip-row { display: flex; gap: 6px; flex-wrap: wrap; max-width: 320px; }
+    .flt-chip {
+      padding: 5px 10px; border-radius: 14px; font-size: 12px; font-weight: 600;
+      background: #eee; color: #333; cursor: pointer; white-space: nowrap;
+      border: 1px solid rgba(0,0,0,0.08);
+    }
+    .flt-chip:hover { background: #e0e6f0; }
+    .flt-chip.is-active { background: #2F5597; color: #fff; border-color: #2F5597; }
+    .flt-chip .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
+
+    #summaryCard {
+      position: absolute; left: 10px; bottom: 10px; z-index: 100;
+      width: 300px; max-width: calc(100% - 20px);
+      background: rgba(255,255,255,0.97);
+      border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,.3);
+      font-size: 12px; overflow: hidden; display: none;
+    }
+    #summaryCard.is-open { display: block; }
+    .sc-head { padding: 8px 12px; color: #fff; font-weight: 800; font-size: 14px; display: flex; align-items: center; gap: 8px; }
+    .sc-head .sc-sub { font-size: 11px; font-weight: 600; opacity: .9; }
+    .sc-body { padding: 8px 12px 10px; line-height: 1.6; }
+    .sc-line { display: flex; justify-content: space-between; gap: 8px; }
+    .sc-line .k { color: #777; }
+    .sc-list { margin-top: 6px; border-top: 1px dashed rgba(0,0,0,.15); padding-top: 6px; max-height: 120px; overflow-y: auto; }
+    .sc-item { display: flex; justify-content: space-between; gap: 8px; padding: 4px 6px; border-radius: 6px; cursor: pointer; }
+    .sc-item:hover { background: #eef2fa; }
+    .sc-item .nm { font-weight: 700; color: #222; }
+    .sc-item .pl { font-weight: 700; white-space: nowrap; }
+    .neg { color: #d0143c; }
+    .pos { color: #1a6fd0; }
+
+    .bid-pin { position: relative; display: flex; flex-direction: column; align-items: center; cursor: pointer; transition: opacity .2s ease; }
+    .bid-pin .pin-circle {
+      width: 40px; height: 40px; border-radius: 50%; box-sizing: border-box;
+      border: 3px solid #fff; box-shadow: 0 3px 8px rgba(0,0,0,.4);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      color: #fff; font-weight: 800; line-height: 1;
+    }
+    .bid-pin .pin-no { font-size: 15px; }
+    .bid-pin .pin-unit { font-size: 9px; margin-top: 1px; opacity: .95; }
+    .bid-pin .pin-tail {
+      width: 0; height: 0; margin-top: -2px;
+      border-left: 8px solid transparent; border-right: 8px solid transparent;
+      border-top: 11px solid #888; filter: drop-shadow(0 2px 2px rgba(0,0,0,.3));
+    }
+    .bid-pin .pin-name {
+      position: absolute; top: 100%; left: 50%; transform: translateX(-50%); margin-top: 2px;
+      background: rgba(33,33,33,.85); color: #fff; font-size: 11px; font-weight: 600;
+      padding: 1px 6px; border-radius: 6px; white-space: nowrap;
+    }
+    .bid-pin.is-dim { opacity: .28; }
+    .bid-pin.is-focus .pin-circle { box-shadow: 0 0 0 4px var(--ring), 0 3px 10px rgba(0,0,0,.45); }
+    .bid-pin.is-focus::before {
+      content: ""; position: absolute; top: 0; left: 50%; width: 40px; height: 40px;
+      margin-left: -20px; border-radius: 50%; border: 3px solid var(--ring);
+      animation: bidPulse 1.8s ease-out infinite; pointer-events: none;
+    }
+    @keyframes bidPulse { 0% { transform: scale(1); opacity: .9; } 100% { transform: scale(2.1); opacity: 0; } }
+
+    .iw-overlay { position: relative; width: max-content; max-width: 270px; transform: translateY(-54px); }
+    .iw-wrap {
+      position: relative; margin-bottom: 8px; padding: 10px 12px;
+      font-size: 13px; line-height: 1.6; min-width: 200px; max-width: 270px;
+      background: #fff; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,.25);
+      white-space: normal; word-break: break-word; overflow-wrap: anywhere;
+    }
+    .iw-title { font-size: 14px; font-weight: 700; padding-right: 18px; }
+    .iw-close {
+      position: absolute; top: 6px; right: 8px; width: 20px; height: 20px; line-height: 20px;
+      text-align: center; font-size: 15px; font-weight: 700; color: #888; cursor: pointer; border-radius: 50%;
+    }
+    .iw-close:hover { background: #eee; color: #333; }
+    .iw-tail {
+      width: 0; height: 0; margin: -8px auto 0;
+      border-left: 9px solid transparent; border-right: 9px solid transparent; border-top: 10px solid #fff;
+      filter: drop-shadow(0 2px 2px rgba(0,0,0,.2));
+    }
+    .iw-row { line-height: 1.6; }
+    .iw-row-label { color: #777; }
+    .iw-kpi { margin: 4px 0 4px; padding: 5px 9px; background: #f3f6fb; border-radius: 6px; border-left: 3px solid #2F5597; }
+    .iw-kpi b { color: #1f3f7a; font-size: 14px; }
+    .iw-kpi b.neg { color: #d0143c; }
+    .iw-kpi b.pos { color: #1a6fd0; }
+    .iw-rate b { color: #c25e00; }
+    .iw-rate .low-tag {
+      display: inline-block; padding: 0 5px; margin-right: 3px; border-radius: 6px;
+      background: #fff1e0; color: #c25e00; border: 1px solid #f3c48f; font-size: 10px; font-weight: 700; line-height: 16px;
+    }
+    .iw-dday {
+      display: inline-block; padding: 0 6px; margin-left: 2px; border-radius: 8px;
+      font-size: 11px; font-weight: 700; line-height: 17px;
+      background: #fff1e0; color: #c25e00; border: 1px solid #f3c48f;
+    }
+    .iw-dday.is-urgent { background: #fde8ec; color: #d0143c; border-color: #f4a9b8; }
+    .iw-dday.is-done { background: #eef0f3; color: #777; border-color: #d5d9e0; }
+    .st-badge { display: inline-block; padding: 0 8px; border-radius: 8px; font-size: 11px; font-weight: 700; line-height: 17px; color: #fff; vertical-align: middle; background: #999; }
+    .st-공고 { background: #2F5597; } .st-준비중 { background: #E67E22; }
+    .st-제출 { background: #2E8B57; } .st-종료 { background: #999; }
+    .iw-contact { margin-top: 4px; padding-top: 4px; border-top: 1px dashed rgba(0,0,0,0.12); font-size: 13px; }
+    .iw-contact a { color: #1a5fb4; font-weight: 700; text-decoration: underline; }
+    .iw-tabs { display: flex; margin-top: 8px; border: 1px solid #c9d3e6; border-radius: 8px; overflow: hidden; }
+    .iw-tab {
+      flex: 1 1 0; min-width: 0; height: 36px; padding: 0 2px; border: none; border-left: 1px solid #c9d3e6;
+      background: #f3f6fb; color: #2F5597; font-size: 12px; font-weight: 700; font-family: inherit;
+      white-space: nowrap; overflow: hidden; cursor: pointer;
+    }
+    .iw-tab:first-child { border-left: none; }
+    .iw-tab:hover { background: #e4ebf7; }
+    .iw-tab.is-active { background: #2F5597; color: #fff; }
+    .iw-tab.is-empty { color: #8a97ad; font-weight: 600; }
+    .iw-tab.is-disabled { color: #b5bdca; background: #f7f8fa; cursor: default; }
+    .iw-box { margin-top: 8px; padding-top: 8px; border-top: 1px dashed rgba(0,0,0,0.15); font-size: 12px; line-height: 1.5; max-height: 180px; overflow-y: auto; overflow-x: hidden; }
+    .memo-item { background: #f7f8fa; border-radius: 6px; padding: 6px 8px; margin-bottom: 6px; white-space: pre-wrap; }
+    .history-empty { font-size: 12px; color: #999; }
+    .mat-photos { display: flex; gap: 6px; }
+    .mat-thumb { flex: 1 1 0; min-width: 0; height: 90px; border-radius: 6px; background: #e9ecef center / cover no-repeat; cursor: pointer; }
+    .mat-thumb.is-loading { cursor: default; background: linear-gradient(90deg, #e9ecef 25%, #f6f7f8 37%, #e9ecef 63%); background-size: 400% 100%; animation: matShimmer 1.2s ease infinite; }
+    .mat-thumb.is-failed { cursor: default; display: flex; align-items: center; justify-content: center; color: #999; font-size: 11px; }
+    @keyframes matShimmer { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
+    .mat-error { color: #E6194B; font-size: 11px; margin-top: 4px; }
+
+    #lightbox { display: none; position: fixed; left: 0; top: 0; width: 100%; height: 100%; z-index: 100000; background: rgba(0,0,0,.92); color: #fff; flex-direction: column; }
+    #lightbox.is-open { display: flex; }
+    .lb-top { display: flex; align-items: center; gap: 8px; padding: 8px 12px; font-size: 13px; }
+    .lb-title { font-weight: 700; flex: 1; }
+    .lb-btn { border: none; background: rgba(255,255,255,.16); color: #fff; border-radius: 50%; width: 34px; height: 34px; font-size: 18px; cursor: pointer; padding: 0; }
+    .lb-stage { position: relative; flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
+    .lb-stage img { max-width: 100%; max-height: 100%; object-fit: contain; }
+    .lb-nav { position: absolute; top: 50%; transform: translateY(-50%); }
+    .lb-prev { left: 8px; } .lb-next { right: 8px; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div id="emptyNote">표시할 입찰 정보가 없습니다.<br><span style="font-size:12px;color:#888;">구글 시트 '입찰' 탭에 내용을 입력해 주세요.</span></div>
+
+  <div id="leftPanels">
+    <div class="panel-card">
+      <div class="panel-head">📅 공고월</div>
+      <div class="chip-body"><div class="chip-row" id="monthChips"></div></div>
+    </div>
+    <div class="panel-card">
+      <div class="panel-head">🏷️ 사업권</div>
+      <div class="chip-body"><div class="chip-row" id="groupChips"></div></div>
+    </div>
+  </div>
+
+  <div id="summaryCard"></div>
+
+  <div id="lightbox">
+    <div class="lb-top"><div class="lb-title" id="lbTitle"></div><button class="lb-btn" id="lbClose">×</button></div>
+    <div class="lb-stage">
+      <button class="lb-btn lb-nav lb-prev" id="lbPrev">‹</button>
+      <img id="lbImg" alt="">
+      <button class="lb-btn lb-nav lb-next" id="lbNext">›</button>
+    </div>
+  </div>
+
+  <script src="//dapi.kakao.com/v2/maps/sdk.js?appkey=fbd1e96068b754f1939c7e11a2790ce1&autoload=false"></script>
+  <script>
+    /* ============================================================
+       입찰 지도 (app.py 의 '입찰 현황' 탭에서 postMessage 로 데이터를 받아 그립니다)
+       받는 메시지: { type:'INIT_BID_DATA', bids:[...], drive:{url,key} | null }
+       bids 각 항목: 공고월, 사업권, 휴게소명, 하한, 상한, 서류제출마감, PT, 점포개점, 상태,
+                    예상매출, 예상손익, 현재운영사, 현재브랜드, 메모, lat, lng, material
+       ============================================================ */
+    var GROUP_COLORS = ["#2F5597", "#E67E22", "#2E8B57", "#8E44AD", "#C0392B", "#16A085"];
+
+    var BID_ROWS = [];
+    var DRIVE_CFG = null;
+    var PHOTO_CACHE = {}, PHOTO_PENDING = {};
+
+    function esc(s) { return (s == null ? "" : String(s)).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+    function isNum(n) { return typeof n === "number" && isFinite(n); }
+    function fmtNum(n) { return Number(n).toLocaleString("ko-KR"); }
+    function numCls(n) { return n < 0 ? "neg" : (n > 0 ? "pos" : ""); }
+    function monthLabel(m) { var a = String(m).split("-"); return a.length === 2 ? (a[0].slice(2) + "년 " + parseInt(a[1], 10) + "월") : m; }
+    function jsq(s) { return String(s).replace(/\\/g, "\\\\").replace(/'/g, "\\'"); }
+
+    function parseYmd(s) {
+      var m = String(s == null ? "" : s).trim().match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+      if (!m) return null;
+      return new Date(+m[1], +m[2] - 1, +m[3]);
+    }
+    function todayMidnight() { var n = new Date(); return new Date(n.getFullYear(), n.getMonth(), n.getDate()); }
+    function daysUntil(d) { return Math.round((d - todayMidnight()) / 86400000); }
+
+    function nextSchedule(r) {
+      if (r.상태 === "종료") return null;
+      var cands = [["서류마감", r.서류제출마감], ["PT", r.PT], ["개점", r.점포개점]];
+      var best = null;
+      cands.forEach(function (c) {
+        var d = parseYmd(c[1]);
+        if (!d) return;
+        var diff = daysUntil(d);
+        if (diff < 0) return;
+        if (!best || diff < best.diff) best = { label: c[0], diff: diff };
+      });
+      return best;
+    }
+    function ddayText(diff) { return diff === 0 ? "D-day" : "D-" + diff; }
+    function ddayBadge(diff, withLabel, label) {
+      var cls = diff <= 7 ? " is-urgent" : "";
+      return ' <span class="iw-dday' + cls + '">' + (withLabel ? label + " " : "") + ddayText(diff) + '</span>';
+    }
+    function scheduleRow(label, val, status) {
+      var d = parseYmd(val);
+      if (!d) return "";
+      var diff = daysUntil(d);
+      var badge = "";
+      if (status !== "종료") badge = (diff < 0) ? ' <span class="iw-dday is-done">지남</span>' : ddayBadge(diff, false);
+      return '<div class="iw-row"><span class="iw-row-label">' + label + '</span> ' + esc(val) + badge + '</div>';
+    }
+    function iwRow(label, v) {
+      var s = (v == null ? "" : String(v)).trim();
+      if (!s) return "";
+      return '<div class="iw-row"><span class="iw-row-label">' + label + '</span> ' + esc(s) + '</div>';
+    }
+    function formatPhone(raw) {
+      var s = String(raw || "").trim();
+      if (!/^[0-9\-\s]+$/.test(s)) return s;
+      var d = s.replace(/[^0-9]/g, "");
+      if (d.length === 11) return d.slice(0, 3) + "-" + d.slice(3, 7) + "-" + d.slice(7);
+      if (d.length === 10) {
+        if (d.indexOf("02") === 0) return d.slice(0, 2) + "-" + d.slice(2, 6) + "-" + d.slice(6);
+        return d.slice(0, 3) + "-" + d.slice(3, 6) + "-" + d.slice(6);
+      }
+      return s;
+    }
+
+    var map = null, overlayPopup = null;
+    var items = [];
+    var selMonth = null, selGroup = null;
+    var groupColorMap = {};
+    var pendingData = null;
+    var didFirstFit = false;
+
+    function groupKeyOf(r) { return r.공고월 + "|" + r.사업권; }
+
+    function assignColors() {
+      groupColorMap = {};
+      var keys = [];
+      BID_ROWS.forEach(function (r) { var k = groupKeyOf(r); if (keys.indexOf(k) < 0) keys.push(k); });
+      keys.forEach(function (k, i) { groupColorMap[k] = GROUP_COLORS[i % GROUP_COLORS.length]; });
+    }
+
+    /* ───────── 팝업 ───────── */
+    function buildMemoHtml(r) {
+      var t = (r.메모 || "").trim();
+      if (!t) return '<div class="history-empty">메모가 없습니다. (구글 시트 \'입찰\' 탭의 메모 칸에 적으면 표시됩니다)</div>';
+      return t.split(/\n+/).filter(function (x) { return x.trim(); }).map(function (line) {
+        return '<div class="memo-item">' + esc(line) + '</div>';
+      }).join("");
+    }
+
+    function buildPopup(r) {
+      var color = groupColorMap[groupKeyOf(r)];
+      var next = nextSchedule(r);
+      var st = r.상태 || "";
+
+      var head = '<div class="iw-title">' + esc(r.휴게소명) + ' <span style="font-weight:600;color:' + color + ';">(' + esc(r.사업권) + ')</span></div>' +
+                 '<div style="margin:2px 0 2px;">' + (st ? '<span class="st-badge st-' + esc(st) + '">' + esc(st) + '</span>' : '') +
+                 (next ? ddayBadge(next.diff, true, next.label) : '') + '</div>';
+
+      var kpi = "";
+      if (isNum(r.예상매출) || isNum(r.예상손익)) {
+        kpi = '<div class="iw-kpi">';
+        if (isNum(r.예상매출)) kpi += '<div><span class="iw-row-label">예상매출</span> <b>' + fmtNum(r.예상매출) + '천원</b></div>';
+        if (isNum(r.예상손익)) kpi += '<div><span class="iw-row-label">예상손익</span> <b class="' + numCls(r.예상손익) + '">' + fmtNum(r.예상손익) + '천원</b></div>';
+        kpi += '</div>';
+      }
+
+      var rate = "";
+      if (isNum(r.하한) && isNum(r.상한)) {
+        rate = '<div class="iw-row iw-rate"><span class="iw-row-label">복수예비요율</span> <span class="low-tag">최저</span><b>' + r.하한.toFixed(2) + '</b> ~ ' + r.상한.toFixed(2) + '%</div>';
+      } else if (isNum(r.하한)) {
+        rate = '<div class="iw-row iw-rate"><span class="iw-row-label">복수예비요율</span> <span class="low-tag">최저</span><b>' + r.하한.toFixed(2) + '%</b></div>';
+      }
+
+      var contact = "";
+      var m = r.material;
+      if (m && ((m.contact_name || "").trim() || (m.phone || "").trim())) {
+        var parts = [];
+        if ((m.contact_name || "").trim()) parts.push(esc(m.contact_name.trim()));
+        if ((m.phone || "").trim()) parts.push('<a href="tel:' + m.phone.replace(/[^0-9+]/g, "") + '">📞 ' + esc(formatPhone(m.phone)) + '</a>');
+        contact = '<div class="iw-contact">담당자: ' + parts.join(" · ") + '</div>';
+      }
+
+      var nm = jsq(r.휴게소명);
+      var memoCount = (r.메모 || "").split(/\n+/).filter(function (x) { return x.trim(); }).length;
+      var memoTab = '<button class="iw-tab' + (memoCount ? '' : ' is-empty') + '" onclick="toggleTab(this,\'memo\',\'' + nm + '\')">📝 메모 ' + memoCount + '</button>';
+      var photoCount = (m && m.ids) ? m.ids.length : 0;
+      var photoTab = photoCount
+        ? '<button class="iw-tab" onclick="toggleTab(this,\'photo\',\'' + nm + '\')">📷 사진 ' + photoCount + '</button>'
+        : '<button class="iw-tab is-disabled" disabled>📷 사진 0</button>';
+
+      return '<div class="iw-wrap">' +
+               '<span class="iw-close" onclick="closePopup()">×</span>' +
+               head + kpi + rate +
+               scheduleRow("서류마감", r.서류제출마감, st) +
+               scheduleRow("PT", r.PT, st) +
+               scheduleRow("점포개점", r.점포개점, st) +
+               iwRow("현재운영사", r.현재운영사) +
+               iwRow("현재브랜드", r.현재브랜드) +
+               contact +
+               '<div class="iw-tabs">' + memoTab + photoTab + '</div>' +
+               '<div class="iw-box" data-box="memo" style="display:none;">' + buildMemoHtml(r) + '</div>' +
+               '<div class="iw-box" data-box="photo" style="display:none;"></div>' +
+             '</div><div class="iw-tail"></div>';
+    }
+
+    function findItem(name) {
+      for (var i = 0; i < items.length; i++) if (items[i].row.휴게소명 === name) return items[i];
+      return null;
+    }
+
+    window.closePopup = function () { if (overlayPopup) { overlayPopup.setMap(null); overlayPopup = null; } };
+
+    /* ───────── 사진 불러오기 (기존 지도와 같은 방식) ───────── */
+    function fetchPhotosFor(r) {
+      var m = r.material;
+      var key = r.휴게소명;
+      if (PHOTO_CACHE[key]) return Promise.resolve(PHOTO_CACHE[key]);
+      if (PHOTO_PENDING[key]) return PHOTO_PENDING[key];
+      if (!DRIVE_CFG || !DRIVE_CFG.url) return Promise.reject(new Error("no_config"));
+      var pr = fetch(DRIVE_CFG.url, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({ key: DRIVE_CFG.key, action: "get_many", ids: m.ids })
+      })
+        .then(function (res) { return res.json(); })
+        .then(function (out) {
+          if (!out || !out.ok) throw new Error((out && out.error) || "fail");
+          var byId = {};
+          (out.items || []).forEach(function (it) { byId[it.id] = it; });
+          var arr = m.ids.map(function (id) {
+            var it = byId[id];
+            return (it && it.ok) ? ("data:" + it.mime + ";base64," + it.data) : null;
+          });
+          PHOTO_CACHE[key] = arr;
+          delete PHOTO_PENDING[key];
+          return arr;
+        })
+        .catch(function (err) { delete PHOTO_PENDING[key]; throw err; });
+      PHOTO_PENDING[key] = pr;
+      return pr;
+    }
+
+    function renderPhotoBox(box, r) {
+      var ids = (r.material && r.material.ids) || [];
+      var html = '<div class="mat-photos">';
+      for (var i = 0; i < ids.length; i++) html += '<div class="mat-thumb is-loading" data-idx="' + i + '"></div>';
+      html += '</div><div class="mat-error" style="display:none;"></div>';
+      box.innerHTML = html;
+      var errEl = box.querySelector(".mat-error");
+
+      fetchPhotosFor(r).then(function (photos) {
+        if (!box.isConnected) return;
+        var valid = photos.filter(function (u) { return !!u; });
+        var thumbs = box.querySelectorAll(".mat-thumb");
+        for (var i = 0; i < thumbs.length; i++) {
+          var t = thumbs[i];
+          t.classList.remove("is-loading");
+          var url = photos[i];
+          if (url) {
+            t.style.backgroundImage = 'url("' + url + '")';
+            (function (url) {
+              t.addEventListener("click", function (e) { e.stopPropagation(); openLightbox(valid, valid.indexOf(url), r.휴게소명); });
+            })(url);
+          } else { t.classList.add("is-failed"); t.textContent = "불러오기 실패"; }
+        }
+      }).catch(function (err) {
+        if (!box.isConnected) return;
+        var thumbs = box.querySelectorAll(".mat-thumb");
+        for (var i = 0; i < thumbs.length; i++) { thumbs[i].classList.remove("is-loading"); thumbs[i].classList.add("is-failed"); thumbs[i].textContent = "불러오기 실패"; }
+        errEl.style.display = "block";
+        errEl.textContent = (String(err && err.message) === "no_config")
+          ? "사진 서버 설정이 전달되지 않았습니다. 앱을 새로고침해 주세요."
+          : "사진을 불러오지 못했습니다. 잠시 후 다시 눌러 주세요.";
+      });
+    }
+
+    window.toggleTab = function (btn, which, name) {
+      var wrap = btn.closest(".iw-wrap");
+      if (!wrap || btn.classList.contains("is-disabled")) return;
+      var was = btn.classList.contains("is-active");
+      wrap.querySelectorAll(".iw-tab").forEach(function (t) { t.classList.remove("is-active"); });
+      wrap.querySelectorAll(".iw-box").forEach(function (b) { b.style.display = "none"; });
+      if (was) return;
+      btn.classList.add("is-active");
+      var box = wrap.querySelector('.iw-box[data-box="' + which + '"]');
+      box.style.display = "block";
+      if (which === "photo") {
+        var it = findItem(name);
+        if (it) renderPhotoBox(box, it.row);
+      }
+    };
+
+    function openPopup(item) {
+      closePopup();
+      var pos = item.overlay.getPosition();
+      overlayPopup = new kakao.maps.CustomOverlay({
+        position: pos,
+        content: '<div class="iw-overlay">' + buildPopup(item.row) + '</div>',
+        yAnchor: 1, xAnchor: 0.5, zIndex: 50, clickable: true
+      });
+      overlayPopup.setMap(map);
+      map.panTo(pos);
+    }
+
+    /* ───────── 사진 크게 보기 ───────── */
+    var LB = { photos: [], idx: 0, title: "" };
+    function lbRender() {
+      document.getElementById("lbImg").src = LB.photos[LB.idx];
+      document.getElementById("lbTitle").textContent = LB.title + (LB.photos.length > 1 ? "  (" + (LB.idx + 1) + " / " + LB.photos.length + ")" : "");
+      var multi = LB.photos.length > 1;
+      document.getElementById("lbPrev").style.display = multi ? "block" : "none";
+      document.getElementById("lbNext").style.display = multi ? "block" : "none";
+    }
+    function openLightbox(photos, idx, title) {
+      if (!photos || !photos.length) return;
+      LB.photos = photos; LB.idx = Math.max(0, idx || 0); LB.title = title || "";
+      document.getElementById("lightbox").classList.add("is-open"); lbRender();
+    }
+    function closeLightbox() { document.getElementById("lightbox").classList.remove("is-open"); document.getElementById("lbImg").src = ""; }
+    document.getElementById("lbClose").addEventListener("click", closeLightbox);
+    document.getElementById("lbPrev").addEventListener("click", function () { LB.idx = (LB.idx - 1 + LB.photos.length) % LB.photos.length; lbRender(); });
+    document.getElementById("lbNext").addEventListener("click", function () { LB.idx = (LB.idx + 1) % LB.photos.length; lbRender(); });
+    document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeLightbox(); });
+
+    /* ───────── 핀 ───────── */
+    function createPin(r, color) {
+      var wrap = document.createElement("div");
+      wrap.className = "bid-pin";
+      wrap.style.setProperty("--ring", color + "66");
+      var no = (String(r.사업권).match(/\d+/) || [""])[0];
+      wrap.innerHTML =
+        '<div class="pin-circle" style="background:' + color + ';">' +
+          '<span class="pin-no">' + esc(no || "입") + '</span><span class="pin-unit">사업권</span>' +
+        '</div>' +
+        '<div class="pin-tail" style="border-top-color:' + color + ';"></div>' +
+        '<div class="pin-name">' + esc(r.휴게소명) + '</div>';
+      return wrap;
+    }
+
+    /* ───────── 필터 / 강조 ───────── */
+    function months() {
+      var arr = [];
+      BID_ROWS.forEach(function (r) { if (arr.indexOf(r.공고월) < 0) arr.push(r.공고월); });
+      return arr.sort().reverse();
+    }
+    function groupsOfMonth(m) {
+      var arr = [];
+      BID_ROWS.forEach(function (r) { if (r.공고월 === m && arr.indexOf(r.사업권) < 0) arr.push(r.사업권); });
+      return arr.sort(function (a, b) { return (parseInt(a, 10) || 0) - (parseInt(b, 10) || 0); });
+    }
+
+    function renderChips() {
+      var mh = "";
+      months().forEach(function (m) {
+        var cnt = BID_ROWS.filter(function (r) { return r.공고월 === m; }).length;
+        mh += '<div class="flt-chip' + (m === selMonth ? " is-active" : "") + '" data-m="' + esc(m) + '">' + esc(monthLabel(m)) + '(' + cnt + ')</div>';
+      });
+      document.getElementById("monthChips").innerHTML = mh;
+
+      var gh = '<div class="flt-chip' + (selGroup == null ? " is-active" : "") + '" data-g="__ALL__">전체</div>';
+      groupsOfMonth(selMonth).forEach(function (g) {
+        var cnt = BID_ROWS.filter(function (r) { return r.공고월 === selMonth && r.사업권 === g; }).length;
+        var col = groupColorMap[selMonth + "|" + g];
+        gh += '<div class="flt-chip' + (selGroup === g ? " is-active" : "") + '" data-g="' + esc(g) + '"><span class="dot" style="background:' + col + ';"></span>' + esc(g) + '(' + cnt + ')</div>';
+      });
+      document.getElementById("groupChips").innerHTML = gh;
+
+      document.querySelectorAll("#monthChips [data-m]").forEach(function (el) {
+        el.addEventListener("click", function () { selMonth = el.getAttribute("data-m"); selGroup = null; applyFilter(true); });
+      });
+      document.querySelectorAll("#groupChips [data-g]").forEach(function (el) {
+        el.addEventListener("click", function () {
+          var g = el.getAttribute("data-g");
+          selGroup = (g === "__ALL__") ? null : g;
+          applyFilter(true);
+        });
+      });
+    }
+
+    function fitToShown() {
+      if (!map) return;
+      var show = items.filter(function (it) {
+        return it.row.공고월 === selMonth && (selGroup == null || it.row.사업권 === selGroup);
+      });
+      if (!show.length) return;
+      var b = new kakao.maps.LatLngBounds();
+      show.forEach(function (it) { b.extend(it.overlay.getPosition()); });
+      map.setBounds(b, 110, 80, 160, 80);
+    }
+
+    function applyFilter(fit) {
+      closePopup();
+      renderChips();
+      var show = [];
+      items.forEach(function (it) {
+        var inMonth = it.row.공고월 === selMonth;
+        var inGroup = selGroup == null || it.row.사업권 === selGroup;
+        it.overlay.setMap(inMonth ? map : null);
+        it.el.classList.toggle("is-dim", inMonth && !inGroup);
+        it.el.classList.toggle("is-focus", inMonth && inGroup && selGroup != null);
+        it.overlay.setZIndex(inMonth && inGroup ? 10 : 1);
+        if (inMonth && inGroup) show.push(it);
+      });
+      renderSummary(show);
+      if (fit) fitToShown();
+    }
+
+    function renderSummary(show) {
+      var card = document.getElementById("summaryCard");
+      if (selGroup == null || !show.length) { card.classList.remove("is-open"); card.innerHTML = ""; return; }
+      var r0 = show[0].row;
+      var color = groupColorMap[groupKeyOf(r0)];
+      var sumRev = 0, sumPl = 0;
+      show.forEach(function (it) {
+        if (isNum(it.row.예상매출)) sumRev += it.row.예상매출;
+        if (isNum(it.row.예상손익)) sumPl += it.row.예상손익;
+      });
+      var next = nextSchedule(r0);
+
+      var html = '<div class="sc-head" style="background:' + color + ';">' + esc(r0.사업권) +
+                 '<span class="sc-sub">' + esc(monthLabel(r0.공고월)) + ' 공고 · ' + show.length + '곳</span></div>' +
+                 '<div class="sc-body">';
+      if (isNum(r0.하한)) {
+        html += '<div class="sc-line"><span class="k">복수예비요율</span><span><b style="color:#c25e00;">최저 ' + r0.하한.toFixed(2) + '</b>' +
+                (isNum(r0.상한) ? ' ~ ' + r0.상한.toFixed(2) : '') + '%</span></div>';
+      }
+      html += '<div class="sc-line"><span class="k">서류제출마감</span><span>' + esc(r0.서류제출마감 || "-") + (next ? ddayBadge(next.diff, true, next.label) : "") + '</span></div>' +
+              '<div class="sc-line"><span class="k">예상매출 합계</span><b>' + fmtNum(sumRev) + '천원</b></div>' +
+              '<div class="sc-line"><span class="k">예상손익 합계</span><b class="' + numCls(sumPl) + '">' + fmtNum(sumPl) + '천원</b></div>' +
+              '<div class="sc-list">';
+      show.forEach(function (it) {
+        var pl = isNum(it.row.예상손익) ? fmtNum(it.row.예상손익) : "-";
+        html += '<div class="sc-item" data-name="' + esc(it.row.휴게소명) + '"><span class="nm">' + esc(it.row.휴게소명) + '</span>' +
+                '<span class="pl ' + (isNum(it.row.예상손익) ? numCls(it.row.예상손익) : "") + '">' + pl + '</span></div>';
+      });
+      html += '</div></div>';
+      card.innerHTML = html;
+      card.classList.add("is-open");
+      card.querySelectorAll(".sc-item").forEach(function (el) {
+        el.addEventListener("click", function () {
+          var it = findItem(el.getAttribute("data-name"));
+          if (it) openPopup(it);
+        });
+      });
+    }
+
+    /* ───────── 데이터 적용 ───────── */
+    function applyData(data) {
+      if (!map) { pendingData = data; return; }
+      closePopup();
+      items.forEach(function (it) { it.overlay.setMap(null); });
+      items = [];
+
+      BID_ROWS = (data.bids || []).filter(function (r) { return isNum(r.lat) && isNum(r.lng); });
+      DRIVE_CFG = data.drive || null;
+      PHOTO_CACHE = {}; PHOTO_PENDING = {};
+      document.getElementById("emptyNote").style.display = BID_ROWS.length ? "none" : "block";
+      document.getElementById("leftPanels").style.display = BID_ROWS.length ? "flex" : "none";
+      if (!BID_ROWS.length) { document.getElementById("summaryCard").classList.remove("is-open"); return; }
+
+      assignColors();
+      BID_ROWS.forEach(function (r) {
+        var color = groupColorMap[groupKeyOf(r)];
+        var el = createPin(r, color);
+        var overlay = new kakao.maps.CustomOverlay({
+          position: new kakao.maps.LatLng(r.lat, r.lng),
+          content: el, yAnchor: 1, xAnchor: 0.5, zIndex: 5
+        });
+        var item = { row: r, el: el, overlay: overlay };
+        el.addEventListener("click", function (e) { e.stopPropagation(); openPopup(item); });
+        items.push(item);
+      });
+
+      var ms = months();
+      if (ms.indexOf(selMonth) < 0) { selMonth = ms[0]; selGroup = null; }
+      applyFilter(true);
+    }
+
+    window.addEventListener("message", function (e) {
+      var d = e.data;
+      if (!d || d.type !== "INIT_BID_DATA") return;
+      applyData(d);
+    });
+
+    kakao.maps.load(function () {
+      map = new kakao.maps.Map(document.getElementById("map"), {
+        center: new kakao.maps.LatLng(36.0, 127.8), level: 12
+      });
+      kakao.maps.event.addListener(map, "click", closePopup);
+
+      // 탭이 숨겨진 상태에서 만들어졌다가 나중에 보일 때(크기 0 → 정상) 지도를 다시 맞춤
+      var lastW = 0, lastH = 0;
+      function onSize() {
+        var el = document.getElementById("map");
+        var w = el.clientWidth, h = el.clientHeight;
+        if (w === lastW && h === lastH) return;
+        var wasZero = (lastW === 0 || lastH === 0);
+        lastW = w; lastH = h;
+        if (w > 0 && h > 0) {
+          map.relayout();
+          if (wasZero && items.length) fitToShown();
+        }
+      }
+      if (window.ResizeObserver) new ResizeObserver(onSize).observe(document.getElementById("map"));
+      window.addEventListener("resize", onSize);
+      onSize();
+
+      if (pendingData) { var d = pendingData; pendingData = null; applyData(d); }
+    });
+  </script>
+</body>
+</html>
