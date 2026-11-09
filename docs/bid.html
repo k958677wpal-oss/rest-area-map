@@ -18,6 +18,21 @@
       display: flex; flex-direction: column; gap: 8px;
       width: max-content; max-width: calc(100% - 20px);
     }
+    #filterMasterBtn {
+      padding: 8px 14px; font-size: 13px; font-weight: 700;
+      border: none; border-radius: 8px;
+      background: #2F5597; color: #fff;
+      box-shadow: 0 2px 8px rgba(0,0,0,.25); cursor: pointer;
+      white-space: nowrap; width: max-content;
+    }
+    #filterGroup { display: flex; flex-direction: column; gap: 8px; }
+    #leftPanels.master-collapsed #filterGroup { display: none; }
+    .top-right-btns { position: absolute; top: 10px; right: 10px; z-index: 100; }
+    #homeBtn {
+      padding: 8px 12px; font-size: 13px; border: none; border-radius: 6px;
+      background: #2E8B57; color: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.3);
+      cursor: pointer; white-space: nowrap;
+    }
     .panel-card {
       background: rgba(255,255,255,0.95);
       border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,.25);
@@ -36,7 +51,7 @@
     .flt-chip .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
 
     #summaryCard {
-      position: absolute; left: 10px; bottom: 10px; z-index: 100;
+      position: absolute; left: 10px; bottom: 38px; z-index: 100;
       width: 300px; max-width: calc(100% - 20px);
       background: rgba(255,255,255,0.97);
       border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,.3);
@@ -161,15 +176,22 @@
   <div id="map"></div>
   <div id="emptyNote">표시할 입찰 정보가 없습니다.<br><span style="font-size:12px;color:#888;">구글 시트 '입찰' 탭에 내용을 입력해 주세요.</span></div>
 
-  <div id="leftPanels">
-    <div class="panel-card">
-      <div class="panel-head">📅 공고월</div>
-      <div class="chip-body"><div class="chip-row" id="monthChips"></div></div>
+  <div id="leftPanels" class="master-collapsed">
+    <button id="filterMasterBtn">🔎 필터 열기</button>
+    <div id="filterGroup">
+      <div class="panel-card">
+        <div class="panel-head">📅 공고월</div>
+        <div class="chip-body"><div class="chip-row" id="monthChips"></div></div>
+      </div>
+      <div class="panel-card">
+        <div class="panel-head">🏷️ 사업권</div>
+        <div class="chip-body"><div class="chip-row" id="groupChips"></div></div>
+      </div>
     </div>
-    <div class="panel-card">
-      <div class="panel-head">🏷️ 사업권</div>
-      <div class="chip-body"><div class="chip-row" id="groupChips"></div></div>
-    </div>
+  </div>
+
+  <div class="top-right-btns">
+    <button id="homeBtn">🏠 홈</button>
   </div>
 
   <div id="summaryCard"></div>
@@ -421,18 +443,52 @@
         var it = findItem(name);
         if (it) renderPhotoBox(box, it.row);
       }
+      setTimeout(function () { ensurePopupVisible(false); }, 30);
     };
 
+    // 팝업이 잘리지 않도록 지도를 움직임
+    // center=true : 핀+팝업 전체 덩어리를 화면 가운데에 오게 함 (팝업을 처음 열 때)
+    // center=false: 위/좌/우가 잘릴 때만 최소한으로 움직임 (탭을 펼쳐 팝업이 커졌을 때)
+    var POPUP_LIFT = 54;   // 핀 끝에서 팝업 아래까지의 간격(CSS translateY 와 같은 값)
+    function ensurePopupVisible(center) {
+      if (!map || !overlayPopup || !popupEl) return;
+      var mapEl = document.getElementById("map");
+      var mw = mapEl.clientWidth, mh = mapEl.clientHeight;
+      var H = popupEl.offsetHeight, W = popupEl.offsetWidth;
+      if (!H || !mw || !mh) return;
+      var pt = map.getProjection().containerPointFromCoords(overlayPopup.getPosition());
+      var margin = 12;
+      var topY = pt.y - POPUP_LIFT - H;      // 팝업 윗변
+      var dy = 0, dx = 0;
+      if (center) {
+        var blockCenter = pt.y - (POPUP_LIFT + H) / 2;
+        dy = blockCenter - mh / 2;
+        // 가운데 맞춘 뒤에도 윗변이 잘리면 윗변 기준으로 보정
+        if ((topY - dy) < margin) dy = topY - margin;
+      } else if (topY < margin) {
+        dy = topY - margin;
+      }
+      var left = pt.x - W / 2, right = pt.x + W / 2;
+      if (left < margin) dx = left - margin;
+      else if (right > mw - margin) dx = right - (mw - margin);
+      if (Math.abs(dx) > 1 || Math.abs(dy) > 1) map.panBy(dx, dy);
+    }
+
+    var popupEl = null;
     function openPopup(item) {
       closePopup();
       var pos = item.overlay.getPosition();
+      popupEl = document.createElement("div");
+      popupEl.className = "iw-overlay";
+      popupEl.innerHTML = buildPopup(item.row);
       overlayPopup = new kakao.maps.CustomOverlay({
         position: pos,
-        content: '<div class="iw-overlay">' + buildPopup(item.row) + '</div>',
+        content: popupEl,
         yAnchor: 1, xAnchor: 0.5, zIndex: 50, clickable: true
       });
       overlayPopup.setMap(map);
-      map.panTo(pos);
+      // 화면에 그려진 뒤 실제 높이를 재서 위치를 맞춤
+      setTimeout(function () { ensurePopupVisible(true); }, 30);
     }
 
     /* ───────── 사진 크게 보기 ───────── */
@@ -608,6 +664,22 @@
       if (ms.indexOf(selMonth) < 0) { selMonth = ms[0]; selGroup = null; }
       applyFilter(true);
     }
+
+    // 필터 열기/닫기 (처음에는 접힌 상태)
+    document.getElementById("filterMasterBtn").addEventListener("click", function () {
+      var lp = document.getElementById("leftPanels");
+      var collapsed = lp.classList.toggle("master-collapsed");
+      this.textContent = collapsed ? "🔎 필터 열기" : "🔎 필터 닫기";
+    });
+
+    // 홈: 필터·팝업을 처음 상태(가장 최근 공고월, 전체)로 되돌리고 전체가 보이게 맞춤
+    document.getElementById("homeBtn").addEventListener("click", function () {
+      if (!BID_ROWS.length) return;
+      closePopup();
+      selMonth = months()[0];
+      selGroup = null;
+      applyFilter(true);
+    });
 
     window.addEventListener("message", function (e) {
       var d = e.data;
