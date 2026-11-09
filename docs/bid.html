@@ -96,6 +96,8 @@
     }
     .bid-pin .pin-name .pn-route { display: block; font-size: 9.5px; font-weight: 500; color: #cfd6e4; }
     body.zoom-far .pin-name .pn-route { display: none; }
+    /* 축소 상태여도 사업권을 선택했으면, 선택된 사업권 핀에는 노선을 보여줌 */
+    body.zoom-far .bid-pin.is-focus .pin-name .pn-route { display: block; }
     .bid-pin.is-dim { opacity: .28; }
     .bid-pin.is-focus .pin-circle { box-shadow: 0 0 0 4px var(--ring), 0 3px 10px rgba(0,0,0,.45); }
     .bid-pin.is-focus::before {
