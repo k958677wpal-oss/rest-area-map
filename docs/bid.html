@@ -55,10 +55,27 @@
       width: 300px; max-width: calc(100% - 20px);
       background: rgba(255,255,255,0.97);
       border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,.3);
-      font-size: 12px; overflow: hidden; display: none;
+      font-size: 12px; overflow: visible; display: none;
     }
     #summaryCard.is-open { display: block; }
-    .sc-head { padding: 8px 12px; color: #fff; font-weight: 800; font-size: 14px; display: flex; align-items: center; gap: 8px; }
+    .sc-head { position: relative; padding: 8px 12px; color: #fff; font-weight: 800; font-size: 14px; display: flex; align-items: center; gap: 8px; border-radius: 12px 12px 0 0; }
+    .sc-attach-btn {
+      margin-left: auto; padding: 3px 10px; border: 1px solid rgba(255,255,255,.75); border-radius: 12px;
+      background: rgba(255,255,255,.18); color: #fff; font-size: 12px; font-weight: 700; font-family: inherit;
+      cursor: pointer; white-space: nowrap;
+    }
+    .sc-attach-btn:hover, .sc-attach-btn.is-open { background: rgba(255,255,255,.95); color: #1f3a73; }
+    .sc-attach-menu {
+      display: none; position: absolute; top: calc(100% + 4px); right: 8px; z-index: 20; min-width: 150px;
+      background: #fff; border-radius: 8px; box-shadow: 0 3px 12px rgba(0,0,0,.35); padding: 4px; color: #222;
+    }
+    .sc-attach-menu.is-open { display: block; }
+    .sc-attach-menu a {
+      display: flex; align-items: center; gap: 6px; padding: 7px 10px; border-radius: 6px;
+      color: #222; font-size: 13px; font-weight: 700; text-decoration: none; white-space: nowrap;
+    }
+    .sc-attach-menu a:hover { background: #eef2fa; color: #1f3a73; }
+    .sc-attach-menu a .dl { margin-left: auto; font-size: 11px; font-weight: 600; color: #777; }
     .sc-head .sc-sub { font-size: 11px; font-weight: 600; opacity: .9; }
     .sc-body { padding: 8px 12px 10px; line-height: 1.6; }
     .sc-line { display: flex; justify-content: space-between; gap: 8px; }
@@ -175,7 +192,8 @@
     .lb-title { font-weight: 700; flex: 1; }
     .lb-btn { border: none; background: rgba(255,255,255,.16); color: #fff; border-radius: 50%; width: 34px; height: 34px; font-size: 18px; cursor: pointer; padding: 0; }
     .lb-stage { position: relative; flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
-    .lb-stage img { max-width: 100%; max-height: 100%; object-fit: contain; }
+    /* 사진 크기는 JS(lbFit)가 화면에 맞춰 계산: 작은 사진은 키우고 큰 사진은 줄임(비율 유지) */
+    .lb-stage img { max-width: none; max-height: none; object-fit: contain; }
     .lb-nav { position: absolute; top: 50%; transform: translateY(-50%); }
     .lb-prev { left: 8px; } .lb-next { right: 8px; }
   </style>
@@ -505,8 +523,25 @@
 
     /* ───────── 사진 크게 보기 ───────── */
     var LB = { photos: [], idx: 0, title: "" };
+    var LB_FILL = 0.92;      // 화면(사진 영역)의 몇 %까지 키울지
+    var LB_MAX_ZOOM = 4;     // 너무 작은 사진이 지나치게 커지는 것을 막는 최대 배율
+    function lbFit() {
+      var img = document.getElementById("lbImg");
+      var stage = img.parentElement;
+      var nw = img.naturalWidth, nh = img.naturalHeight;
+      if (!nw || !nh) return;
+      var sw = stage.clientWidth * LB_FILL, sh = stage.clientHeight * LB_FILL;
+      if (sw <= 0 || sh <= 0) return;
+      var scale = Math.min(sw / nw, sh / nh, LB_MAX_ZOOM);
+      img.style.width = Math.round(nw * scale) + "px";
+      img.style.height = Math.round(nh * scale) + "px";
+    }
+    document.getElementById("lbImg").addEventListener("load", lbFit);
+    window.addEventListener("resize", lbFit);
     function lbRender() {
-      document.getElementById("lbImg").src = LB.photos[LB.idx];
+      var lbImg = document.getElementById("lbImg");
+      lbImg.style.width = ""; lbImg.style.height = "";
+      lbImg.src = LB.photos[LB.idx];
       document.getElementById("lbTitle").textContent = LB.title + (LB.photos.length > 1 ? "  (" + (LB.idx + 1) + " / " + LB.photos.length + ")" : "");
       var multi = LB.photos.length > 1;
       document.getElementById("lbPrev").style.display = multi ? "block" : "none";
@@ -619,8 +654,24 @@
       });
       var next = nextSchedule(r0);
 
+      // 같은 사업권의 행들에서 첨부파일(공고문·제안서 등)을 모음. 같은 이름이 여러 행에 있으면 먼저 나온 것을 사용
+      var files = [], seen = {};
+      show.forEach(function (it) {
+        (it.row.첨부 || []).forEach(function (f) {
+          if (f && f.url && !seen[f.name]) { seen[f.name] = true; files.push(f); }
+        });
+      });
+      var attachHtml = "";
+      if (files.length) {
+        attachHtml = '<button class="sc-attach-btn" id="attachBtn">📎 첨부 ' + files.length + '</button>' +
+                     '<div class="sc-attach-menu" id="attachMenu">' +
+                     files.map(function (f) {
+                       return '<a href="' + esc(f.url).replace(/"/g, "&quot;") + '" target="_blank" rel="noopener">📄 ' + esc(f.name) + '<span class="dl">다운로드</span></a>';
+                     }).join("") + '</div>';
+      }
+
       var html = '<div class="sc-head" style="background:' + color + ';">' + esc(r0.사업권) +
-                 '<span class="sc-sub">' + esc(monthLabel(r0.공고월)) + ' 공고 · ' + show.length + '곳</span></div>' +
+                 '<span class="sc-sub">' + esc(monthLabel(r0.공고월)) + ' 공고 · ' + show.length + '곳</span>' + attachHtml + '</div>' +
                  '<div class="sc-body">';
       if (isNum(r0.하한)) {
         html += '<div class="sc-line"><span class="k">복수예비요율</span><span><b style="color:#c25e00;">최저 ' + r0.하한.toFixed(2) + '</b>' +
@@ -643,6 +694,18 @@
       html += '</div></div>';
       card.innerHTML = html;
       card.classList.add("is-open");
+      var aBtn = document.getElementById("attachBtn"), aMenu = document.getElementById("attachMenu");
+      if (aBtn && aMenu) {
+        aBtn.addEventListener("click", function (e) {
+          e.stopPropagation();
+          var open = aMenu.classList.toggle("is-open");
+          aBtn.classList.toggle("is-open", open);
+        });
+        aMenu.addEventListener("click", function (e) {
+          e.stopPropagation();
+          aMenu.classList.remove("is-open"); aBtn.classList.remove("is-open");
+        });
+      }
       card.querySelectorAll(".sc-item").forEach(function (el) {
         el.addEventListener("click", function () {
           var it = findItem(el.getAttribute("data-name"));
@@ -697,6 +760,13 @@
       selMonth = months()[0];
       selGroup = null;
       applyFilter(true);
+    });
+
+    // 첨부 목록: 바깥을 누르면 닫기
+    document.addEventListener("click", function () {
+      var m = document.getElementById("attachMenu"), b = document.getElementById("attachBtn");
+      if (m) m.classList.remove("is-open");
+      if (b) b.classList.remove("is-open");
     });
 
     window.addEventListener("message", function (e) {
