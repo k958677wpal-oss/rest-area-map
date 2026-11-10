@@ -1125,6 +1125,8 @@ with tab_map:
 
 # --- 🏷️ 입찰 현황 (구글 시트 '입찰' 탭 기반) ---
 BID_PAGE_URL = "https://k958677wpal-oss.github.io/rest-area-map/bid.html?v=3"
+# 입찰 지도 세로 높이(px). 보고서 캡처용으로 크게 잡았습니다. 더 키우거나 줄이려면 이 숫자만 바꾸세요.
+BID_MAP_HEIGHT = 780
 
 with tab_bid:
     bid_rows = load_bids()
@@ -1172,7 +1174,7 @@ with tab_bid:
     <iframe
         id="bidMapFrame"
         src="{BID_PAGE_URL}"
-        style="width:100%; height:{MAP_HEIGHT}px; border:none;"
+        style="width:100%; height:{BID_MAP_HEIGHT}px; border:none;"
         scrolling="no"
     ></iframe>
     <script>
@@ -1190,7 +1192,7 @@ with tab_bid:
       }})();
     </script>
     """
-    components.html(bid_component_html, height=MAP_HEIGHT, scrolling=False)
+    components.html(bid_component_html, height=BID_MAP_HEIGHT, scrolling=False)
 
     if bid_skipped:
         with st.expander(f"⚠️ 지도에 표시되지 않은 입찰 {len(bid_skipped)}건 (클릭하여 확인)"):
