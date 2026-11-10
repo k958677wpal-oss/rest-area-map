@@ -333,6 +333,30 @@ def load_bids():
         rows.append(rec)
     return rows
 
+# 입찰 시트에서 첨부파일 링크를 읽을 열 이름. 열을 더 쓰고 싶으면 여기에 이름만 추가하세요. (예: "평가기준")
+BID_ATTACH_COLS = ["공고문", "제안서"]
+
+def _drive_download_url(link):
+    """구글 드라이브 공유 링크 -> 바로 내려받는 주소. 드라이브 링크가 아니면 원본 그대로 사용."""
+    s = str(link).strip()
+    if not s:
+        return ""
+    m = re.search(r"/d/([A-Za-z0-9_-]{10,})", s) or re.search(r"[?&]id=([A-Za-z0-9_-]{10,})", s)
+    if m and "google.com" in s:
+        return f"https://drive.google.com/uc?export=download&id={m.group(1)}"
+    if s.startswith("http://") or s.startswith("https://"):
+        return s
+    return ""
+
+def build_bid_attachments(rec):
+    """한 행의 첨부 링크 -> [{'name': '공고문', 'url': '...'}, ...]"""
+    out = []
+    for col in BID_ATTACH_COLS:
+        url = _drive_download_url(rec.get(col, ""))
+        if url:
+            out.append({"name": col, "url": url})
+    return out
+
 def save_material(rest_name, photo1_id, photo2_id, c_name, c_phone, c_memo, uploader):
     """휴게소당 1행 유지: 새 행을 추가한 뒤 기존 행을 삭제합니다. (중간에 실패해도 데이터가 사라지지 않게 추가를 먼저 함)"""
     ws = get_material_ws(create=True)
@@ -1124,7 +1148,7 @@ with tab_map:
     material_register_fragment()
 
 # --- 🏷️ 입찰 현황 (구글 시트 '입찰' 탭 기반) ---
-BID_PAGE_URL = "https://k958677wpal-oss.github.io/rest-area-map/bid.html?v=3"
+BID_PAGE_URL = "https://k958677wpal-oss.github.io/rest-area-map/bid.html?v=4"
 # 입찰 지도 세로 높이(px). 보고서 캡처용으로 크게 잡았습니다. 더 키우거나 줄이려면 이 숫자만 바꾸세요.
 BID_MAP_HEIGHT = 780
 
@@ -1165,6 +1189,8 @@ with tab_bid:
             "lat": xy[0],
             "lng": xy[1],
             "material": build_material_payload(materials_map.get(nm)),
+            # 첨부파일(공고문·제안서 등): 시트의 해당 열에 링크가 있으면 포함
+            "첨부": build_bid_attachments(rec),
         })
 
     bid_json = json.dumps(bid_points, ensure_ascii=False)
