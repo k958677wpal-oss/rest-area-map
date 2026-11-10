@@ -530,13 +530,14 @@
       position: relative; flex: 1 1 auto; min-height: 0;
       overflow: auto; display: flex; align-items: center; justify-content: center;
     }
+    /* 사진 크기는 JS(lbFit)가 화면에 맞춰 계산: 작은 사진은 키우고 큰 사진은 줄임(비율 유지) */
     .lb-stage img {
-      max-width: 100%; max-height: 100%; object-fit: contain;
+      max-width: none; max-height: none; object-fit: contain;
       cursor: zoom-in; display: block;
     }
     .lb-stage.is-zoomed { align-items: flex-start; justify-content: flex-start; }
     .lb-stage.is-zoomed img {
-      max-width: none; max-height: none; width: 220%; height: auto; cursor: zoom-out;
+      max-width: none; max-height: none; width: 220% !important; height: auto !important; cursor: zoom-out;
     }
     .lb-nav {
       position: absolute; top: 50%; transform: translateY(-50%);
@@ -1305,8 +1306,26 @@
 
     function lbEl(id) { return document.getElementById(id); }
 
+    var LB_FILL = 0.92;      // 화면(사진 영역)의 몇 %까지 키울지
+    var LB_MAX_ZOOM = 4;     // 너무 작은 사진이 지나치게 커지는 것을 막는 최대 배율
+    function lbFit() {
+      var img = lbEl('lbImg');
+      var stage = lbEl('lbStage');
+      if (LB.zoomed) { img.style.width = ''; img.style.height = ''; return; }
+      var nw = img.naturalWidth, nh = img.naturalHeight;
+      if (!nw || !nh) return;
+      var sw = stage.clientWidth * LB_FILL, sh = stage.clientHeight * LB_FILL;
+      if (sw <= 0 || sh <= 0) return;
+      var scale = Math.min(sw / nw, sh / nh, LB_MAX_ZOOM);
+      img.style.width = Math.round(nw * scale) + 'px';
+      img.style.height = Math.round(nh * scale) + 'px';
+    }
+    window.addEventListener('resize', function () { lbFit(); });
+
     function lbRender() {
       var total = LB.photos.length;
+      lbEl('lbImg').style.width = '';
+      lbEl('lbImg').style.height = '';
       lbEl('lbImg').src = LB.photos[LB.idx];
       lbEl('lbTitle').textContent = LB.title;
       lbEl('lbCounter').textContent = total > 1 ? ((LB.idx + 1) + ' / ' + total) : '';
@@ -1351,6 +1370,7 @@
     }
 
     (function initLightbox() {
+      lbEl('lbImg').addEventListener('load', lbFit);
       lbEl('lbClose').addEventListener('click', closeLightbox);
       lbEl('lbPrev').addEventListener('click', function (e) { e.stopPropagation(); lbMove(-1); });
       lbEl('lbNext').addEventListener('click', function (e) { e.stopPropagation(); lbMove(1); });
@@ -1362,6 +1382,7 @@
         lbEl('lbStage').classList.toggle('is-zoomed', LB.zoomed);
         lbEl('lbStage').scrollTop = 0;
         lbEl('lbStage').scrollLeft = 0;
+        lbFit();
       });
       // 사진 바깥(검은 배경)을 누르면 닫기
       lbEl('lbStage').addEventListener('click', function (e) {
