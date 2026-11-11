@@ -82,6 +82,27 @@ if APPLY_THEME:
             .hub-header .hub-sub { font-size: 11.5px; }
         }
 
+        /* 허브 <-> 관리툴 전환 버튼 (헤더 오른쪽 위) */
+        .st-key-hub_head { position: relative; }
+        .st-key-hub_head .st-key-mode_btn {
+            position: absolute; top: 20px; right: 24px; width: auto; z-index: 5;
+        }
+        .st-key-mode_btn button {
+            background: rgba(255,255,255,0.16) !important;
+            color: #ffffff !important;
+            border: 1px solid rgba(255,255,255,0.75) !important;
+            font-weight: 700 !important;
+            border-radius: 10px !important;
+        }
+        .st-key-mode_btn button p { color: inherit !important; }
+        .st-key-mode_btn button:hover {
+            background: #ffffff !important;
+            color: #1f3a73 !important;
+        }
+        @media (max-width: 640px) {
+            .st-key-hub_head .st-key-mode_btn { position: static; margin: -4px 0 10px 0; }
+        }
+
         /* 탭: 선택색을 네이비로 */
         button[data-baseweb="tab"][aria-selected="true"] {
             color: #2c4a8a !important;
@@ -818,20 +839,46 @@ if not st.session_state["logged_in"]:
     st.stop()
 
 # --- 로그인 성공 시 ---
-if APPLY_THEME:
-    st.markdown(
-        '<div class="hub-header">'
-        '<div class="hub-title">🛣️ 휴게소 데이터 허브</div>'
-        '<div class="hub-sub">Powered by 특수개발팀 · GS25 점포개발</div>'
-        '</div>',
-        unsafe_allow_html=True,
-    )
+if "app_mode" not in st.session_state:
+    st.session_state["app_mode"] = "hub"
+app_mode = st.session_state["app_mode"]
+
+def _switch_mode():
+    st.session_state["app_mode"] = "tool" if st.session_state.get("app_mode", "hub") == "hub" else "hub"
+
+if app_mode == "tool":
+    _head_title = "📊 팀 관리툴"
+    _switch_label = "🛣️ 휴게소 허브로"
 else:
-    st.markdown('<div class="app-title">🛣️ 휴게소 데이터 허브 (Powered by 특수개발팀)</div>', unsafe_allow_html=True)
+    _head_title = "🛣️ 휴게소 데이터 허브"
+    _switch_label = "📊 팀 관리툴로"
+
+if APPLY_THEME:
+    with st.container(key="hub_head"):
+        st.markdown(
+            '<div class="hub-header">'
+            f'<div class="hub-title">{_head_title}</div>'
+            '<div class="hub-sub">Powered by 특수개발팀 · GS25 점포개발</div>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+        st.button(_switch_label, key="mode_btn", on_click=_switch_mode)
+else:
+    st.markdown(f'<div class="app-title">{_head_title} (Powered by 특수개발팀)</div>', unsafe_allow_html=True)
+    st.button(_switch_label, key="mode_btn", on_click=_switch_mode)
 
 current_uid = st.session_state.get("user_id", "")
 current_name = st.session_state.get("user_name", "")
 is_admin = current_uid in ADMIN_IDS
+
+# --- 관리툴 모드: 허브의 무거운 데이터 로딩 전에 여기서 끝냄 ---
+if app_mode == "tool":
+    try:
+        from tool_page import render_tool
+        render_tool(init_connection)
+    except Exception as e:
+        st.error(f"관리툴 오류: {e}")
+    st.stop()
 
 try:
     df = load_data()
