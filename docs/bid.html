@@ -737,7 +737,17 @@
           content: el, yAnchor: 1, xAnchor: 0.5, zIndex: 5
         });
         var item = { row: r, el: el, overlay: overlay };
-        el.addEventListener("click", function (e) { e.stopPropagation(); openPopup(item); });
+        el.addEventListener("click", function (e) {
+          e.stopPropagation();
+          // 핀을 누르면 그 핀의 사업권이 선택된 것과 같은 효과(강조·나머지 흐리게·왼쪽 아래 요약창)를 함께 보여줌
+          // 지도는 팝업 위치 맞춤과 겹치지 않도록 따로 움직이지 않음
+          if (selMonth !== r.공고월 || selGroup !== r.사업권) {
+            selMonth = r.공고월;
+            selGroup = r.사업권;
+            applyFilter(false);
+          }
+          openPopup(item);
+        });
         items.push(item);
       });
 
