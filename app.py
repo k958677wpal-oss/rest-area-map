@@ -1148,7 +1148,7 @@ with tab_map:
     material_register_fragment()
 
 # --- 🏷️ 입찰 현황 (구글 시트 '입찰' 탭 기반) ---
-BID_PAGE_URL = "https://k958677wpal-oss.github.io/rest-area-map/bid.html?v=4"
+BID_PAGE_URL = "https://k958677wpal-oss.github.io/rest-area-map/bid.html?v=5"
 # 입찰 지도 세로 높이(px). 보고서 캡처용으로 크게 잡았습니다. 더 키우거나 줄이려면 이 숫자만 바꾸세요.
 BID_MAP_HEIGHT = 780
 
