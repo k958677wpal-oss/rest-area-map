@@ -208,7 +208,9 @@ if APPLY_THEME:
         .pk-hello b { color: #1f3a73; font-size: 24px; font-weight: 800; }
         .pk-hint { text-align: center; font-size: 12.5px; color: #8591ab; margin-top: 8px; }
         .pk-name { font-size: 21px; font-weight: 800; color: #1f3a73; }
-        .pk-desc { font-size: 13.5px; color: #6b7a99; margin-top: 5px; line-height: 1.5; }
+        .pk-desc { font-size: 13.5px; color: #6b7a99; margin-top: 5px; line-height: 1.5; word-break: keep-all; overflow-wrap: break-word; }
+        .pk-desc i { font-style: normal; white-space: nowrap; }
+        .st-key-pick_hub [data-testid="stHorizontalBlock"], .st-key-pick_sd [data-testid="stHorizontalBlock"] { gap: 1.3rem; }
         .pk-chips { margin: 10px 0 2px; display: flex; flex-wrap: wrap; gap: 6px; }
         .pk-chips span { font-size: 12px; font-weight: 700; color: #2c4a8a; background: #eaf0fb; border-radius: 999px; padding: 4px 11px; }
 
@@ -992,7 +994,7 @@ if app_mode == "select":
             with _a2:
                 st.markdown(
                     '<div class="pk-name">휴게소 데이터 허브</div>'
-                    '<div class="pk-desc">전국 휴게소를 지도에서 찾고, 입찰 현황과 방문 이력, 주간 활동 보고를 관리합니다.</div>'
+                    '<div class="pk-desc"><i>전국 휴게소를 지도에서 찾고,</i> <i>입찰 현황과 방문 이력,</i> <i>주간 활동 보고를 관리합니다.</i></div>'
                     '<div class="pk-chips"><span>스마트 노선 맵</span><span>입찰 현황</span><span>방문 이력</span></div>',
                     unsafe_allow_html=True,
                 )
@@ -1006,7 +1008,7 @@ if app_mode == "select":
             with _b2:
                 st.markdown(
                     '<div class="pk-name">SD 데이터 허브</div>'
-                    '<div class="pk-desc">팀과 담당자별 실적, 오픈점 현황을 한눈에 확인하고 그래프로 흐름을 봅니다.</div>'
+                    '<div class="pk-desc"><i>팀과 담당자별 실적,</i> <i>오픈점 현황을 한눈에 확인하고</i> <i>그래프로 흐름을 봅니다.</i></div>'
                     '<div class="pk-chips"><span>실적 현황</span><span>점포 현황</span><span>주간 보고</span></div>',
                     unsafe_allow_html=True,
                 )
