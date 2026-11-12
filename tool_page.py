@@ -318,36 +318,36 @@ TOOL_CSS = """
 .pb-chip { font-size: 13px; font-weight: 700; color: #2c4a8a; background: #ffffff; border: 1px solid #c9d4ea;
     border-radius: 999px; padding: 4px 14px; }
 .pb-chip b { color: #0b9a6a; margin-right: 6px; }
-.st-key-periodbody { padding: 26px 20px 10px 59px !important; }
+.st-key-periodbody { padding: 20px 20px 20px 59px !important; }
 .st-key-periodbody [data-testid="stHorizontalBlock"] { align-items: flex-start !important; gap: 0.8rem; }
-.pb-lab { font-size: 14px; font-weight: 700; color: #55648a; text-align: left; white-space: nowrap; line-height: 48px; height: 48px; margin: 0; }
+.pb-lab { font-size: 14px; font-weight: 700; color: #55648a; text-align: left; white-space: nowrap; line-height: 40px; height: 40px; margin: 0; }
 .st-key-periodbody [data-testid="stElementContainer"], .st-key-periodbody [data-testid="element-container"] { margin: 0 !important; }
 /* 알약 선택(라디오를 알약처럼 꾸밈): 조회 기간 / 담당자 필터 공통. 선택된 항목 = 네이비 바탕 + 흰 글씨 */
 .st-key-periodbody [data-testid="stWidgetLabel"], .st-key-mgr_filter [data-testid="stWidgetLabel"] { display: none !important; }
 .st-key-periodbody [data-testid="stMarkdownContainer"] p, .st-key-mgr_filter [data-testid="stMarkdownContainer"] { margin: 0; }
-/* 알약 선택: 버튼 여러 개를 '컨테이너 이름(key)'으로 꾸밈 (_on = 선택됨 / _off = 선택 안 됨) */
-div[class*="st-key-pill_"] [data-testid="stHorizontalBlock"] {
-    display: flex !important; flex-wrap: nowrap !important; width: fit-content !important; gap: 6px !important;
-    background: #eef2fa; padding: 5px; border-radius: 14px; align-items: center !important; }
-div[class*="st-key-pill_"] [data-testid="stColumn"], div[class*="st-key-pill_"] [data-testid="column"] {
-    flex: 0 0 auto !important; width: auto !important; min-width: 0 !important; }
-div[class*="st-key-pill_"] [data-testid="stVerticalBlock"] { gap: 0 !important; }
-div[class*="st-key-pl_"] button { border: none !important; border-radius: 10px !important; background: transparent !important;
-    height: 38px; min-height: 38px; padding: 0 22px; box-shadow: none; }
-div[class*="st-key-pl_"] button p { font-size: 15px !important; font-weight: 700 !important; color: #55648a; white-space: nowrap; margin: 0; }
-div[class*="st-key-pl_"][class*="_off"] button:hover { background: #dfe7f6 !important; }
-div[class*="st-key-pl_"][class*="_on"] button { background: #2c4a8a !important; box-shadow: 0 3px 8px rgba(31,58,115,.28); }
-div[class*="st-key-pl_"][class*="_on"] button p { color: #ffffff !important; }
+/* 라디오 알약 (이전에 마음에 들어 하셨던 모양): 연한 파란 트랙 안에 항목들이 가로로 놓임 */
+.st-key-periodbody [role="radiogroup"], .st-key-mgr_filter [role="radiogroup"] {
+    display: flex !important; flex-direction: row !important; flex-wrap: nowrap; gap: 6px !important; align-items: center;
+    background: #eef2fa; padding: 5px; border-radius: 14px; width: fit-content; }
+.st-key-periodbody [role="radiogroup"] > label, .st-key-mgr_filter [role="radiogroup"] > label {
+    margin: 0 !important; padding: 0 20px !important; border-radius: 10px; cursor: pointer;
+    display: flex !important; align-items: center; justify-content: center; background: transparent; }
+.st-key-periodbody [role="radiogroup"] > label { height: 30px; }
+.st-key-mgr_filter [role="radiogroup"] > label { height: 38px; padding: 0 22px !important; }
+.st-key-periodbody [role="radiogroup"] > label p, .st-key-mgr_filter [role="radiogroup"] > label p {
+    font-size: 15px !important; font-weight: 700 !important; color: #55648a; margin: 0 !important; white-space: nowrap; line-height: 1.2; }
+.st-key-mgr_filter [role="radiogroup"] > label p { font-size: 16px !important; }
+.st-key-periodbody [role="radiogroup"] > label:hover, .st-key-mgr_filter [role="radiogroup"] > label:hover { background: #dfe7f6; }
 /* 조회 기간 줄: 내용 크기대로 왼쪽부터 붙여 배치, 세로 가운데 */
 .st-key-periodbody [data-testid="stHorizontalBlock"] { gap: 10px !important; justify-content: flex-start !important; }
 .st-key-periodbody [data-testid="stColumn"], .st-key-periodbody [data-testid="column"] {
     flex: 0 0 auto !important; width: auto !important; min-width: 0 !important; }
 .st-key-periodbody [data-testid="stColumn"]:last-child, .st-key-periodbody [data-testid="column"]:last-child { margin-left: auto; }
-.st-key-periodbody [data-testid="stSelectbox"] { width: 170px; margin-top: 4px; }
-.st-key-periodbody [data-baseweb="select"] > div { min-height: 48px !important; height: 48px !important; }
-.st-key-periodbody div.stButton > button { min-height: 48px !important; height: 48px; padding: 0 18px; }
+.st-key-periodbody [data-testid="stSelectbox"] { width: 170px; }
+.st-key-periodbody [data-baseweb="select"] > div { min-height: 40px !important; height: 40px !important; }
+.st-key-periodbody div.stButton > button { min-height: 40px !important; height: 40px; padding: 0 18px; }
 .pb-lab.gap { margin-left: 26px; }
-.pb-tilde { font-size: 16px; font-weight: 700; color: #55648a; line-height: 48px; height: 48px; margin: 0; }
+.pb-tilde { font-size: 16px; font-weight: 700; color: #55648a; line-height: 40px; height: 40px; margin: 0; }
 /* 탭 메뉴: 눈에 띄는 알약 형태 (클래스 이름에 의존하지 않도록 속성으로 지정) */
 [data-baseweb="tab-list"], [role="tablist"], [data-testid="stTabs"] > div:first-child { gap: 8px !important; background: #eef2fa !important; padding: 6px !important; border-radius: 14px !important; }
 button[data-baseweb="tab"], button[role="tab"], [data-testid="stTab"] { height: 48px !important; padding: 0 26px !important; border-radius: 10px !important; background: transparent !important; }
@@ -365,10 +365,6 @@ div[class*="st-key-mgrbox_"] [data-testid="stColumn"], div[class*="st-key-mgrbox
     flex: 0 0 auto !important; width: auto !important; min-width: 0 !important; }
 .st-key-mgr_filter .sec-h { margin: 0; white-space: nowrap; height: 48px; }
 .st-key-mgr_filter div[class*="st-key-mgrbtn_"] { margin-top: 5px; }
-div[class*="st-key-mgrbtn_ph"] { visibility: hidden; }
-/* 담당자 필터/오픈점 보기: 제목 글자(22px)에 맞춰 크게 */
-.st-key-mgr_filter div[class*="st-key-pl_"] button { height: 38px; min-height: 38px; padding: 0 22px; }
-.st-key-mgr_filter div[class*="st-key-pl_"] button p { font-size: 16px !important; }
 .mgr-row { min-height: 38px; padding-top: 0; }
 .st-key-mgr_filter [data-testid="stVerticalBlock"] { gap: 0 !important; }
 .mgr-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; padding-top: 4px; }
@@ -725,7 +721,8 @@ def pick_period(months):
             with l1:
                 lab("보기 방식")
             with c1:
-                mode = pill_select(["월별", "누계"], "tool_pmode")
+                mode = st.radio("보기 방식", ["월별", "누계"], horizontal=True, key="tool_pmode",
+                                label_visibility="collapsed")
             with c5:
                 refresh_button("tool_refresh")
             if mode == "월별":
@@ -1150,58 +1147,43 @@ def view_performance(D, yms, mode, period_text):
         st.session_state["tool_mgr_pick"] = "전체"
 
     def _reset_detail():
-        st.session_state["tool_store_a"] = None
+        for k in list(st.session_state.keys()):
+            if str(k).startswith("tool_store_a"):
+                st.session_state[k] = None
+
+    def _toggle():
+        st.session_state["tool_show_open"] = not st.session_state.get("tool_show_open", False)
+        _reset_detail()
 
     with st.container(key="mgr_filter"):
         h1, h2, h3 = st.columns([1, 1, 1])
         with h1:
             st.markdown(sec_heading("badge", "담당자별"), unsafe_allow_html=True)
         with h2:
-            pick = pill_select(options, "tool_mgr_pick", on_change=_reset_detail)
+            pick = st.radio("담당자", options, horizontal=True, key="tool_mgr_pick",
+                            label_visibility="collapsed", on_change=_reset_detail)
         with h3:
-            # 담당자를 하나 골랐을 때만: 그 담당자의 오픈점 카드를 펼치고 접는 버튼
-            if pick and pick != "전체":
-                with st.container(key="mgrbtn_filter"):
-                    showing = st.session_state.get("tool_show_open", False)
-
-                    def _toggle():
-                        st.session_state["tool_show_open"] = not st.session_state.get("tool_show_open", False)
-                        st.session_state["tool_store_a"] = None
-                    st.button("오픈점 닫기 ▲" if showing else "오픈점 보기 ▶", key="tool_open_toggle", on_click=_toggle)
+            # 오픈점 보기 버튼: 항상 담당자 필터 바로 오른쪽 (전체/담당자 선택과 무관하게 같은 자리)
+            showing = st.session_state.get("tool_show_open", False)
+            with st.container(key="mgrbtn_filter"):
+                st.button("오픈점 닫기 ▲" if showing else "오픈점 보기 ▶", key="tool_open_toggle", on_click=_toggle)
     pick = pick or "전체"
+    show_open = st.session_state.get("tool_show_open", False)
 
-    def _mgr_box(mgr, mi, show_btn):
+    def _mgr_box(mgr, mi):
         names = [m["name"] for m in D["masters"] if m["manager"] == mgr]
         chips = "".join(f'<span class="mgr-chip">{escape(n)}</span>' for n in names)
         with st.container(key=f"mgrbox_{mi}"):
-            c1, c2 = st.columns([1, 1])
-            with c1:
-                st.markdown(f'<div class="mgr-row"><div class="mgr-name">{escape(mgr)}</div>'
-                            f'<div class="mgr-chips">{chips}</div></div>', unsafe_allow_html=True)
-            with c2:
-                if show_btn:
-                    with st.container(key=f"mgrbtn_{mi}"):
-                        def _open(mg=mgr):
-                            st.session_state["tool_mgr_pick"] = mg
-                            st.session_state["tool_show_open"] = True
-                            st.session_state["tool_store_a"] = None
-                        st.button("오픈점 보기 ▶", key=f"tool_mgr_{mgr}", on_click=_open)
-                else:
-                    # 버튼이 없을 때도 같은 높이를 차지하게 하는 '보이지 않는 자리표시' (이름~카드 간격을 항상 같게)
-                    with st.container(key=f"mgrbtn_ph{mi}"):
-                        st.button("오픈점 보기 ▶", key=f"tool_ph_{mi}", disabled=True)
+            st.markdown(f'<div class="mgr-row"><div class="mgr-name">{escape(mgr)}</div>'
+                        f'<div class="mgr-chips">{chips}</div></div>', unsafe_allow_html=True)
             st.markdown(group_cards(calc_group(D, names, yms), mode, prev_of(names), D, mgr),
                         unsafe_allow_html=True)
-        return names
-
-    if pick != "전체":
-        names = _mgr_box(pick, managers.index(pick), show_btn=False)
-        if st.session_state.get("tool_show_open", False):
-            render_store_cards(D, names, yms, period_text, ctx="a")
-        return
+            if show_open:
+                render_store_cards(D, names, yms, period_text, ctx=f"a{mi}")
 
     for mi, mgr in enumerate(managers):
-        _mgr_box(mgr, mi, show_btn=True)
+        if pick == "전체" or pick == mgr:
+            _mgr_box(mgr, mi)
 
 
 def view_stores(D, yms, period_text):
