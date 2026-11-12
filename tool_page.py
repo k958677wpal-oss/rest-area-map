@@ -447,8 +447,8 @@ div[class*="st-key-mgrbtn_"] button p { font-weight: 700 !important; font-size: 
 div[class*="st-key-mgrbtn_"] button:hover { background: #2c4a8a !important; }
 div[class*="st-key-mgrbtn_"] button:hover p { color: #ffffff !important; }
 .sec-h { display: flex; align-items: center; gap: 10px; font-size: 22px; font-weight: 800; color: #1a2b4f; margin: 22px 0 16px; }
-.sc-top { justify-content: space-between !important; align-items: center; gap: 12px; }
-.sc-info { flex: 1 1 auto !important; min-width: 0; }
+.sc-top { justify-content: space-evenly !important; align-items: center; gap: 12px; }
+.sc-info { flex: 0 1 auto !important; min-width: 0; }
 .sc-nums.three > div { text-align: center; }
 .sc-nums.three .v { justify-content: center; }
 .sec-ic { width: 34px; height: 34px; border-radius: 10px; display: flex; align-items: center; justify-content: center;
@@ -493,11 +493,9 @@ div[data-testid="stVerticalBlock"] { gap: 0.7rem; }
 .sc-nums.three > div { min-width: 0; }
 .sc-nums.three { gap: 8px; align-items: stretch; }
 .sc-nums.three .l { font-size: 13px; font-weight: 700; color: #55648a; }
-.sc-nums.three .v { font-size: 20px; line-height: 1.25; white-space: nowrap; color: #2a3a5e; }
+.sc-nums.three .v { font-size: 22px; line-height: 1.25; white-space: nowrap; color: #1f2d4d; }
 .sc-nums.three .v small { font-size: 12px; color: #6b7a99; }
-/* 영업이익만 강조: 연한 바탕 + 더 큰 숫자 (흑자 초록 / 적자 빨강) */
-.sc-nums.three .op { background: #f3f6fc; border-radius: 10px; padding: 6px 4px; }
-.sc-nums.three .op .v { font-size: 26px; }
+/* 영업이익은 크기는 같고 색만 다르게 (흑자 초록 / 적자 빨강) */
 .sc-nums.three .op .v.pos { color: #0b9a6a; }
 .sc-nums.three .op .v.neg { color: #d0143c; }
 .chart-card { background: #fff; border: 1px solid #d5dcea; border-radius: 12px; padding: 12px 14px 8px; margin: 8px 0 12px;
