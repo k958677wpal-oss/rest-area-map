@@ -264,27 +264,37 @@ def calc_group(D, names, yms):
 # ───────────────────────── 그래프(도넛) / 카드 HTML ─────────────────────────
 TOOL_CSS = """
 <style>
-.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; margin: 4px 0 10px; }
-.kpi { background: #ffffff; border: 1px solid #d5dcea; border-radius: 12px; padding: 12px 14px;
-       box-shadow: 0 1px 4px rgba(31,58,115,.06); display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.kpi .kpi-body { min-width: 0; }
-.kpi .kpi-l { font-size: 12px; color: #6b7a99; font-weight: 600; }
-.kpi .kpi-v { font-size: 22px; font-weight: 800; color: #1f3a73; margin-top: 2px; letter-spacing: -0.5px; white-space: nowrap; }
+.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin: 4px 0 10px; }
+.kpi { --ac: #2c4a8a; background: linear-gradient(160deg, #ffffff 55%, #f3f6fc 100%); border: 1px solid #dde3ef;
+       border-left: 5px solid var(--ac); border-radius: 14px; padding: 14px 16px 12px;
+       box-shadow: 0 3px 10px rgba(31,58,115,.08); min-width: 0; }
+.kpi .kpi-l { display: flex; align-items: center; gap: 7px; font-size: 14px; color: #55648a; font-weight: 700; }
+.kpi .kpi-l svg { flex: none; }
+.kpi .kpi-v { font-size: 27px; font-weight: 800; color: #1f3a73; margin-top: 6px; letter-spacing: -0.5px; white-space: nowrap; line-height: 1.2; }
 .kpi .kpi-v.neg { color: #d0143c; }
-.kpi .kpi-v small { font-size: 13px; font-weight: 600; color: #6b7a99; margin-left: 2px; }
-.kpi .kpi-s { font-size: 11.5px; color: #8591ab; margin-top: 2px; line-height: 1.4; }
+.kpi .kpi-v small { font-size: 14px; font-weight: 600; color: #6b7a99; margin-left: 3px; }
+.kpi .kpi-s { font-size: 12px; color: #7d8aa8; margin-top: 5px; line-height: 1.4; }
+.kpi .kpi-g { height: 6px; background: #e6ebf4; border-radius: 99px; margin-top: 9px; overflow: hidden; }
+.kpi .kpi-g i { display: block; height: 100%; border-radius: 99px; background: var(--ac); }
+.sec-h { display: flex; align-items: center; gap: 10px; font-size: 22px; font-weight: 800; color: #1a2b4f; margin: 20px 0 6px; }
+.sec-ic { width: 34px; height: 34px; border-radius: 10px; display: flex; align-items: center; justify-content: center;
+          background: linear-gradient(145deg, #1f3a73, #3d64b0); flex: none; }
+div[class*="st-key-mgrbox_"] { border-bottom: 1px solid #e3e8f2; padding-bottom: 14px; }
+.chart-card.empty { border-style: dashed; background: #fafbfd; box-shadow: none; }
 div[data-testid="stVerticalBlock"] { gap: 0.7rem; }
 .mgr-name { font-size: 22px; font-weight: 800; color: #1f3a73; margin: 0 0 2px; }
 .mgr-sub { font-size: 12px; color: #8591ab; margin-bottom: 4px; }
 .sec-title { font-size: 15px; font-weight: 800; color: #1f3a73; margin: 18px 0 6px; padding-top: 14px; border-top: 2px solid #e3e8f2; }
-.chart-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(560px, 1fr)); gap: 12px; align-items: stretch; }
+.chart-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(620px, 1fr)); gap: 12px; align-items: stretch; }
 .chart-grid .chart-card { margin: 0; }
 
 .sc { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
 .sc-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .sc-info { flex: 1; min-width: 0; }
-.sc-tags.col { flex-direction: column; align-items: flex-start; flex: none; margin-top: 0; gap: 6px; }
-.sc-tags.col .sc-tag { font-size: 12px; padding: 3px 9px; }
+.sc-namerow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.sc-namerow .sc-tag { font-size: 12px; padding: 3px 9px; }
+.sc-nums.three .v { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 3px; }
+.sc-nums.three .v small { margin-left: 0; }
 .store-head { background: #f6f8fc; border: 1px solid #d5dcea; border-radius: 14px; padding: 16px 20px; margin: 4px 0 6px; }
 .store-head .sh-row { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
 .store-head .sh-name { font-size: 26px; font-weight: 800; color: #1f3a73; line-height: 1.3; }
@@ -356,21 +366,69 @@ def donut_svg(pct, color, size=76, stroke=9, dec=0):
     )
 
 
+COLOR_PURPLE = "#7b5cc4"
+COLOR_BLUE = "#1e88e5"
+
+
+def mini_icon(kind, color, size=18):
+    """카드 라벨 옆 작은 벡터 아이콘"""
+    if kind == "store":
+        b = f'<path d="M3 10.5 12 3l9 7.5V21H3z" fill="{color}"/><rect x="9.5" y="13" width="5" height="8" fill="#fff"/>'
+    elif kind == "pct":
+        b = (f'<circle cx="12" cy="12" r="10" fill="{color}"/>'
+             '<path d="M8 16 16 8" stroke="#fff" stroke-width="2" stroke-linecap="round"/>'
+             '<circle cx="8.5" cy="8.5" r="1.8" fill="#fff"/><circle cx="15.5" cy="15.5" r="1.8" fill="#fff"/>')
+    elif kind == "coin":
+        b = (f'<circle cx="12" cy="12" r="10" fill="{color}"/>'
+             '<path d="M8 8l4 9 4-9M7 11.5h10M7 14h10" stroke="#fff" stroke-width="1.7" fill="none" stroke-linecap="round"/>')
+    elif kind == "target":
+        b = (f'<circle cx="12" cy="12" r="10" fill="{color}"/><circle cx="12" cy="12" r="6" fill="#fff"/>'
+             f'<circle cx="12" cy="12" r="2.6" fill="{color}"/>')
+    elif kind == "bars":
+        b = (f'<rect x="3" y="12" width="4.5" height="9" rx="1.2" fill="{color}"/>'
+             f'<rect x="9.7" y="7" width="4.5" height="14" rx="1.2" fill="{color}"/>'
+             f'<rect x="16.5" y="3" width="4.5" height="18" rx="1.2" fill="{color}"/>')
+    elif kind == "check":
+        b = (f'<circle cx="12" cy="12" r="10" fill="{color}"/>'
+             '<path d="M7 12.5l3.2 3.2L17 9" stroke="#fff" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>')
+    elif kind == "team":
+        b = (f'<circle cx="9" cy="8" r="3.6" fill="{color}"/><path d="M2 20c0-4 3-6.5 7-6.5s7 2.5 7 6.5z" fill="{color}"/>'
+             f'<circle cx="17" cy="9" r="3" fill="{color}" fill-opacity=".7"/><path d="M16 14c4 0 6.5 2 6.5 6H18c0-2.5-.8-4.5-2-6z" fill="{color}" fill-opacity=".7"/>')
+    else:   # person
+        b = f'<circle cx="12" cy="8" r="4.4" fill="{color}"/><path d="M3.5 21c0-5 3.8-8 8.5-8s8.5 3 8.5 8z" fill="{color}"/>'
+    return (f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" '
+            f'style="vertical-align:middle">{b}</svg>')
+
+
+def sec_heading(kind, text):
+    return f'<div class="sec-h"><span class="sec-ic">{mini_icon(kind, "#ffffff", 20)}</span>{text}</div>'
+
+
 def kpi_html(items):
-    """items: dict(label, value, unit, sub, neg, donut)"""
+    """items: dict(label, value, unit, sub, neg, accent, icon, gauge)"""
     out = ['<div class="kpi-grid">']
     for it in items:
         cls = " neg" if it.get("neg") else ""
         unit = it.get("unit", "")
         u = f"<small>{unit}</small>" if unit and it["value"] != "-" else ""
         sub = f'<div class="kpi-s">{it["sub"]}</div>' if it.get("sub") else ""
-        donut = it.get("donut", "")
+        ac = it.get("accent", COLOR_NAVY)
+        ic = mini_icon(it["icon"], ac) if it.get("icon") else ""
+        g = it.get("gauge")
+        gauge = (f'<div class="kpi-g"><i style="width:{max(0.0, min(g, 100.0)):.0f}%"></i></div>'
+                 if g is not None else "")
         out.append(
-            f'<div class="kpi"><div class="kpi-body"><div class="kpi-l">{it["label"]}</div>'
-            f'<div class="kpi-v{cls}">{it["value"]}{u}</div>{sub}</div>{donut}</div>'
+            f'<div class="kpi" style="--ac:{ac}"><div class="kpi-l">{ic}{it["label"]}</div>'
+            f'<div class="kpi-v{cls}">{it["value"]}{u}</div>{sub}{gauge}</div>'
         )
     out.append("</div>")
     return "".join(out)
+
+
+def _op_accent(v):
+    if v is None:
+        return COLOR_GRAY
+    return COLOR_GOOD if v >= 0 else COLOR_BAD
 
 
 def group_cards(G, mode):
@@ -389,15 +447,17 @@ def group_cards(G, mode):
         black_sub = f"{G['op_n']}점 중 구성비 {pct_text(G['black'], G['op_n'])}{part}"
 
     items = [
-        dict(label="출점수", value=fnum(G["opened"]), unit="점", sub=open_sub),
-        dict(label="매익율", value=fnum(G["margin"], 1), unit="%"),
-        dict(label="일매출", value=fnum(G["daily"]), unit="천원"),
+        dict(label="출점수", value=fnum(G["opened"]), unit="점", sub=open_sub, accent=COLOR_NAVY, icon="store"),
+        dict(label="매익율", value=fnum(G["margin"], 1), unit="%", accent=COLOR_PURPLE, icon="pct"),
+        dict(label="일매출", value=fnum(G["daily"]), unit="천원", accent=COLOR_BLUE, icon="coin"),
         dict(label="예상매출 달성률", value=fnum(G["rate"], 1), unit="%",
              sub=f"{G['rate_n']}점 중 {G['achieved']}점 달성 · 구성비 {pct_text(G['achieved'], G['rate_n'])}",
-             neg=(G["rate"] is not None and G["rate"] < 100)),
+             neg=(G["rate"] is not None and G["rate"] < 100),
+             accent=rate_color(G["rate"]), icon="target", gauge=G["rate"]),
         dict(label="영업이익 누계" if cumulative else "영업이익", value=fnum(G["op_sum"]), unit="천원",
-             sub=op_sub, neg=(G["op_sum"] is not None and G["op_sum"] < 0)),
-        dict(label="흑자점", value=fnum(G["black"]), unit="점", sub=black_sub),
+             sub=op_sub, neg=(G["op_sum"] is not None and G["op_sum"] < 0),
+             accent=_op_accent(G["op_sum"]), icon="bars"),
+        dict(label="흑자점", value=fnum(G["black"]), unit="점", sub=black_sub, accent=COLOR_GOOD, icon="check"),
     ]
     return kpi_html(items)
 
@@ -472,9 +532,8 @@ def store_card_html(D, c, yms):
     return (
         '<div class="sc">'
         '<div class="sc-top"><div class="sc-info">'
-        f'<div class="sc-name">{escape(c["name"])}</div>'
+        f'<div class="sc-namerow"><span class="sc-name">{escape(c["name"])}</span>{"".join(tags)}</div>'
         f'<div class="sc-meta">{" · ".join(meta)}</div></div>'
-        f'<div class="sc-tags col">{"".join(tags)}</div>'
         f'<div class="sc-donut">{donut_svg(c["rate"], rate_color(c["rate"]), size=88, stroke=10, dec=0)}'
         '<div class="cap">예상매출 달성률</div></div></div>'
         '<div class="sc-nums three">'
@@ -526,14 +585,15 @@ def render_store_detail(D, name, yms, period_text):
 
     # 선택 기간 요약 카드
     items = [
-        dict(label="일매출", value=fnum(c["daily"]), unit="천원", sub=period_text),
+        dict(label="일매출", value=fnum(c["daily"]), unit="천원", sub=period_text, accent=COLOR_BLUE, icon="coin"),
         dict(label="예상매출 달성률", value=fnum(c["rate"], 1), unit="%",
              sub="예상 " + fnum(c["target"], 0, "천원"),
-             neg=(c["rate"] is not None and c["rate"] < 100)),
-        dict(label="매익율", value=fnum(c["margin"], 1), unit="%"),
+             neg=(c["rate"] is not None and c["rate"] < 100),
+             accent=rate_color(c["rate"]), icon="target", gauge=c["rate"]),
+        dict(label="매익율", value=fnum(c["margin"], 1), unit="%", accent=COLOR_PURPLE, icon="pct"),
         dict(label="영업이익", value=fnum(c["op"]), unit="천원",
              sub="" if c["op"] is not None else "미입력",
-             neg=(c["op"] is not None and c["op"] < 0)),
+             neg=(c["op"] is not None and c["op"] < 0), accent=_op_accent(c["op"]), icon="bars"),
     ]
     st.markdown(kpi_html(items), unsafe_allow_html=True)
 
@@ -578,7 +638,7 @@ def render_store_detail(D, name, yms, period_text):
     )
     if op_cnt == 0:
         ops_card = ('<div class="chart-card empty"><div class="chart-title">💰 영업이익 흐름 (천원)</div>'
-                    '<div class="chart-note">영업이익이 아직 입력되지 않았습니다.</div></div>')
+                    '<div class="chart-note">영업이익이 아직 입력되지 않았습니다. 입력하면 월별 흐름이 여기에 표시됩니다.</div></div>')
     else:
         ops_card = (
             f'<div class="chart-card"><div class="chart-title">💰 영업이익 흐름 ({year}년, 천원)'
@@ -622,8 +682,8 @@ def year_points(per, tgt, open_ym, year):
     return pts
 
 
-CH_W = 700          # 그래프 기준 폭 (12칸 고정)
-CH_X0 = 62          # 왼쪽 행 이름 영역
+CH_W = 760          # 그래프 기준 폭 (12칸 고정)
+CH_X0 = 78          # 왼쪽 행 이름 영역
 CH_X1 = CH_W - 6
 
 
@@ -632,31 +692,31 @@ def sales_chart_svg(pts, open_ym="", last_ym=""):
     W = CH_W
     x0, x1 = CH_X0, CH_X1
     slot = (x1 - x0) / 12.0
-    bw = 26.0
-    y_top, y_base = 30, 130
+    bw = 28.0
+    y_top, y_base = 32, 130
     vals = [p["daily"] for p in pts if p["daily"] is not None] + [p["target"] for p in pts if p["target"] is not None]
     vmax = max(vals) if vals else 1.0
     if vmax <= 0:
         vmax = 1.0
     scale = (y_base - y_top) / vmax
-    y_m = y_base + 16       # 월
-    y_t = y_base + 33       # 예상일매출
-    y_r = y_base + 50       # 달성률
-    y_g = y_base + 67       # 매익율
-    y_o = y_base + 82       # 오픈 표시
-    H = y_base + 88
+    y_m = y_base + 18       # 월
+    y_t = y_base + 38       # 예상일매출
+    y_r = y_base + 58       # 달성률
+    y_g = y_base + 78       # 매익율
+    y_o = y_base + 96       # 오픈 표시
+    H = y_base + 102
 
     out = [f'<svg viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg" font-family="inherit">']
     # 범례
-    out.append(f'<rect x="{W - 150}" y="3" width="9" height="9" fill="{COLOR_NAVY}" rx="2"/>'
-               f'<text x="{W - 137}" y="11" font-size="10" fill="#6b7a99">일매출</text>'
-               f'<line x1="{W - 95}" y1="8" x2="{W - 81}" y2="8" stroke="{COLOR_WARN}" stroke-width="3"/>'
-               f'<text x="{W - 76}" y="11" font-size="10" fill="#6b7a99">예상일매출</text>')
+    out.append(f'<rect x="{W - 190}" y="3" width="10" height="10" fill="{COLOR_NAVY}" rx="2"/>'
+               f'<text x="{W - 175}" y="13" font-size="12" fill="#6b7a99">일매출</text>'
+               f'<line x1="{W - 120}" y1="8" x2="{W - 104}" y2="8" stroke="{COLOR_WARN}" stroke-width="3"/>'
+               f'<text x="{W - 98}" y="13" font-size="12" fill="#6b7a99">예상일매출</text>')
     # 행 이름
-    out.append(f'<text x="2" y="{y_g}" font-size="10" font-weight="700" fill="#6b7a99">매익율</text>')
-    out.append(f'<text x="2" y="{y_m}" font-size="10" font-weight="700" fill="#6b7a99">월</text>')
-    out.append(f'<text x="2" y="{y_t}" font-size="10" font-weight="700" fill="{COLOR_WARN}">예상일매출</text>')
-    out.append(f'<text x="2" y="{y_r}" font-size="10" font-weight="700" fill="#6b7a99">달성률</text>')
+    out.append(f'<text x="2" y="{y_g}" font-size="12" font-weight="700" fill="#6b7a99">매익율</text>')
+    out.append(f'<text x="2" y="{y_m}" font-size="12" font-weight="700" fill="#6b7a99">월</text>')
+    out.append(f'<text x="2" y="{y_t}" font-size="12" font-weight="700" fill="{COLOR_WARN}">예상일매출</text>')
+    out.append(f'<text x="2" y="{y_r}" font-size="12" font-weight="700" fill="#6b7a99">달성률</text>')
     out.append(f'<line x1="{x0 - 4}" y1="{y_base}" x2="{x1}" y2="{y_base}" stroke="#d5dcea" stroke-width="1"/>')
 
     line_pts = []
@@ -665,19 +725,19 @@ def sales_chart_svg(pts, open_ym="", last_ym=""):
         has = p["state"] == "data"
         faint = p["state"] != "data" and not (last_ym and p["ym"] <= last_ym and p["state"] == "none")
         lab_col = "#c3cbdc" if p["state"] == "pre" or (not has and last_ym and p["ym"] > last_ym) else "#6b7a99"
-        out.append(f'<text x="{cx:.1f}" y="{y_m}" text-anchor="middle" font-size="11" font-weight="{"700" if has else "400"}" '
+        out.append(f'<text x="{cx:.1f}" y="{y_m}" text-anchor="middle" font-size="13" font-weight="{"700" if has else "400"}" '
                    f'fill="{lab_col}">{p["mo"]}월</text>')
         if has:
             mt = "-" if p["margin"] is None else f'{p["margin"]:.1f}%'
-            out.append(f'<text x="{cx:.1f}" y="{y_g}" text-anchor="middle" font-size="10" font-weight="700" fill="#1f3a73">{mt}</text>')
+            out.append(f'<text x="{cx:.1f}" y="{y_g}" text-anchor="middle" font-size="12" font-weight="700" fill="#1f3a73">{mt}</text>')
             if p["daily"] is not None:
                 h = max(p["daily"] * scale, 1.0)
                 out.append(f'<rect x="{cx - bw / 2:.1f}" y="{y_base - h:.1f}" width="{bw:.1f}" height="{h:.1f}" '
                            f'fill="{COLOR_NAVY}" rx="3"/>')
-                out.append(f'<text x="{cx:.1f}" y="{y_base - h - 4:.1f}" text-anchor="middle" font-size="10" '
+                out.append(f'<text x="{cx:.1f}" y="{y_base - h - 5:.1f}" text-anchor="middle" font-size="12" '
                            f'font-weight="700" fill="#1f2d4d">{p["daily"]:,.0f}</text>')
             rt = "-" if p["rate"] is None else f'{p["rate"]:.0f}%'
-            out.append(f'<text x="{cx:.1f}" y="{y_r}" text-anchor="middle" font-size="11" font-weight="800" '
+            out.append(f'<text x="{cx:.1f}" y="{y_r}" text-anchor="middle" font-size="12" font-weight="800" '
                        f'fill="{rate_color(p["rate"]) if p["rate"] is not None else "#8591ab"}">{rt}</text>')
         # 예상일매출 (실적이 있는 달에만 표시)
         if has and p["target"] is not None:
@@ -685,11 +745,11 @@ def sales_chart_svg(pts, open_ym="", last_ym=""):
             out.append(f'<line x1="{cx - bw / 2 - 4:.1f}" y1="{ty:.1f}" x2="{cx + bw / 2 + 4:.1f}" y2="{ty:.1f}" '
                        f'stroke="{COLOR_WARN}" stroke-width="2.5" stroke-linecap="round"/>')
             line_pts.append(f"{cx:.1f},{ty:.1f}")
-            out.append(f'<text x="{cx:.1f}" y="{y_t}" text-anchor="middle" font-size="10" font-weight="700" '
+            out.append(f'<text x="{cx:.1f}" y="{y_t}" text-anchor="middle" font-size="12" font-weight="700" '
                        f'fill="{COLOR_WARN}">{p["target"]:,.0f}</text>')
         # 오픈 표시
         if open_ym and p["ym"] == open_ym:
-            out.append(f'<text x="{cx:.1f}" y="{y_o}" text-anchor="middle" font-size="9" font-weight="700" '
+            out.append(f'<text x="{cx:.1f}" y="{y_o}" text-anchor="middle" font-size="11" font-weight="700" '
                        f'fill="{COLOR_GOOD}">▲오픈</text>')
         # 마우스 올렸을 때 말풍선
         if has:
@@ -706,13 +766,13 @@ def sales_chart_svg(pts, open_ym="", last_ym=""):
 
 def ops_chart_svg(pts, open_ym="", last_ym=""):
     """1~12월 고정 칸 영업이익 막대 (흑자 초록 / 적자 빨강, 입력 전은 '미입력')"""
-    W, H = CH_W, 218        # 매출 그래프와 같은 높이 (좌우로 놓였을 때 월 위치가 맞도록)
+    W, H = CH_W, 232        # 매출 그래프와 같은 높이 (좌우로 놓였을 때 월 위치가 맞도록)
     x0, x1 = CH_X0, CH_X1
     n = len(pts)
     slot = (x1 - x0) / n
-    bw = 26.0
-    y_top, y_bot = 30, 118
-    y_month = 146
+    bw = 28.0
+    y_top, y_bot = 32, 118
+    y_month = 148
     vals = [p["op"] for p in pts if p["op"] is not None]
     vmax = max([0.0] + vals)
     vmin = min([0.0] + vals)
@@ -724,13 +784,13 @@ def ops_chart_svg(pts, open_ym="", last_ym=""):
     zy = Y(0.0)
     out = [f'<svg viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg" font-family="inherit">']
     out.append(f'<line x1="{x0}" y1="{zy:.1f}" x2="{x1}" y2="{zy:.1f}" stroke="#b8c2d8" stroke-width="1"/>')
-    out.append(f'<text x="2" y="{zy + 3:.1f}" font-size="10" font-weight="700" fill="#6b7a99">영업이익</text>')
+    out.append(f'<text x="2" y="{zy + 4:.1f}" font-size="12" font-weight="700" fill="#6b7a99">영업이익</text>')
     for i, p in enumerate(pts):
         cx = x0 + slot * (i + 0.5)
         v = p["op"]
         has = p["state"] == "data"
         if has and v is None:
-            out.append(f'<text x="{cx:.1f}" y="{zy - 5:.1f}" text-anchor="middle" font-size="9" fill="#a0aac0">미입력</text>')
+            out.append(f'<text x="{cx:.1f}" y="{zy - 5:.1f}" text-anchor="middle" font-size="11" fill="#a0aac0">미입력</text>')
         elif v is not None:
             yv = Y(v)
             top, h = (yv, zy - yv) if v >= 0 else (zy, yv - zy)
@@ -738,14 +798,14 @@ def ops_chart_svg(pts, open_ym="", last_ym=""):
             col = COLOR_GOOD if v >= 0 else COLOR_BAD
             out.append(f'<rect x="{cx - bw / 2:.1f}" y="{top:.1f}" width="{bw:.1f}" height="{h:.1f}" fill="{col}" rx="3">'
                        f'<title>{p["ym"][:4]}년 {p["mo"]}월 영업이익 {v:,.0f}천원</title></rect>')
-            ty = top - 4 if v >= 0 else top + h + 11
-            out.append(f'<text x="{cx:.1f}" y="{ty:.1f}" text-anchor="middle" font-size="10" font-weight="700" '
+            ty = top - 5 if v >= 0 else top + h + 13
+            out.append(f'<text x="{cx:.1f}" y="{ty:.1f}" text-anchor="middle" font-size="12" font-weight="700" '
                        f'fill="{col}">{v:,.0f}</text>')
         lab_col = "#c3cbdc" if p["state"] == "pre" or (not has and last_ym and p["ym"] > last_ym) else "#6b7a99"
-        out.append(f'<text x="{cx:.1f}" y="{y_month}" text-anchor="middle" font-size="11" font-weight="{"700" if has else "400"}" '
+        out.append(f'<text x="{cx:.1f}" y="{y_month}" text-anchor="middle" font-size="13" font-weight="{"700" if has else "400"}" '
                    f'fill="{lab_col}">{p["mo"]}월</text>')
         if open_ym and p["ym"] == open_ym:
-            out.append(f'<text x="{cx:.1f}" y="{y_month + 16}" text-anchor="middle" font-size="9" font-weight="700" '
+            out.append(f'<text x="{cx:.1f}" y="{y_month + 18}" text-anchor="middle" font-size="11" font-weight="700" '
                        f'fill="{COLOR_GOOD}">▲오픈</text>')
     out.append("</svg>")
     return "".join(out)
@@ -791,10 +851,10 @@ def render_store_cards(D, names, yms, period_text, ctx, sort_by="오픈일 최�
 def view_performance(D, yms, mode, period_text):
     all_names = [m["name"] for m in D["masters"]]
 
-    st.markdown(f"#### 🏆 팀 전체 · {period_text}")
+    st.markdown(sec_heading("team", f"팀 전체 · {period_text}"), unsafe_allow_html=True)
     st.markdown(group_cards(calc_group(D, all_names, yms), mode), unsafe_allow_html=True)
 
-    st.markdown('<h4 style="margin:18px 0 0;">👤 담당자별</h4>', unsafe_allow_html=True)
+    st.markdown(sec_heading("person", "담당자별"), unsafe_allow_html=True)
     sel_mgr = st.session_state.get("tool_mgr")
     managers = sorted({m["manager"] for m in D["masters"] if m["manager"]})
     if not managers:
@@ -813,9 +873,9 @@ def view_performance(D, yms, mode, period_text):
         render_store_cards(D, names, yms, period_text, ctx="a")
         return
 
-    for mgr in managers:
+    for mi, mgr in enumerate(managers):
         names = [m["name"] for m in D["masters"] if m["manager"] == mgr]
-        with st.container(border=True):
+        with st.container(key=f"mgrbox_{mi}"):
             c1, c2 = st.columns([5, 1])
             with c1:
                 st.markdown(f'<div class="mgr-name" style="margin-top:6px">{escape(mgr)}</div>',
@@ -828,7 +888,7 @@ def view_performance(D, yms, mode, period_text):
 
 
 def view_stores(D, yms, period_text):
-    st.markdown(f"#### 🏪 점포 현황 · {period_text}")
+    st.markdown(sec_heading("store", f"점포 현황 · {period_text}"), unsafe_allow_html=True)
     # 상세 화면일 때는 필터를 숨기고 상세만 보여줌
     if st.session_state.get("tool_store_b") in D["master_by_name"]:
         render_store_cards(D, [], yms, period_text, ctx="b")
