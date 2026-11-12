@@ -404,12 +404,17 @@ div[class*="st-key-backbtn_"] button:hover p { color: #ffffff !important; }
 .sm-v small:empty { display: none; }
 .sm-card { background: #ffffff; border: 1px solid #d5dcea; border-radius: 14px; padding: 16px 20px 10px; min-width: 0; }
 .sm-t { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 800; color: #1f3a73; }
-.sm-n { font-size: 12px; color: #8591ab; margin: 4px 0 10px; }
+.sm-n { font-size: 12px; color: #8591ab; margin: 4px 0 14px; }
 .sm-row { display: flex; align-items: center; gap: 12px; height: 40px; }
 .sm-nm { width: 56px; flex: none; font-size: 14px; font-weight: 700; color: #3a4a6b; }
-.sm-tr { position: relative; flex: 1; height: 16px; border-radius: 99px; overflow: hidden; }
+.sm-tr { position: relative; flex: 1; height: 16px; }
+.sm-bar { position: absolute; left: 0; right: 0; top: 0; bottom: 0; border-radius: 99px; overflow: hidden; }
 .sm-fl { position: absolute; left: 0; top: 0; height: 100%; display: block; }
-.sm-avg { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: #1f2d4d; box-shadow: 0 0 0 1px rgba(255,255,255,.9); }
+.sm-avg { position: absolute; top: -5px; bottom: -5px; width: 3px; margin-left: -1.5px; border-radius: 2px; background: #1f2d4d; box-shadow: 0 0 0 1px rgba(255,255,255,.9); }
+.sm-avl { position: absolute; top: -17px; transform: translateX(-50%); font-size: 11px; font-weight: 800; color: #1f2d4d; white-space: nowrap; line-height: 1; }
+/* 점포 카드의 오픈 순번 배지 */
+.sc-no { display: inline-flex; align-items: center; justify-content: center; min-width: 26px; height: 26px; padding: 0 7px; box-sizing: border-box;
+    border-radius: 99px; background: #2c4a8a; color: #fff; font-size: 13px; font-weight: 800; flex: none; }
 .sm-v { width: 132px; flex: none; text-align: right; font-size: 15px; font-weight: 800; color: #1f2d4d; line-height: 1.2; white-space: nowrap; }
 .sm-v small { display: block; font-size: 11px; font-weight: 500; color: #8591ab; min-height: 13px; }
 .sm-v.top { color: #0b9a6a; }
@@ -842,8 +847,9 @@ def sort_calcs(D, calcs, sort_by):
     return sorted(calcs, key=lambda c: (open_key(c) == "", open_key(c)))
 
 
-def store_card_html(D, c, yms):
+def store_card_html(D, c, yms, no=None):
     m = D["master_by_name"].get(c["name"], {})
+    no_html = f'<span class="sc-no">{no}</span>' if no else ""
     tags = []
     if m.get("place"):
         tags.append(f'<span class="sc-tag place">{escape(m["place"])}</span>')
@@ -860,7 +866,7 @@ def store_card_html(D, c, yms):
     return (
         '<div class="sc">'
         '<div class="sc-top"><div class="sc-info">'
-        f'<div class="sc-namerow"><span class="sc-name">{escape(c["name"])}</span>{"".join(tags)}</div>'
+        f'<div class="sc-namerow">{no_html}<span class="sc-name">{escape(c["name"])}</span>{"".join(tags)}</div>'
         f'<div class="sc-meta">{" · ".join(meta)}</div></div>'
         f'<div class="sc-donut">{donut_svg(c["rate"], rate_color(c["rate"]), size=88, stroke=10, dec=0)}'
         '<div class="cap">예상매출 달성률</div></div></div>'
@@ -1167,6 +1173,9 @@ def render_store_cards(D, names, yms, period_text, ctx, sort_by="오픈일 빠�
         st.info("조건에 맞는 점포가 없습니다.")
         return
     calcs = sort_calcs(D, [calc_store(D, n, yms) for n in names], sort_by)
+    # 오픈 순번: 정렬 방식과 상관없이 '오픈일 빠른 순서'대로 1, 2, 3 ... (몇 번째로 오픈한 점포인지)
+    by_open = sort_calcs(D, calcs, "오픈일 빠른순")
+    open_no = {c["name"]: i + 1 for i, c in enumerate(by_open)}
     st.markdown(
         '<div class="legend-note">원 그래프 = 예상매출 달성률 (일매출 ÷ 예상일매출) · '
         '<span style="color:#0b9a6a;font-weight:700;">초록 100% 이상</span> · '
@@ -1180,7 +1189,7 @@ def render_store_cards(D, names, yms, period_text, ctx, sort_by="오픈일 빠�
         for j, c in enumerate(calcs[i:i + PER_ROW]):
             with cols[j]:
                 with st.container(border=True):
-                    st.markdown(store_card_html(D, c, yms), unsafe_allow_html=True)
+                    st.markdown(store_card_html(D, c, yms, open_no.get(c["name"])), unsafe_allow_html=True)
 
                     def _open(n=c["name"]):
                         st.session_state[state_key] = n
@@ -1189,22 +1198,27 @@ def render_store_cards(D, names, yms, period_text, ctx, sort_by="오픈일 빠�
 
 
 # ───────────────────────── 탭 화면 ─────────────────────────
-def _sm_card(icon, color, title, note, items, avg_frac):
-    """요약 그래프 카드 1장. items: dict(name, key, frac, main, sub, color, rest)"""
+def _sm_card(icon, color, title, note, items, avg_frac, avg_label="팀 평균"):
+    """요약 그래프 카드 1장. items: dict(name, key, frac, main, sub, color, rest)
+    평균선은 막대 위아래로 삐져나오게 그리고, 첫 줄 위에 라벨을 붙임. 값이 없는 줄에는 선을 그리지 않음"""
     keys = [it["key"] for it in items if it["key"] is not None]
     top = max(keys) if (len(keys) > 1 and max(keys) > min(keys) and max(keys) > 0) else None
     out = [f'<div class="sm-card"><div class="sm-t">{mini_icon(icon, color, 20)}{title}</div><div class="sm-n">{note}</div>']
-    for it in items:
+    for idx, it in enumerate(items):
         fl = ""
         if it["frac"] is not None:
             fl = f'<i class="sm-fl" style="width:{max(0.0, min(it["frac"], 1.0)) * 100:.1f}%;background:{it["color"]}"></i>'
         mk = ""
         if avg_frac is not None:
-            mk = f'<b class="sm-avg" style="left:{max(0.0, min(avg_frac, 1.0)) * 100:.1f}%"></b>'
+            pos = f'{max(0.0, min(avg_frac, 1.0)) * 100:.1f}%'
+            if it["frac"] is not None:
+                mk += f'<b class="sm-avg" style="left:{pos}"></b>'
+            if idx == 0:
+                mk += f'<span class="sm-avl" style="left:{pos}">{avg_label}</span>'
         cls = " top" if (top is not None and it["key"] == top) else ""
         out.append(
             f'<div class="sm-row"><div class="sm-nm">{escape(it["name"])}</div>'
-            f'<div class="sm-tr" style="background:{it.get("rest", "#eef2fa")}">{fl}{mk}</div>'
+            f'<div class="sm-tr"><div class="sm-bar" style="background:{it.get("rest", "#eef2fa")}">{fl}</div>{mk}</div>'
             f'<div class="sm-v{cls}">{it["main"]}<small>{it["sub"]}</small></div></div>')
     out.append("</div>")
     return "".join(out)
@@ -1224,8 +1238,8 @@ def summary_html(D, managers, yms, all_names):
     avg = sum(vals) / len(vals)
     items = [dict(name=n, key=g["opened"], frac=g["opened"] / mx, main=f'{g["opened"]}점', sub="",
                   color=COLOR_NAVY) for n, g in G]
-    c1 = _sm_card("store", COLOR_NAVY, "출점수", f"선택 기간에 새로 오픈한 점포 · 합계 {T['opened']}점 · 점선 = 담당자 평균 {avg:.1f}점",
-                  items, avg / mx)
+    c1 = _sm_card("store", COLOR_NAVY, "출점수", f"선택 기간에 새로 오픈한 점포 · 합계 {T['opened']}점 · 굵은 선 = 담당자 평균 {avg:.1f}점",
+                  items, avg / mx, "담당자 평균")
 
     # 2) 일매출
     dv = [g["daily"] for _, g in G if g["daily"] is not None]
@@ -1240,7 +1254,7 @@ def summary_html(D, managers, yms, all_names):
             col = COLOR_BLUE if (tdaily is None or d >= tdaily) else "#9dc3ee"
             items.append(dict(name=n, key=d, frac=d / mx, main=fnum(d), sub="천원", color=col))
     c2 = _sm_card("coin", COLOR_BLUE, "일매출",
-                  "점포당 일매출 · 점선 = 팀 평균" + (f" {fnum(tdaily)}천원 · 연한 막대 = 팀 평균 미만" if tdaily else ""),
+                  "점포당 일매출 · 굵은 선 = 팀 평균" + (f" {fnum(tdaily)}천원 · 연한 막대 = 팀 평균 미만" if tdaily else ""),
                   items, (tdaily / mx) if tdaily else None)
 
     # 3) 예상매출 달성점 구성비 (모수 = 예상목표가 있어 달성률을 구할 수 있는 점포)
@@ -1259,13 +1273,13 @@ def summary_html(D, managers, yms, all_names):
 
     its, tr = ratio_items("achieved", "rate_n", COLOR_GOOD, "#e6ebf4", lambda g: "")
     c3 = _sm_card("target", COLOR_GOOD, "예상매출 달성점 구성비",
-                  "초록 = 달성(100% 이상) · 회색 = 미달 · 모수 = 예상목표가 있는 점포 · 점선 = 팀 " +
+                  "초록 = 달성(100% 이상) · 회색 = 미달 · 모수 = 예상목표가 있는 점포 · 굵은 선 = 팀 " +
                   (f"{tr * 100:.1f}%" if tr is not None else "-"), its, tr)
 
     # 4) 흑자점 구성비 (모수 = 영업이익이 입력된 점포)
     its, tr = ratio_items("black", "op_n", COLOR_GOOD, "#f7c6d0", lambda g: f" · 입력 {g['op_n']}/{g['data_n']}")
     c4 = _sm_card("check", COLOR_GOOD, "흑자점 구성비",
-                  "초록 = 흑자 · 분홍 = 적자 · 모수 = 영업이익이 입력된 점포 · 점선 = 팀 " +
+                  "초록 = 흑자 · 분홍 = 적자 · 모수 = 영업이익이 입력된 점포 · 굵은 선 = 팀 " +
                   (f"{tr * 100:.1f}%" if tr is not None else "-"), its, tr)
 
     return f'<div class="sm-grid">{c1}{c2}{c3}{c4}</div>'
@@ -1301,7 +1315,7 @@ def view_performance(D, yms, mode, period_text):
                 st.session_state[k] = None
 
     def _toggle():
-        st.session_state["tool_show_open"] = not st.session_state.get("tool_show_open", False)
+        st.session_state["tool_show_open"] = not st.session_state.get("tool_show_open", True)
         _reset_detail()
 
     with st.container(key="mgr_filter"):
@@ -1313,12 +1327,12 @@ def view_performance(D, yms, mode, period_text):
                             label_visibility="collapsed", on_change=_reset_detail)
         with h3:
             # 오픈점 보기 버튼: 항상 담당자 필터 바로 오른쪽 (전체/담당자 선택과 무관하게 같은 자리)
-            showing = st.session_state.get("tool_show_open", False)
+            showing = st.session_state.get("tool_show_open", True)    # 기본 = 열림 (직접 닫으면 그 상태 유지)
             with st.container(key="mgrbtn_filter"):
                 st.button("오픈점 닫기 ▲" if showing else "오픈점 보기 ▶", key="tool_open_toggle", on_click=_toggle,
                           disabled=((pick or "요약") == "요약"))
     pick = pick or "요약"
-    show_open = st.session_state.get("tool_show_open", False)
+    show_open = st.session_state.get("tool_show_open", True)
 
     if pick == "요약":
         st.markdown(summary_html(D, managers, yms, all_names), unsafe_allow_html=True)
