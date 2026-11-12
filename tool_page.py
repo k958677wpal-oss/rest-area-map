@@ -391,7 +391,7 @@ button[role="tab"][aria-selected="true"] span, [data-testid="stTab"][aria-select
     flex: 0 0 auto !important; width: auto !important; min-width: 0 !important; }
 /* 점포 카드 줄: 칸 3개를 똑같은 너비로 (위 담당자 필터용 '내용 크기대로' 규칙이 카드 칸에 번지지 않게 함) */
 div[class*="st-key-mgrbox_"] [data-testid="stHorizontalBlock"] { align-items: stretch; gap: 1rem; }
-.sc-top { min-height: 124px; }
+.sc-top { min-height: 100px; }
 /* 점포 상세의 '← 점포 목록으로' 버튼: 오픈점 보기 버튼과 같은 알약 디자인 */
 div[class*="st-key-backbtn_"] button { height: 40px; min-height: 40px; border: none !important; border-radius: 10px !important;
     background: #eef2fa !important; padding: 0 20px; }
@@ -403,20 +403,22 @@ div[class*="st-key-backbtn_"] button:hover p { color: #ffffff !important; }
 @media (max-width: 900px) { .sm-grid { grid-template-columns: minmax(0, 1fr); } }
 .sm-v small:empty { display: none; }
 .sm-card { background: #ffffff; border: 1px solid #d5dcea; border-radius: 14px; padding: 16px 20px 10px; min-width: 0; }
-.sm-t { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 800; color: #1f3a73; }
-.sm-n { font-size: 12px; color: #8591ab; margin: 4px 0 14px; }
-.sm-row { display: flex; align-items: center; gap: 12px; height: 40px; }
-.sm-nm { width: 56px; flex: none; font-size: 14px; font-weight: 700; color: #3a4a6b; }
+.sm-t { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 17px; font-weight: 800; color: #1f3a73; }
+.sm-tl { display: flex; align-items: center; gap: 8px; }
+.sm-chip { font-size: 13px; font-weight: 800; color: #1f2d4d; background: #eef2fa; border-radius: 999px; padding: 4px 12px; white-space: nowrap; }
+.sm-n { font-size: 13px; color: #6b7a99; margin: 4px 0 20px; }
+.sm-row { display: flex; align-items: center; gap: 12px; height: 42px; }
+.sm-nm { width: 60px; flex: none; font-size: 15px; font-weight: 700; color: #2a3a5e; }
 .sm-tr { position: relative; flex: 1; height: 16px; }
 .sm-bar { position: absolute; left: 0; right: 0; top: 0; bottom: 0; border-radius: 99px; overflow: hidden; }
 .sm-fl { position: absolute; left: 0; top: 0; height: 100%; display: block; }
 .sm-avg { position: absolute; top: -5px; bottom: -5px; width: 3px; margin-left: -1.5px; border-radius: 2px; background: #1f2d4d; box-shadow: 0 0 0 1px rgba(255,255,255,.9); }
-.sm-avl { position: absolute; top: -17px; transform: translateX(-50%); font-size: 11px; font-weight: 800; color: #1f2d4d; white-space: nowrap; line-height: 1; }
+.sm-avl { position: absolute; top: -17px; transform: translateX(-50%); font-size: 12px; font-weight: 800; color: #1f2d4d; white-space: nowrap; line-height: 1; }
 /* 점포 카드의 오픈 순번 배지 */
-.sc-no { display: inline-flex; align-items: center; justify-content: center; min-width: 26px; height: 26px; padding: 0 7px; box-sizing: border-box;
-    border-radius: 99px; background: #2c4a8a; color: #fff; font-size: 13px; font-weight: 800; flex: none; }
-.sm-v { width: 132px; flex: none; text-align: right; font-size: 15px; font-weight: 800; color: #1f2d4d; line-height: 1.2; white-space: nowrap; }
-.sm-v small { display: block; font-size: 11px; font-weight: 500; color: #8591ab; min-height: 13px; }
+.sc-no { display: flex; align-items: center; justify-content: center; min-width: 32px; height: 32px; padding: 0 6px; box-sizing: border-box;
+    border-radius: 10px; background: #2c4a8a; color: #fff; font-size: 15px; font-weight: 800; flex: none; align-self: flex-start; }
+.sm-v { width: 140px; flex: none; text-align: right; font-size: 17px; font-weight: 800; color: #1f2d4d; line-height: 1.2; white-space: nowrap; }
+.sm-v small { display: block; font-size: 12px; font-weight: 500; color: #6b7a99; min-height: 13px; }
 .sm-v.top { color: #0b9a6a; }
 div[class*="st-key-mgrbtn_"] button:disabled { opacity: .45; }
 div[class*="st-key-mgrbtn_"] button:disabled:hover { background: #eef2fa !important; }
@@ -445,8 +447,8 @@ div[class*="st-key-mgrbtn_"] button p { font-weight: 700 !important; font-size: 
 div[class*="st-key-mgrbtn_"] button:hover { background: #2c4a8a !important; }
 div[class*="st-key-mgrbtn_"] button:hover p { color: #ffffff !important; }
 .sec-h { display: flex; align-items: center; gap: 10px; font-size: 22px; font-weight: 800; color: #1a2b4f; margin: 22px 0 16px; }
-.sc-top { justify-content: space-evenly !important; }
-.sc-info { flex: 0 1 auto !important; }
+.sc-top { justify-content: space-between !important; align-items: center; gap: 12px; }
+.sc-info { flex: 1 1 auto !important; min-width: 0; }
 .sc-nums.three > div { text-align: center; }
 .sc-nums.three .v { justify-content: center; }
 .sec-ic { width: 34px; height: 34px; border-radius: 10px; display: flex; align-items: center; justify-content: center;
@@ -489,9 +491,15 @@ div[data-testid="stVerticalBlock"] { gap: 0.7rem; }
 .sc-donut { display: flex; flex-direction: column; align-items: center; flex: none; }
 .sc-donut .cap { font-size: 11px; color: #6b7a99; font-weight: 700; margin-top: 1px; }
 .sc-nums.three > div { min-width: 0; }
-.sc-nums.three .l { font-size: 12px; font-weight: 600; color: #6b7a99; }
-.sc-nums.three .v { font-size: 24px; line-height: 1.25; white-space: nowrap; }
-.sc-nums.three .v small { font-size: 12px; }
+.sc-nums.three { gap: 8px; align-items: stretch; }
+.sc-nums.three .l { font-size: 13px; font-weight: 700; color: #55648a; }
+.sc-nums.three .v { font-size: 20px; line-height: 1.25; white-space: nowrap; color: #2a3a5e; }
+.sc-nums.three .v small { font-size: 12px; color: #6b7a99; }
+/* 영업이익만 강조: 연한 바탕 + 더 큰 숫자 (흑자 초록 / 적자 빨강) */
+.sc-nums.three .op { background: #f3f6fc; border-radius: 10px; padding: 6px 4px; }
+.sc-nums.three .op .v { font-size: 26px; }
+.sc-nums.three .op .v.pos { color: #0b9a6a; }
+.sc-nums.three .op .v.neg { color: #d0143c; }
 .chart-card { background: #fff; border: 1px solid #d5dcea; border-radius: 12px; padding: 12px 14px 8px; margin: 8px 0 12px;
               box-shadow: 0 1px 4px rgba(31,58,115,.06); }
 .chart-card .chart-title { font-size: 14px; font-weight: 800; color: #1f3a73; margin-bottom: 2px; }
@@ -862,18 +870,22 @@ def store_card_html(D, c, yms, no=None):
         n = _month_diff(m["open_ym"], yms[-1]) + 1
         if n >= 1:
             meta.append(f"오픈 {n}개월차")
-    op_neg = " neg" if (c["op"] is not None and c["op"] < 0) else ""
+    if c["op"] is None:
+        op_cls = ""
+    else:
+        op_cls = " neg" if c["op"] < 0 else " pos"
+    # 위: [오픈 순번] [이름·태그·담당자] [달성률 도넛] / 아래: 일매출 · 매익율 · 영업이익(강조)
     return (
         '<div class="sc">'
-        '<div class="sc-top"><div class="sc-info">'
-        f'<div class="sc-namerow">{no_html}<span class="sc-name">{escape(c["name"])}</span>{"".join(tags)}</div>'
+        f'<div class="sc-top">{no_html}<div class="sc-info">'
+        f'<div class="sc-namerow"><span class="sc-name">{escape(c["name"])}</span>{"".join(tags)}</div>'
         f'<div class="sc-meta">{" · ".join(meta)}</div></div>'
-        f'<div class="sc-donut">{donut_svg(c["rate"], rate_color(c["rate"]), size=88, stroke=10, dec=0)}'
+        f'<div class="sc-donut">{donut_svg(c["rate"], rate_color(c["rate"]), size=76, stroke=9, dec=0)}'
         '<div class="cap">예상매출 달성률</div></div></div>'
         '<div class="sc-nums three">'
         f'<div><div class="l">일매출</div><div class="v">{fnum(c["daily"])}<small>천원</small></div></div>'
         f'<div><div class="l">매익율</div><div class="v">{fnum(c["margin"], 1)}<small>%</small></div></div>'
-        f'<div><div class="l">영업이익</div><div class="v{op_neg}">{fnum(c["op"])}<small>천원</small></div></div>'
+        f'<div class="op"><div class="l">영업이익</div><div class="v{op_cls}">{fnum(c["op"])}<small>천원</small></div></div>'
         '</div></div>'
     )
 
@@ -1198,12 +1210,14 @@ def render_store_cards(D, names, yms, period_text, ctx, sort_by="오픈일 빠�
 
 
 # ───────────────────────── 탭 화면 ─────────────────────────
-def _sm_card(icon, color, title, note, items, avg_frac, avg_label="팀 평균"):
+def _sm_card(icon, color, title, note, items, avg_frac, avg_label="평균", chip=""):
     """요약 그래프 카드 1장. items: dict(name, key, frac, main, sub, color, rest)
     평균선은 막대 위아래로 삐져나오게 그리고, 첫 줄 위에 라벨을 붙임. 값이 없는 줄에는 선을 그리지 않음"""
     keys = [it["key"] for it in items if it["key"] is not None]
     top = max(keys) if (len(keys) > 1 and max(keys) > min(keys) and max(keys) > 0) else None
-    out = [f'<div class="sm-card"><div class="sm-t">{mini_icon(icon, color, 20)}{title}</div><div class="sm-n">{note}</div>']
+    chip_html = f'<span class="sm-chip">{chip}</span>' if chip else ""
+    out = [f'<div class="sm-card"><div class="sm-t"><span class="sm-tl">{mini_icon(icon, color, 20)}{title}</span>{chip_html}</div>'
+           f'<div class="sm-n">{note}</div>']
     for idx, it in enumerate(items):
         fl = ""
         if it["frac"] is not None:
@@ -1238,8 +1252,8 @@ def summary_html(D, managers, yms, all_names):
     avg = sum(vals) / len(vals)
     items = [dict(name=n, key=g["opened"], frac=g["opened"] / mx, main=f'{g["opened"]}점', sub="",
                   color=COLOR_NAVY) for n, g in G]
-    c1 = _sm_card("store", COLOR_NAVY, "출점수", f"선택 기간에 새로 오픈한 점포 · 합계 {T['opened']}점 · 굵은 선 = 담당자 평균 {avg:.1f}점",
-                  items, avg / mx, "담당자 평균")
+    c1 = _sm_card("store", COLOR_NAVY, "출점수", f"선택 기간 신규 오픈 · 합계 {T['opened']}점",
+                  items, avg / mx, "평균", chip=f"평균 {avg:.1f}점")
 
     # 2) 일매출
     dv = [g["daily"] for _, g in G if g["daily"] is not None]
@@ -1254,8 +1268,9 @@ def summary_html(D, managers, yms, all_names):
             col = COLOR_BLUE if (tdaily is None or d >= tdaily) else "#9dc3ee"
             items.append(dict(name=n, key=d, frac=d / mx, main=fnum(d), sub="천원", color=col))
     c2 = _sm_card("coin", COLOR_BLUE, "일매출",
-                  "점포당 일매출 · 굵은 선 = 팀 평균" + (f" {fnum(tdaily)}천원 · 연한 막대 = 팀 평균 미만" if tdaily else ""),
-                  items, (tdaily / mx) if tdaily else None)
+                  "점포당 일매출 · 연한 막대 = 평균 미만",
+                  items, (tdaily / mx) if tdaily else None, "평균",
+                  chip=(f"평균 {fnum(tdaily)}천원" if tdaily else ""))
 
     # 3) 예상매출 달성점 구성비 (모수 = 예상목표가 있어 달성률을 구할 수 있는 점포)
     def ratio_items(num_k, den_k, color, rest, sub_extra):
@@ -1273,14 +1288,14 @@ def summary_html(D, managers, yms, all_names):
 
     its, tr = ratio_items("achieved", "rate_n", COLOR_GOOD, "#e6ebf4", lambda g: "")
     c3 = _sm_card("target", COLOR_GOOD, "예상매출 달성점 구성비",
-                  "초록 = 달성(100% 이상) · 회색 = 미달 · 모수 = 예상목표가 있는 점포 · 굵은 선 = 팀 " +
-                  (f"{tr * 100:.1f}%" if tr is not None else "-"), its, tr)
+                  "초록 = 달성(100%↑) · 회색 = 미달 · 예상목표 있는 점포 기준",
+                  its, tr, "평균", chip=(f"평균 {tr * 100:.1f}%" if tr is not None else ""))
 
     # 4) 흑자점 구성비 (모수 = 영업이익이 입력된 점포)
     its, tr = ratio_items("black", "op_n", COLOR_GOOD, "#f7c6d0", lambda g: f" · 입력 {g['op_n']}/{g['data_n']}")
     c4 = _sm_card("check", COLOR_GOOD, "흑자점 구성비",
-                  "초록 = 흑자 · 분홍 = 적자 · 모수 = 영업이익이 입력된 점포 · 굵은 선 = 팀 " +
-                  (f"{tr * 100:.1f}%" if tr is not None else "-"), its, tr)
+                  "초록 = 흑자 · 분홍 = 적자 · 영업이익 입력 점포 기준",
+                  its, tr, "평균", chip=(f"평균 {tr * 100:.1f}%" if tr is not None else ""))
 
     return f'<div class="sm-grid">{c1}{c2}{c3}{c4}</div>'
 
