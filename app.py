@@ -21,8 +21,47 @@ except Exception:
     HEIC_OK = False
 
 # --- 페이지 기본 설정 ---
-st.set_page_config(page_title="휴게소 데이터 허브", layout="wide")
+def _make_favicon():
+    """브라우저 탭 아이콘: 네이비 원 + 나침반 바늘 (직접 그림)"""
+    try:
+        from PIL import ImageDraw
+        S = 128
+        img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+        d = ImageDraw.Draw(img)
+        d.ellipse([4, 4, S - 4, S - 4], fill=(31, 58, 115, 255))
+        d.ellipse([16, 16, S - 16, S - 16], outline=(255, 255, 255, 190), width=4)
+        c = S // 2
+        # 바늘: 북쪽(빨강) / 남쪽(흰색), 대각선 방향
+        d.polygon([(c + 30, c - 30), (c + 7, c - 7), (c - 7, c + 7)], fill=(255, 107, 107, 255))
+        d.polygon([(c - 30, c + 30), (c + 7, c - 7), (c - 7, c + 7)], fill=(255, 255, 255, 255))
+        d.ellipse([c - 5, c - 5, c + 5, c + 5], fill=(31, 58, 115, 255))
+        return img
+    except Exception:
+        return "🧭"
+
+st.set_page_config(page_title="특수개발 워크스페이스", page_icon=_make_favicon(), layout="wide")
 KST = timezone(timedelta(hours=9))
+
+
+def _ic(kind, size=40, fg="#ffffff"):
+    """직접 그린 벡터 아이콘 (한 줄 SVG). kind: compass / road / chart"""
+    if kind == "compass":
+        body = (f'<circle cx="24" cy="24" r="21" fill="none" stroke="{fg}" stroke-width="2.6"/>'
+                f'<circle cx="24" cy="24" r="16" fill="none" stroke="{fg}" stroke-opacity=".35" stroke-width="1"/>'
+                '<g transform="rotate(40 24 24)">'
+                '<polygon points="24,8 29.5,24 18.5,24" fill="#ff6b6b"/>'
+                f'<polygon points="24,40 29.5,24 18.5,24" fill="{fg}"/></g>'
+                '<circle cx="24" cy="24" r="2.4" fill="#1f3a73"/>')
+    elif kind == "road":
+        body = (f'<path d="M24 4C16.8 4 11 9.6 11 16.6c0 9.6 13 24.4 13 24.4s13-14.8 13-24.4C37 9.6 31.2 4 24 4z" fill="{fg}"/>'
+                '<circle cx="24" cy="16.6" r="5" fill="#2c4a8a"/>'
+                f'<path d="M8 44h32" stroke="{fg}" stroke-width="3" stroke-linecap="round" stroke-dasharray="7 5"/>')
+    else:
+        body = (f'<rect x="7" y="26" width="9" height="16" rx="2" fill="{fg}"/>'
+                f'<rect x="19.5" y="14" width="9" height="28" rx="2" fill="{fg}"/>'
+                f'<rect x="32" y="5" width="9" height="37" rx="2" fill="{fg}"/>')
+    return (f'<svg width="{size}" height="{size}" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" '
+            f'style="vertical-align:middle;flex:none">{body}</svg>')
 
 # --- 대시보드에서 제외할 담당자 (임시) ---
 DASHBOARD_EXCLUDE = ["임진현", "박영진", "김영진"]
@@ -72,14 +111,18 @@ if APPLY_THEME:
             line-height: 1.3;
         }
         .hub-header .hub-sub {
-            font-size: 13px;
-            opacity: 0.82;
-            margin-top: 4px;
+            margin-top: 10px;
         }
+        .hub-pill {
+            display: inline-block; padding: 3px 13px; border-radius: 999px;
+            background: rgba(255,255,255,0.16); border: 1px solid rgba(255,255,255,0.40);
+            color: #ffffff; font-size: 12px; font-weight: 700; letter-spacing: 0.2px;
+        }
+        .hub-header .hub-title svg { margin-right: 10px; vertical-align: -6px; }
         @media (max-width: 640px) {
             .hub-header { padding: 14px 16px; border-radius: 12px; }
             .hub-header .hub-title { font-size: 18px; }
-            .hub-header .hub-sub { font-size: 11.5px; }
+            .hub-header .hub-sub { margin-top: 8px; }
         }
 
         /* 허브 <-> 관리툴 전환 버튼 (헤더 오른쪽 위) */
@@ -148,18 +191,25 @@ if APPLY_THEME:
             .lg-title { font-size: 23px; }
         }
 
+        .st-key-pick_wrap { max-width: 660px; margin: 0 auto; }
         .st-key-pick_hub, .st-key-pick_sd {
-            background: #ffffff; border: 1px solid #d5dcea; border-radius: 20px; padding: 22px 24px 16px !important;
+            background: #ffffff; border: 1px solid #d5dcea; border-radius: 20px; padding: 20px 24px !important;
             box-shadow: 0 6px 20px rgba(31,58,115,0.10); transition: transform .2s ease, box-shadow .2s ease;
             animation: wsRise .6s ease both;
         }
-        .st-key-pick_hub { border-top: 6px solid #2c4a8a; }
-        .st-key-pick_sd { border-top: 6px solid #0b9a6a; }
-        .st-key-pick_hub:hover, .st-key-pick_sd:hover { transform: translateY(-5px); box-shadow: 0 16px 34px rgba(31,58,115,0.20); }
-        .pk-ic { font-size: 42px; line-height: 1; }
-        .pk-name { font-size: 22px; font-weight: 800; color: #1f3a73; margin-top: 10px; }
-        .pk-desc { font-size: 13.5px; color: #6b7a99; margin-top: 8px; line-height: 1.55; }
-        .pk-chips { margin: 10px 0 4px; display: flex; flex-wrap: wrap; gap: 6px; }
+        .st-key-pick_hub { border-left: 7px solid #2c4a8a; }
+        .st-key-pick_sd { border-left: 7px solid #0b9a6a; }
+        .st-key-pick_hub:hover, .st-key-pick_sd:hover { transform: translateY(-4px); box-shadow: 0 16px 34px rgba(31,58,115,0.20); }
+        .st-key-pick_hub [data-testid="stHorizontalBlock"], .st-key-pick_sd [data-testid="stHorizontalBlock"] { align-items: center; }
+        .pk-icbox { width: 62px; height: 62px; border-radius: 18px; display: flex; align-items: center; justify-content: center; }
+        .pk-icbox.hub { background: linear-gradient(145deg, #1f3a73, #3d64b0); }
+        .pk-icbox.sd { background: linear-gradient(145deg, #087a54, #19b47f); }
+        .pk-hello { text-align: center; font-size: 22px; font-weight: 700; color: #3a4a6b; margin: 14px 0 6px; }
+        .pk-hello b { color: #1f3a73; font-size: 24px; font-weight: 800; }
+        .pk-hint { text-align: center; font-size: 12.5px; color: #8591ab; margin-top: 8px; }
+        .pk-name { font-size: 21px; font-weight: 800; color: #1f3a73; }
+        .pk-desc { font-size: 13.5px; color: #6b7a99; margin-top: 5px; line-height: 1.5; }
+        .pk-chips { margin: 10px 0 2px; display: flex; flex-wrap: wrap; gap: 6px; }
         .pk-chips span { font-size: 12px; font-weight: 700; color: #2c4a8a; background: #eaf0fb; border-radius: 999px; padding: 4px 11px; }
 
         /* 탭: 선택색을 네이비로 */
@@ -856,13 +906,13 @@ if not st.session_state["logged_in"]:
             with _c_left:
                 with st.container(key="login_left"):
                     st.markdown(
-                        '<div class="lg-icon">🧭</div>'
+                        f'<div class="lg-icon">{_ic("compass", 60)}</div>'
                         '<div class="lg-title">특수개발 워크스페이스</div>'
                         '<div class="lg-sub">휴게소 데이터 허브 · SD 데이터 허브</div>'
-                        '<div class="lg-badge">⚙️ Powered by 특수개발팀</div>'
-                        '<div class="lg-mini"><div class="lg-mini-ic">🛣️</div>'
+                        '<div class="lg-badge">Powered by 특수개발팀</div>'
+                        f'<div class="lg-mini"><div class="lg-mini-ic">{_ic("road", 30)}</div>'
                         '<div><b>휴게소 데이터 허브</b><span>지도 · 입찰 · 방문이력</span></div></div>'
-                        '<div class="lg-mini"><div class="lg-mini-ic">📊</div>'
+                        f'<div class="lg-mini"><div class="lg-mini-ic">{_ic("chart", 30)}</div>'
                         '<div><b>SD 데이터 허브</b><span>실적 · 점포 · 주간보고</span></div></div>',
                         unsafe_allow_html=True,
                     )
@@ -926,49 +976,54 @@ def _go_mode(mode):
 
 # --- 허브 선택 화면 ---
 if app_mode == "select":
-    _pk_l, _pk_c, _pk_r = st.columns([1, 6, 1])
-    with _pk_c:
+    with st.container(key="pick_wrap"):
         st.markdown(
-            '<div class="hub-header" style="text-align:center;padding:22px 24px 20px;margin-bottom:6px;">'
-            '<div class="hub-title">🧭 특수개발 워크스페이스</div>'
-            '<div class="lg-badge" style="margin-top:10px;">⚙️ Powered by 특수개발팀</div>'
+            '<div class="hub-header" style="text-align:center;padding:24px 24px 22px;margin-bottom:4px;">'
+            f'<div class="hub-title">{_ic("compass", 34)}특수개발 워크스페이스</div>'
+            '<div class="hub-sub"><span class="hub-pill">Powered by 특수개발팀</span></div>'
             '</div>'
-            '<div style="text-align:center;font-size:16px;font-weight:700;color:#1f3a73;margin:10px 0 4px;">'
-            f'{st.session_state.get("user_name", "")}님, 어디로 이동할까요?</div>',
+            f'<div class="pk-hello"><b>{st.session_state.get("user_name", "")}</b>님, 어디로 이동할까요?</div>',
             unsafe_allow_html=True,
         )
-        _pk1, _pk2 = st.columns(2)
-        with _pk1:
-            with st.container(key="pick_hub"):
+        with st.container(key="pick_hub"):
+            _a1, _a2, _a3 = st.columns([1, 6, 3])
+            with _a1:
+                st.markdown(f'<div class="pk-icbox hub">{_ic("road", 36)}</div>', unsafe_allow_html=True)
+            with _a2:
                 st.markdown(
-                    '<div class="pk-ic">🛣️</div>'
                     '<div class="pk-name">휴게소 데이터 허브</div>'
                     '<div class="pk-desc">전국 휴게소를 지도에서 찾고, 입찰 현황과 방문 이력, 주간 활동 보고를 관리합니다.</div>'
                     '<div class="pk-chips"><span>스마트 노선 맵</span><span>입찰 현황</span><span>방문 이력</span></div>',
                     unsafe_allow_html=True,
                 )
-                st.button("휴게소 데이터 허브 들어가기 ▶", key="pick_hub_btn", on_click=_go_mode, args=("hub",),
+            with _a3:
+                st.button("들어가기 ▶", key="pick_hub_btn", on_click=_go_mode, args=("hub",),
                           use_container_width=True)
-        with _pk2:
-            with st.container(key="pick_sd"):
+        with st.container(key="pick_sd"):
+            _b1, _b2, _b3 = st.columns([1, 6, 3])
+            with _b1:
+                st.markdown(f'<div class="pk-icbox sd">{_ic("chart", 34)}</div>', unsafe_allow_html=True)
+            with _b2:
                 st.markdown(
-                    '<div class="pk-ic">📊</div>'
                     '<div class="pk-name">SD 데이터 허브</div>'
                     '<div class="pk-desc">팀과 담당자별 실적, 오픈점 현황을 한눈에 확인하고 그래프로 흐름을 봅니다.</div>'
                     '<div class="pk-chips"><span>실적 현황</span><span>점포 현황</span><span>주간 보고</span></div>',
                     unsafe_allow_html=True,
                 )
-                st.button("SD 데이터 허브 들어가기 ▶", key="pick_sd_btn", on_click=_go_mode, args=("tool",),
+            with _b3:
+                st.button("들어가기 ▶", key="pick_sd_btn", on_click=_go_mode, args=("tool",),
                           use_container_width=True)
+        st.markdown('<div class="pk-hint">들어간 뒤에도 오른쪽 위 전환 버튼으로 언제든 다른 허브로 이동할 수 있어요.</div>',
+                    unsafe_allow_html=True)
     st.stop()
 
 if app_mode == "tool":
-    _head_title = "📊 SD 데이터 허브"
-    _head_sub = "Powered by 특수개발팀"
+    _head_title = f'{_ic("chart", 30)}SD 데이터 허브'
+    _head_sub = '<span class="hub-pill">Powered by 특수개발팀</span>'
     _switch_label = "🔄 휴게소 데이터 허브"
 else:
-    _head_title = "🛣️ 휴게소 데이터 허브"
-    _head_sub = "Powered by 특수개발팀"
+    _head_title = f'{_ic("road", 30)}휴게소 데이터 허브'
+    _head_sub = '<span class="hub-pill">Powered by 특수개발팀</span>'
     _switch_label = "🔄 SD 데이터 허브"
 
 if APPLY_THEME:
@@ -982,7 +1037,7 @@ if APPLY_THEME:
         )
         st.button(_switch_label, key="mode_btn", on_click=_switch_mode)
 else:
-    st.markdown(f'<div class="app-title">{_head_title} (Powered by 특수개발팀)</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="app-title">{_head_title} (Powered by 특수개발팀)</div>', unsafe_allow_html=True)  # 예전 모양(사용 안 함)
     st.button(_switch_label, key="mode_btn", on_click=_switch_mode)
 
 current_uid = st.session_state.get("user_id", "")
