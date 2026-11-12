@@ -201,7 +201,8 @@ if APPLY_THEME:
         .st-key-pick_sd { border-left: 7px solid #0b9a6a; }
         .st-key-pick_hub:hover, .st-key-pick_sd:hover { transform: translateY(-4px); box-shadow: 0 16px 34px rgba(31,58,115,0.20); }
         .st-key-pick_hub [data-testid="stHorizontalBlock"], .st-key-pick_sd [data-testid="stHorizontalBlock"] { align-items: center; }
-        .pk-icbox { width: 62px; height: 62px; border-radius: 18px; display: flex; align-items: center; justify-content: center; }
+        .pk-icwrap { display: flex; align-items: center; justify-content: center; width: 100%; }
+        .pk-icbox { flex: none; width: 62px; height: 62px; border-radius: 18px; display: flex; align-items: center; justify-content: center; }
         .pk-icbox.hub { background: linear-gradient(145deg, #1f3a73, #3d64b0); }
         .pk-icbox.sd { background: linear-gradient(145deg, #087a54, #19b47f); }
         .pk-hello { text-align: center; font-size: 22px; font-weight: 700; color: #3a4a6b; margin: 14px 0 6px; }
@@ -988,9 +989,10 @@ if app_mode == "select":
             unsafe_allow_html=True,
         )
         with st.container(key="pick_hub"):
-            _a1, _a2, _a3 = st.columns([1, 6, 3])
+            _a1, _a2, _a3 = st.columns([1.4, 6, 3])
             with _a1:
-                st.markdown(f'<div class="pk-icbox hub">{_ic("road", 36)}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="pk-icwrap"><div class="pk-icbox hub">{_ic("road", 36)}</div></div>',
+                            unsafe_allow_html=True)
             with _a2:
                 st.markdown(
                     '<div class="pk-name">휴게소 데이터 허브</div>'
@@ -1002,9 +1004,10 @@ if app_mode == "select":
                 st.button("들어가기 ▶", key="pick_hub_btn", on_click=_go_mode, args=("hub",),
                           use_container_width=True)
         with st.container(key="pick_sd"):
-            _b1, _b2, _b3 = st.columns([1, 6, 3])
+            _b1, _b2, _b3 = st.columns([1.4, 6, 3])
             with _b1:
-                st.markdown(f'<div class="pk-icbox sd">{_ic("chart", 34)}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="pk-icwrap"><div class="pk-icbox sd">{_ic("chart", 34)}</div></div>',
+                            unsafe_allow_html=True)
             with _b2:
                 st.markdown(
                     '<div class="pk-name">SD 데이터 허브</div>'
@@ -1022,11 +1025,18 @@ if app_mode == "select":
 if app_mode == "tool":
     _head_title = f'{_ic("chart", 30)}SD 데이터 허브'
     _head_sub = '<span class="hub-pill">Powered by 특수개발팀</span>'
-    _switch_label = "🔄 휴게소 데이터 허브"
+    _switch_label = "휴게소 데이터 허브"
 else:
     _head_title = f'{_ic("road", 30)}휴게소 데이터 허브'
     _head_sub = '<span class="hub-pill">Powered by 특수개발팀</span>'
-    _switch_label = "🔄 SD 데이터 허브"
+    _switch_label = "SD 데이터 허브"
+
+def _switch_button():
+    """전환 버튼: 벡터(머티리얼) 아이콘 사용. 스트림릿이 icon 을 지원하지 않으면 글자만 표시"""
+    try:
+        st.button(_switch_label, key="mode_btn", on_click=_switch_mode, icon=":material/swap_horiz:")
+    except TypeError:
+        st.button(_switch_label, key="mode_btn", on_click=_switch_mode)
 
 if APPLY_THEME:
     with st.container(key="hub_head"):
@@ -1037,10 +1047,10 @@ if APPLY_THEME:
             '</div>',
             unsafe_allow_html=True,
         )
-        st.button(_switch_label, key="mode_btn", on_click=_switch_mode)
+        _switch_button()
 else:
     st.markdown(f'<div class="app-title">{_head_title} (Powered by 특수개발팀)</div>', unsafe_allow_html=True)  # 예전 모양(사용 안 함)
-    st.button(_switch_label, key="mode_btn", on_click=_switch_mode)
+    _switch_button()
 
 current_uid = st.session_state.get("user_id", "")
 current_name = st.session_state.get("user_name", "")
