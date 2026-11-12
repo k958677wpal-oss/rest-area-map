@@ -847,18 +847,20 @@ def _switch_mode():
     st.session_state["app_mode"] = "tool" if st.session_state.get("app_mode", "hub") == "hub" else "hub"
 
 if app_mode == "tool":
-    _head_title = "📊 팀 관리툴"
-    _switch_label = "🛣️ 휴게소 허브로"
+    _head_title = "📊 SD 허브"
+    _head_sub = "Powered by 특수개발팀 · 실적 · 점포 · 주간보고"
+    _switch_label = "🔄 휴게소 허브"
 else:
     _head_title = "🛣️ 휴게소 데이터 허브"
-    _switch_label = "📊 팀 관리툴로"
+    _head_sub = "Powered by 특수개발팀 · GS25 점포개발"
+    _switch_label = "🔄 SD 허브"
 
 if APPLY_THEME:
     with st.container(key="hub_head"):
         st.markdown(
             '<div class="hub-header">'
             f'<div class="hub-title">{_head_title}</div>'
-            '<div class="hub-sub">Powered by 특수개발팀 · GS25 점포개발</div>'
+            f'<div class="hub-sub">{_head_sub}</div>'
             '</div>',
             unsafe_allow_html=True,
         )
