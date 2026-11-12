@@ -320,7 +320,7 @@ TOOL_CSS = """
 .pb-chip b { color: #0b9a6a; margin-right: 6px; }
 /* 조회 기간 흰 영역: 높이를 84px 로 고정하고, 그 안에서 한 줄(40px)을 세로 가운데에 놓음 (padding 에 의존하지 않음) */
 .st-key-periodbody { display: flex !important; flex-direction: column !important; justify-content: center !important;
-    height: 84px !important; min-height: 84px !important; padding: 0 20px 0 59px !important; box-sizing: border-box !important; }
+    height: 84px !important; min-height: 84px !important; padding: 16px 20px 0 59px !important; box-sizing: border-box !important; }
 .st-key-periodbody [data-testid="stHorizontalBlock"] { align-items: flex-start !important; gap: 0.8rem;
     height: 40px !important; min-height: 40px !important; }
 .st-key-periodbody [data-testid="stRadio"], .st-key-periodbody [data-testid="stSelectbox"], .st-key-periodbody [data-testid="stButton"] {
