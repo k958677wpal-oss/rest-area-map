@@ -193,7 +193,7 @@ if APPLY_THEME:
 
         .st-key-pick_wrap { max-width: 660px; margin: 0 auto; }
         .st-key-pick_hub, .st-key-pick_sd {
-            background: #ffffff; border: 1px solid #d5dcea; border-radius: 20px; padding: 20px 24px !important;
+            background: #ffffff; border: 1px solid #d5dcea; border-radius: 20px; padding: 22px 24px 30px 24px !important;
             box-shadow: 0 6px 20px rgba(31,58,115,0.10); transition: transform .2s ease, box-shadow .2s ease;
             animation: wsRise .6s ease both;
         }
@@ -212,7 +212,7 @@ if APPLY_THEME:
         .pk-desc { font-size: 13.5px; color: #6b7a99; margin-top: 5px; line-height: 1.5; word-break: keep-all; overflow-wrap: break-word; }
         .pk-desc i { font-style: normal; white-space: nowrap; }
         .st-key-pick_hub [data-testid="stHorizontalBlock"], .st-key-pick_sd [data-testid="stHorizontalBlock"] { gap: 1.3rem; }
-        .pk-chips { margin: 10px 0 2px; display: flex; flex-wrap: wrap; gap: 6px; }
+        .pk-chips { margin: 10px 0 0; display: flex; flex-wrap: wrap; gap: 6px; }
         .pk-chips span { font-size: 12px; font-weight: 700; color: #2c4a8a; background: #eaf0fb; border-radius: 999px; padding: 4px 11px; }
 
         /* 탭: 선택색을 네이비로 */
@@ -927,8 +927,8 @@ if not st.session_state["logged_in"]:
                         unsafe_allow_html=True,
                     )
                     with st.form("login_form"):
-                        user_id = st.text_input("👤 사번 (ID)")
-                        user_pw = st.text_input("🔒 생년월일 6자리 (PW)", type="password", max_chars=6)
+                        user_id = st.text_input(":material/person: 사번 (ID)")
+                        user_pw = st.text_input(":material/lock: 생년월일 6자리 (PW)", type="password", max_chars=6)
                         submitted = st.form_submit_button("로그인", use_container_width=True)
                     msg_box = st.empty()
     if submitted:
