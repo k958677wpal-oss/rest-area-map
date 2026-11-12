@@ -320,25 +320,26 @@ TOOL_CSS = """
 .pb-chip b { color: #0b9a6a; margin-right: 6px; }
 .st-key-periodbody { padding: 18px 20px 18px !important; }
 .st-key-periodbody [data-testid="stHorizontalBlock"] { align-items: center !important; gap: 0.8rem; }
-.pb-lab { font-size: 14px; font-weight: 700; color: #55648a; text-align: right; white-space: nowrap; line-height: 42px; }
-/* 알약 선택 버튼: 탭 메뉴와 같은 스타일 (조회 기간 / 담당자 필터 공통) */
-.st-key-periodbody [data-testid="stButtonGroup"], .st-key-mgr_filter [data-testid="stButtonGroup"] {
-    background: #eef2fa; padding: 5px; border-radius: 14px; gap: 6px; width: fit-content; }
-.st-key-periodbody [data-testid="stButtonGroup"] button, .st-key-mgr_filter [data-testid="stButtonGroup"] button {
-    border: none !important; border-radius: 10px !important; background: transparent !important; height: 38px !important;
-    min-height: 38px !important; padding: 0 20px !important; }
-.st-key-periodbody [data-testid="stButtonGroup"] button p, .st-key-mgr_filter [data-testid="stButtonGroup"] button p {
-    font-size: 15px !important; font-weight: 700 !important; color: #55648a; }
-.st-key-periodbody [data-testid="stButtonGroup"] button:hover, .st-key-mgr_filter [data-testid="stButtonGroup"] button:hover { background: #dfe7f6 !important; }
-.st-key-periodbody button[data-testid="stBaseButton-segmented_controlActive"], .st-key-mgr_filter button[data-testid="stBaseButton-segmented_controlActive"],
-.st-key-periodbody button[kind="segmented_controlActive"], .st-key-mgr_filter button[kind="segmented_controlActive"] {
+.pb-lab { font-size: 14px; font-weight: 700; color: #55648a; text-align: right; white-space: nowrap; line-height: 48px; height: 48px; margin: 0; }
+.st-key-periodbody [data-testid="stElementContainer"], .st-key-periodbody [data-testid="element-container"] { margin: 0 !important; }
+/* 알약 선택(라디오를 알약처럼 꾸밈): 조회 기간 / 담당자 필터 공통. 선택된 항목 = 네이비 바탕 + 흰 글씨 */
+.st-key-periodbody [role="radiogroup"], .st-key-mgr_filter [role="radiogroup"] {
+    display: flex !important; flex-direction: row !important; flex-wrap: nowrap; gap: 6px !important;
+    background: #eef2fa; padding: 5px; border-radius: 14px; width: fit-content; }
+.st-key-periodbody label[data-baseweb="radio"], .st-key-mgr_filter label[data-baseweb="radio"] {
+    margin: 0 !important; padding: 0 22px !important; height: 38px; border-radius: 10px; cursor: pointer;
+    display: flex !important; align-items: center; justify-content: center; background: transparent; }
+.st-key-periodbody label[data-baseweb="radio"] > div:first-child, .st-key-mgr_filter label[data-baseweb="radio"] > div:first-child { display: none !important; }
+.st-key-periodbody label[data-baseweb="radio"] p, .st-key-mgr_filter label[data-baseweb="radio"] p {
+    font-size: 15px !important; font-weight: 700 !important; color: #55648a; margin: 0; white-space: nowrap; }
+.st-key-periodbody label[data-baseweb="radio"]:hover, .st-key-mgr_filter label[data-baseweb="radio"]:hover { background: #dfe7f6; }
+.st-key-periodbody label[data-baseweb="radio"]:has(input:checked), .st-key-mgr_filter label[data-baseweb="radio"]:has(input:checked) {
     background: #2c4a8a !important; box-shadow: 0 3px 8px rgba(31,58,115,.28); }
-.st-key-periodbody button[data-testid="stBaseButton-segmented_controlActive"] p, .st-key-mgr_filter button[data-testid="stBaseButton-segmented_controlActive"] p,
-.st-key-periodbody button[kind="segmented_controlActive"] p, .st-key-mgr_filter button[kind="segmented_controlActive"] p { color: #ffffff !important; }
-.st-key-periodbody [data-testid="stButtonGroup"] button, .st-key-periodbody [data-baseweb="button-group"] button,
-.st-key-periodbody [data-testid="stSegmentedControl"] button { min-height: 42px !important; height: 42px !important; padding: 0 24px !important; font-weight: 700 !important; }
-.st-key-periodbody [data-baseweb="select"] > div { min-height: 42px !important; height: 42px !important; }
-.st-key-periodbody button[kind], .st-key-periodbody div.stButton > button { min-height: 42px !important; }
+.st-key-periodbody label[data-baseweb="radio"]:has(input:checked) p, .st-key-mgr_filter label[data-baseweb="radio"]:has(input:checked) p { color: #ffffff !important; }
+/* 조회 기간 줄의 높이를 모두 48px 로 통일 */
+.st-key-periodbody [data-baseweb="select"] > div { min-height: 48px !important; height: 48px !important; }
+.st-key-periodbody div.stButton > button { min-height: 48px !important; height: 48px; padding: 0 20px; }
+.st-key-tool_refresh { display: flex; justify-content: flex-end; }
 /* 탭 메뉴: 눈에 띄는 알약 형태 (클래스 이름에 의존하지 않도록 속성으로 지정) */
 [data-baseweb="tab-list"], [role="tablist"], [data-testid="stTabs"] > div:first-child { gap: 8px !important; background: #eef2fa !important; padding: 6px !important; border-radius: 14px !important; }
 button[data-baseweb="tab"], button[role="tab"], [data-testid="stTab"] { height: 48px !important; padding: 0 26px !important; border-radius: 10px !important; background: transparent !important; }
@@ -348,15 +349,20 @@ button[role="tab"][aria-selected="true"], [data-testid="stTab"][aria-selected="t
 button[role="tab"][aria-selected="true"] p, button[role="tab"][aria-selected="true"] div,
 button[role="tab"][aria-selected="true"] span, [data-testid="stTab"][aria-selected="true"] p { color: #ffffff !important; }
 [data-baseweb="tab-highlight"], [data-baseweb="tab-border"] { display: none !important; }
-.st-key-mgr_filter [data-testid="stHorizontalBlock"] { align-items: center !important; gap: 1rem; }
-.st-key-mgr_filter .sec-h { margin: 22px 0 16px; white-space: nowrap; }
+.st-key-mgr_filter { margin-top: 18px; }
+.st-key-mgr_filter [data-testid="stHorizontalBlock"], div[class*="st-key-mgrbox_"] [data-testid="stHorizontalBlock"] {
+    align-items: center !important; justify-content: flex-start !important; gap: 16px !important; }
+.st-key-mgr_filter [data-testid="stColumn"], .st-key-mgr_filter [data-testid="column"],
+div[class*="st-key-mgrbox_"] [data-testid="stColumn"], div[class*="st-key-mgrbox_"] [data-testid="column"] {
+    flex: 0 0 auto !important; width: auto !important; min-width: 0 !important; }
+.st-key-mgr_filter .sec-h { margin: 0; white-space: nowrap; }
 .st-key-mgr_filter [data-testid="stVerticalBlock"] { gap: 0 !important; }
 .mgr-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; padding-top: 4px; }
 .mgr-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .mgr-chip { font-size: 13px; font-weight: 600; color: #2c4a8a; background: #eaf0fb; border-radius: 999px; padding: 4px 12px; }
-div[class*="st-key-mgrbtn_"] { display: flex; justify-content: flex-end; width: 100% !important; }
-div[class*="st-key-mgrbtn_"] button { min-width: 140px; height: 40px; border: none !important; border-radius: 10px !important;
-    background: #eef2fa !important; }
+div[class*="st-key-mgrbtn_"] { display: flex; }
+div[class*="st-key-mgrbtn_"] button { min-width: 130px; height: 38px; min-height: 38px; border: none !important; border-radius: 10px !important;
+    background: #eef2fa !important; padding: 0 20px; }
 div[class*="st-key-mgrbtn_"] button p { font-weight: 700 !important; color: #2c4a8a; }
 div[class*="st-key-mgrbtn_"] button:hover { background: #2c4a8a !important; }
 div[class*="st-key-mgrbtn_"] button:hover p { color: #ffffff !important; }
@@ -668,7 +674,7 @@ def icon_button(label, icon, **kw):
 
 
 def refresh_button(key):
-    if icon_button("새로고침", ":material/refresh:", key=key, use_container_width=True):
+    if icon_button("새로고침", ":material/refresh:", key=key):
         load_perf.clear()
         st.rerun()
 
@@ -684,15 +690,8 @@ def pick_period(months):
             with l1:
                 lab("보기 방식")
             with c1:
-                if hasattr(st, "segmented_control"):      # 알약 모양 선택 버튼 (최신 스트림릿)
-                    if "tool_pmode" not in st.session_state:
-                        st.session_state["tool_pmode"] = "월별"
-                    mode = st.segmented_control("보기 방식", ["월별", "누계"], key="tool_pmode",
-                                                selection_mode="single", label_visibility="collapsed")
-                    mode = mode or "월별"
-                else:
-                    mode = st.radio("보기 방식", ["월별", "누계"], horizontal=True, key="tool_pmode",
-                                    label_visibility="collapsed")
+                mode = st.radio("보기 방식", ["월별", "누계"], horizontal=True, key="tool_pmode",
+                                label_visibility="collapsed")
             with c5:
                 refresh_button("tool_refresh")
             if mode == "월별":
@@ -1120,23 +1119,19 @@ def view_performance(D, yms, mode, period_text):
         st.session_state["tool_store_a"] = None
 
     with st.container(key="mgr_filter"):
-        h1, h2 = st.columns([1.6, 7])
+        h1, h2 = st.columns([1, 1])
         with h1:
             st.markdown(sec_heading("badge", "담당자별"), unsafe_allow_html=True)
         with h2:
-            if hasattr(st, "segmented_control"):
-                pick = st.segmented_control("담당자", options, key="tool_mgr_pick", selection_mode="single",
-                                            label_visibility="collapsed", on_change=_reset_detail)
-            else:
-                pick = st.radio("담당자", options, horizontal=True, key="tool_mgr_pick",
-                                label_visibility="collapsed", on_change=_reset_detail)
+            pick = st.radio("담당자", options, horizontal=True, key="tool_mgr_pick",
+                            label_visibility="collapsed", on_change=_reset_detail)
     pick = pick or "전체"
 
     def _mgr_box(mgr, mi, show_btn):
         names = [m["name"] for m in D["masters"] if m["manager"] == mgr]
         chips = "".join(f'<span class="mgr-chip">{escape(n)}</span>' for n in names)
         with st.container(key=f"mgrbox_{mi}"):
-            c1, c2 = st.columns([7, 1.4])
+            c1, c2 = st.columns([1, 1])
             with c1:
                 st.markdown(f'<div class="mgr-row"><div class="mgr-name">{escape(mgr)}</div>'
                             f'<div class="mgr-chips">{chips}</div></div>', unsafe_allow_html=True)
