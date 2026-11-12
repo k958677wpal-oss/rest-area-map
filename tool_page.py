@@ -320,7 +320,18 @@ TOOL_CSS = """
 .pb-chip b { color: #0b9a6a; margin-right: 6px; }
 .st-key-periodbody { padding: 14px 20px 16px !important; }
 .st-key-periodbody [data-testid="stHorizontalBlock"] { align-items: flex-end; }
-.st-key-periodbody label p { font-size: 12.5px !important; font-weight: 700 !important; color: #6b7a99 !important; }
+.pb-lab { font-size: 12.5px; font-weight: 700; color: #6b7a99; margin: 0 0 5px 2px; min-height: 18px; }
+.st-key-periodbody [data-baseweb="button-group"] button { min-height: 40px; padding: 0 22px; font-weight: 700; }
+.st-key-periodbody [data-baseweb="select"] > div { min-height: 40px; }
+.st-key-periodbody div.stButton > button { min-height: 40px; }
+/* 탭 메뉴: 눈에 띄는 알약 형태 */
+.stTabs [data-baseweb="tab-list"] { gap: 8px; background: #eef2fa; padding: 6px; border-radius: 14px; border-bottom: none; }
+.stTabs button[data-baseweb="tab"] { height: 46px; padding: 0 24px; border-radius: 10px; background: transparent; }
+.stTabs button[data-baseweb="tab"] p { font-size: 16px !important; font-weight: 700 !important; color: #55648a; }
+.stTabs button[data-baseweb="tab"]:hover { background: #dfe7f6; }
+.stTabs button[data-baseweb="tab"][aria-selected="true"] { background: #2c4a8a !important; box-shadow: 0 3px 8px rgba(31,58,115,.28); }
+.stTabs button[data-baseweb="tab"][aria-selected="true"] p, .stTabs button[data-baseweb="tab"][aria-selected="true"] span { color: #ffffff !important; }
+.stTabs div[data-baseweb="tab-highlight"], .stTabs div[data-baseweb="tab-border"] { display: none !important; }
 .mgr-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; padding-top: 4px; }
 .mgr-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .mgr-chip { font-size: 13px; font-weight: 600; color: #2c4a8a; background: #eaf0fb; border-radius: 999px; padding: 4px 12px; }
@@ -480,6 +491,8 @@ def sec_heading(kind, text):
 def kpi_html(items):
     """items: dict(label, value, unit, sub, neg, accent, icon, gauge)"""
     out = ['<div class="kpi-grid">']
+    # 한 줄 안에 아래쪽 줄(게이지/전월대비/목표)이 있는 카드가 하나라도 있으면 모든 카드를 위쪽 정렬(글자 높이 통일)
+    any_bot = any(it.get("gauge") is not None or it.get("delta") for it in items)
     for it in items:
         cls = " neg" if it.get("neg") else ""
         unit = it.get("unit", "")
@@ -496,7 +509,7 @@ def kpi_html(items):
                      '<div class="lb"><span style="left:66.67%">80%</span><span style="left:83.33%">100%</span></div></div>')
         delta = it.get("delta") or ""
         bot = f'<div class="kpi-bot">{gauge}{delta}</div>' if (gauge or delta) else ""
-        nb = "" if bot else " nobot"
+        nb = "" if (bot or any_bot) else " nobot"
         out.append(
             f'<div class="kpi{nb}" style="--ac:{ac}"><div class="kpi-l">{ic}{it["label"]}</div>'
             f'<div class="kpi-v{cls}">{it["value"]}{u}</div>{sub}{bot}</div>'
@@ -590,24 +603,34 @@ def group_cards(G, mode, P=None, D=None, who="팀"):
     dl = (lambda cur, prev, kind: delta_html(cur, prev, kind)) if use_d else (lambda *a: "")
     black_cur = G["black"] if G["op_n"] > 0 else None
     black_prev = P["black"] if (p_ok and P["op_n"] > 0) else None
+
+    def gl(metric, cur, unit):
+        """'목' 탭에 해당 지표 목표가 있으면 목표 줄, 없으면 빈 문자열 (연간 우선, 없으면 월)"""
+        if not D or cur is None:
+            return ""
+        g = find_goal(D, who, metric, "연간")
+        if g is None:
+            g = find_goal(D, who, metric, "월")
+        return goal_html(cur, g, unit, "목표") if g is not None else ""
+
     items = [
         dict(label="출점수", value=fnum(G["opened"]), unit="점", sub=open_sub, accent=COLOR_NAVY, icon="store",
              delta=open_bot),
         dict(label="매익율", value=fnum(G["margin"], 1), unit="%", accent=COLOR_PURPLE, icon="pct",
              delta=dl(G["margin"], pv("margin"), "pp")),
         dict(label="일매출", value=fnum(G["daily"]), unit="천원", accent=COLOR_BLUE, icon="coin",
-             delta=dl(G["daily"], pv("daily"), "amt")),
+             delta=gl("일매출", G["daily"], "천원") + dl(G["daily"], pv("daily"), "amt")),
         dict(label="예상매출 달성률", value=fnum(G["rate"], 1), unit="%",
              sub=f"{G['rate_n']}점 중 {G['achieved']}점 달성 · 구성비 {pct_text(G['achieved'], G['rate_n'])}",
              neg=(G["rate"] is not None and G["rate"] < 100),
              accent=rate_color(G["rate"]), icon="target", gauge=G["rate"],
-             delta=dl(G["rate"], pv("rate"), "pp")),
+             delta=gl("달성점", G["achieved"], "점") + dl(G["rate"], pv("rate"), "pp")),
         dict(label="영업이익 누계" if cumulative else "영업이익", value=fnum(G["op_sum"]), unit="천원",
              sub=op_sub, neg=(G["op_sum"] is not None and G["op_sum"] < 0),
              accent=_op_accent(G["op_sum"]), icon="bars",
              delta=dl(G["op_sum"], pv("op_sum"), "amt")),
         dict(label="흑자점", value=fnum(G["black"]), unit="점", sub=black_sub, accent=COLOR_GOOD, icon="check",
-             delta=dl(black_cur, black_prev, "pt")),
+             delta=gl("흑자점", black_cur, "점") + dl(black_cur, black_prev, "pt")),
     ]
     return kpi_html(items)
 
@@ -633,30 +656,38 @@ def pick_period(months):
         head = st.empty()
         with st.container(key="periodbody"):
             c1, c2, c3, _sp, c5 = st.columns([1.5, 1.7, 1.7, 1.2, 1.3])
+            lab = lambda t: st.markdown(f'<div class="pb-lab">{t}</div>', unsafe_allow_html=True)   # 글자 줄 높이를 모두 같게
             with c1:
-                mode = None
+                lab("보기 방식")
                 if hasattr(st, "segmented_control"):      # 알약 모양 선택 버튼 (최신 스트림릿)
                     if "tool_pmode" not in st.session_state:
                         st.session_state["tool_pmode"] = "월별"
                     mode = st.segmented_control("보기 방식", ["월별", "누계"], key="tool_pmode",
-                                                selection_mode="single")
+                                                selection_mode="single", label_visibility="collapsed")
                     mode = mode or "월별"
                 else:
-                    mode = st.radio("보기 방식", ["월별", "누계"], horizontal=True, key="tool_pmode")
+                    mode = st.radio("보기 방식", ["월별", "누계"], horizontal=True, key="tool_pmode",
+                                    label_visibility="collapsed")
             with c5:
+                lab("&nbsp;")
                 refresh_button("tool_refresh")
             if mode == "월별":
                 with c2:
-                    m = st.selectbox("기준 월", months[::-1], format_func=ym_label, key="tool_pm")
+                    lab("기준 월")
+                    m = st.selectbox("기준 월", months[::-1], format_func=ym_label, key="tool_pm",
+                                     label_visibility="collapsed")
                 yms, text = [m], ym_label(m)
             else:
                 last_year = months[-1][:4]
                 first_of_year = [x for x in months if x[:4] == last_year][0]
                 with c2:
+                    lab("시작월")
                     s = st.selectbox("시작월", months, index=months.index(first_of_year),
-                                     format_func=ym_label, key="tool_ps")
+                                     format_func=ym_label, key="tool_ps", label_visibility="collapsed")
                 with c3:
-                    e = st.selectbox("종료월", months, index=len(months) - 1, format_func=ym_label, key="tool_pe")
+                    lab("종료월")
+                    e = st.selectbox("종료월", months, index=len(months) - 1, format_func=ym_label,
+                                     key="tool_pe", label_visibility="collapsed")
                 if s > e:
                     s, e = e, s
                 yms = [x for x in months if s <= x <= e]
