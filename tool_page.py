@@ -319,19 +319,22 @@ TOOL_CSS = """
     border-radius: 999px; padding: 4px 14px; }
 .pb-chip b { color: #0b9a6a; margin-right: 6px; }
 .st-key-periodbody { padding: 14px 20px 16px !important; }
-.st-key-periodbody [data-testid="stHorizontalBlock"] { align-items: flex-end; }
+.st-key-periodbody [data-testid="stHorizontalBlock"] { align-items: flex-start !important; }
+.st-key-periodbody [data-testid="stVerticalBlock"] { gap: 0 !important; }
 .pb-lab { font-size: 12.5px; font-weight: 700; color: #6b7a99; margin: 0 0 5px 2px; min-height: 18px; }
-.st-key-periodbody [data-baseweb="button-group"] button { min-height: 40px; padding: 0 22px; font-weight: 700; }
-.st-key-periodbody [data-baseweb="select"] > div { min-height: 40px; }
-.st-key-periodbody div.stButton > button { min-height: 40px; }
-/* 탭 메뉴: 눈에 띄는 알약 형태 */
-.stTabs [data-baseweb="tab-list"] { gap: 8px; background: #eef2fa; padding: 6px; border-radius: 14px; border-bottom: none; }
-.stTabs button[data-baseweb="tab"] { height: 46px; padding: 0 24px; border-radius: 10px; background: transparent; }
-.stTabs button[data-baseweb="tab"] p { font-size: 16px !important; font-weight: 700 !important; color: #55648a; }
-.stTabs button[data-baseweb="tab"]:hover { background: #dfe7f6; }
-.stTabs button[data-baseweb="tab"][aria-selected="true"] { background: #2c4a8a !important; box-shadow: 0 3px 8px rgba(31,58,115,.28); }
-.stTabs button[data-baseweb="tab"][aria-selected="true"] p, .stTabs button[data-baseweb="tab"][aria-selected="true"] span { color: #ffffff !important; }
-.stTabs div[data-baseweb="tab-highlight"], .stTabs div[data-baseweb="tab-border"] { display: none !important; }
+.st-key-periodbody [data-testid="stButtonGroup"] button, .st-key-periodbody [data-baseweb="button-group"] button,
+.st-key-periodbody [data-testid="stSegmentedControl"] button { min-height: 42px !important; height: 42px !important; padding: 0 24px !important; font-weight: 700 !important; }
+.st-key-periodbody [data-baseweb="select"] > div { min-height: 42px !important; height: 42px !important; }
+.st-key-periodbody button[kind], .st-key-periodbody div.stButton > button { min-height: 42px !important; }
+/* 탭 메뉴: 눈에 띄는 알약 형태 (클래스 이름에 의존하지 않도록 속성으로 지정) */
+[data-baseweb="tab-list"] { gap: 8px !important; background: #eef2fa !important; padding: 6px !important; border-radius: 14px !important; }
+button[data-baseweb="tab"] { height: 48px !important; padding: 0 26px !important; border-radius: 10px !important; background: transparent !important; }
+button[data-baseweb="tab"] p, button[data-baseweb="tab"] div { font-size: 17px !important; font-weight: 700 !important; color: #55648a; }
+button[data-baseweb="tab"]:hover { background: #dfe7f6 !important; }
+button[data-baseweb="tab"][aria-selected="true"] { background: #2c4a8a !important; box-shadow: 0 3px 8px rgba(31,58,115,.28); }
+button[data-baseweb="tab"][aria-selected="true"] p, button[data-baseweb="tab"][aria-selected="true"] div,
+button[data-baseweb="tab"][aria-selected="true"] span { color: #ffffff !important; }
+[data-baseweb="tab-highlight"], [data-baseweb="tab-border"] { display: none !important; }
 .mgr-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; padding-top: 4px; }
 .mgr-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .mgr-chip { font-size: 13px; font-weight: 600; color: #2c4a8a; background: #eaf0fb; border-radius: 999px; padding: 4px 12px; }
