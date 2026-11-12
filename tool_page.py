@@ -3,7 +3,7 @@ SD 허브(팀 관리툴) 화면 - app.py 의 '관리툴' 모드에서 불러 씁
 
 읽는 데이터: 구글 스프레드시트 '특수팀_실적관리' 의 3개 탭
   - 점포마스터 : 점포명 | 담당자 | 운영형태 | 오픈일 | 지역 | 주소 | 입지
-  - 월실적     : 연월 | 점포명 | 총매출액(원) | 영업일수 | 매출이익(원) | 영업이익(천원)
+  - 월실적     : 연월 | 점포명 | 총매출액(천원) | 영업일수 | 매출이익(천원) | 영업이익(천원)
   - 예상목표   : 점포명 | 구분(예상일매출 / 예상월이익) | M | M+1 | ... | M+11   (단위: 천원)
 """
 import re
@@ -223,7 +223,7 @@ def calc_store(D, name, yms):
                 tw += tgt["daily"][k] * r["days"]
                 td += r["days"]
 
-    daily = (sales / days / 1000.0) if days > 0 else None
+    daily = (sales / days) if days > 0 else None      # 시트 금액이 이미 천원 단위
     target = (tw / td) if td > 0 else None
     rate = (daily / target * 100.0) if (daily is not None and target) else None
     margin = (pl / sales * 100.0) if (pl is not None and sales > 0) else None
@@ -247,12 +247,12 @@ def calc_group(D, names, yms):
                 opened_year += 1
             if start and oy >= start:
                 new_in_period += 1
-    if opened == 0:
-        opened = len(data_rows)
+    # 출점수 = 선택한 기간 안에 새로 오픈한 점포 수 (월별: 그 달만 / 누계: 시작월~종료월 합)
+    opened = new_in_period
 
     sales = sum(r["sales"] for r in data_rows)
     days = sum(r["days"] for r in data_rows)
-    daily = (sales / days / 1000.0) if days > 0 else None
+    daily = (sales / days) if days > 0 else None
     tw = sum(r["tw"] for r in data_rows)
     td = sum(r["td"] for r in data_rows)
     target = (tw / td) if td > 0 else None
@@ -363,11 +363,19 @@ button[role="tab"][aria-selected="true"] p, button[role="tab"][aria-selected="tr
 button[role="tab"][aria-selected="true"] span, [data-testid="stTab"][aria-selected="true"] p { color: #ffffff !important; }
 [data-baseweb="tab-highlight"], [data-baseweb="tab-border"] { display: none !important; }
 .st-key-mgr_filter { margin-top: 18px; }
-.st-key-mgr_filter [data-testid="stHorizontalBlock"], div[class*="st-key-mgrbox_"] [data-testid="stHorizontalBlock"] {
+.st-key-mgr_filter [data-testid="stHorizontalBlock"] {
     align-items: flex-start !important; justify-content: flex-start !important; gap: 16px !important; }
-.st-key-mgr_filter [data-testid="stColumn"], .st-key-mgr_filter [data-testid="column"],
-div[class*="st-key-mgrbox_"] [data-testid="stColumn"], div[class*="st-key-mgrbox_"] [data-testid="column"] {
+.st-key-mgr_filter [data-testid="stColumn"], .st-key-mgr_filter [data-testid="column"] {
     flex: 0 0 auto !important; width: auto !important; min-width: 0 !important; }
+/* 점포 카드 줄: 칸 3개를 똑같은 너비로 (위 담당자 필터용 '내용 크기대로' 규칙이 카드 칸에 번지지 않게 함) */
+div[class*="st-key-mgrbox_"] [data-testid="stHorizontalBlock"] { align-items: stretch; gap: 1rem; }
+.sc-top { min-height: 124px; }
+/* 점포 상세의 '← 점포 목록으로' 버튼: 오픈점 보기 버튼과 같은 알약 디자인 */
+div[class*="st-key-backbtn_"] button { height: 40px; min-height: 40px; border: none !important; border-radius: 10px !important;
+    background: #eef2fa !important; padding: 0 20px; }
+div[class*="st-key-backbtn_"] button p { font-weight: 700 !important; font-size: 15px !important; color: #2c4a8a; white-space: nowrap; margin: 0; }
+div[class*="st-key-backbtn_"] button:hover { background: #2c4a8a !important; }
+div[class*="st-key-backbtn_"] button:hover p { color: #ffffff !important; }
 .st-key-mgr_filter .sec-h { margin: 0; white-space: nowrap; height: 48px; }
 /* 담당자별 줄: 제목 / 필터 / 오픈점 보기 모두 48px 높이 상자 안에서 세로 가운데 */
 .st-key-mgr_filter [data-testid="stHorizontalBlock"] { height: 48px !important; align-items: center !important; }
@@ -633,7 +641,7 @@ def group_cards(G, mode, P=None, D=None, who="팀"):
     p_ok = use_d and P["data_n"] > 0
     pv = (lambda k: P[k] if p_ok else None)
     # 1) 출점수 (+ 목표가 있으면 달성 막대)
-    open_sub = "" if cumulative else f"당월 신규 {G['new_in_period']}점"
+    open_sub = ""
     open_bot = ""
     goal_year = find_goal(D, who, "출점수", "연간") if D else None
     goal_mon = find_goal(D, who, "출점수", "월") if (D and not cumulative) else None
@@ -771,7 +779,7 @@ def pick_period(months):
 
 
 # ───────────────────────── 점포 카드 / 상세 ─────────────────────────
-SORT_OPTIONS = ["오픈일 최신순", "달성률 높은순", "일매출 높은순", "영업이익 높은순"]
+SORT_OPTIONS = ["오픈일 빠른순","달성률 높은순", "일매출 높은순", "영업이익 높은순"]
 
 
 def sort_calcs(D, calcs, sort_by):
@@ -788,7 +796,8 @@ def sort_calcs(D, calcs, sort_by):
         return sorted(calcs, key=num_key("daily"))
     if sort_by == "영업이익 높은순":
         return sorted(calcs, key=num_key("op"))
-    return sorted(calcs, key=open_key, reverse=True)
+    # 오픈일 빠른순 (1월 -> 11월). 오픈일이 비어 있는 점포는 맨 뒤
+    return sorted(calcs, key=lambda c: (open_key(c) == "", open_key(c)))
 
 
 def store_card_html(D, c, yms):
@@ -898,14 +907,14 @@ def render_store_detail(D, name, yms, period_text):
         k = _month_diff(open_ym, ym) if open_ym else None
         t_daily = tgt["daily"].get(k) if k is not None else None
         t_profit = tgt["profit"].get(k) if k is not None else None
-        daily = (r["sales"] / r["days"] / 1000.0) if r["days"] > 0 else None
+        daily = (r["sales"] / r["days"]) if r["days"] > 0 else None
         rate = (daily / t_daily * 100.0) if (daily is not None and t_daily) else None
         margin = (r["pl"] / r["sales"] * 100.0) if (r["pl"] is not None and r["sales"] > 0) else None
         if r["op"] is not None:
             op_total += r["op"]
             op_cnt += 1
         rows.append([
-            ym_label(ym), fnum(r["sales"] / 1000.0), fnum(r["days"]), fnum(daily), fnum(t_daily),
+            ym_label(ym), fnum(r["sales"]), fnum(r["days"]), fnum(daily), fnum(t_daily),
             fnum(rate, 1), fnum(margin, 1), fnum(r["op"]), fnum(t_profit),
         ])
 
@@ -963,7 +972,7 @@ def year_points(per, tgt, open_ym, year):
         if r:
             p["state"] = "data"
             p["sales"] = r["sales"]
-            p["daily"] = (r["sales"] / r["days"] / 1000.0) if r["days"] > 0 else None
+            p["daily"] = (r["sales"] / r["days"]) if r["days"] > 0 else None
             p["rate"] = (p["daily"] / p["target"] * 100.0) if (p["daily"] is not None and p["target"]) else None
             p["margin"] = (r["pl"] / r["sales"] * 100.0) if (r["pl"] is not None and r["sales"] > 0) else None
             p["op"] = r["op"]
@@ -1100,14 +1109,15 @@ def ops_chart_svg(pts, open_ym="", last_ym=""):
     return "".join(out)
 
 
-def render_store_cards(D, names, yms, period_text, ctx, sort_by="오픈일 최신순"):
+def render_store_cards(D, names, yms, period_text, ctx, sort_by="오픈일 빠른순"):
     """점포 카드 목록. 카드의 '상세 보기'를 누르면 상세 화면으로 전환 (ctx 별로 따로 기억)"""
     state_key = f"tool_store_{ctx}"
     sel = st.session_state.get(state_key)
     if sel and sel in D["master_by_name"]:
         def _back():
             st.session_state[state_key] = None
-        st.button("← 점포 목록으로", key=f"tool_back_{ctx}", on_click=_back)
+        with st.container(key=f"backbtn_{ctx}"):
+            icon_button("점포 목록으로", ":material/arrow_back:", key=f"tool_back_{ctx}", on_click=_back)
         render_store_detail(D, sel, yms, period_text)
         return
 
