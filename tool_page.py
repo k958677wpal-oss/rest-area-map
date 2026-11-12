@@ -281,7 +281,17 @@ div[data-testid="stVerticalBlock"] { gap: 0.7rem; }
 .chart-grid .chart-card { margin: 0; }
 
 .sc { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
-.sc-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.sc-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.sc-info { flex: 1; min-width: 0; }
+.sc-tags.col { flex-direction: column; align-items: flex-start; flex: none; margin-top: 0; gap: 6px; }
+.sc-tags.col .sc-tag { font-size: 12px; padding: 3px 9px; }
+.store-head { background: #f6f8fc; border: 1px solid #d5dcea; border-radius: 14px; padding: 16px 20px; margin: 4px 0 6px; }
+.store-head .sh-row { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.store-head .sh-name { font-size: 26px; font-weight: 800; color: #1f3a73; line-height: 1.3; }
+.store-head .sh-meta { font-size: 15px; font-weight: 700; color: #3a4a6b; margin-top: 8px; }
+.store-head .sh-addr { font-size: 14px; color: #5a6a8a; margin-top: 10px; padding-top: 10px; border-top: 1px dashed #d5dcea; }
+.chart-grid { margin-bottom: 26px; }
+.chart-grid .chart-card.empty { align-self: start; }
 .sc-name { font-size: 20px; font-weight: 800; color: #1f3a73; line-height: 1.3; word-break: keep-all; }
 .sc-tags { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px; }
 .sc-tag { font-size: 11px; background: #eaf0fb; color: #2c4a8a; border-radius: 6px; padding: 2px 7px; font-weight: 600; }
@@ -298,8 +308,7 @@ div[data-testid="stVerticalBlock"] { gap: 0.7rem; }
 .sc-donut .cap { font-size: 11px; color: #6b7a99; font-weight: 700; margin-top: 1px; }
 .sc-nums.three > div { min-width: 0; }
 .sc-nums.three .l { font-size: 12px; font-weight: 600; color: #6b7a99; }
-.sc-nums.three .v { font-size: 21px; line-height: 1.25; }
-.sc-nums.three > div:first-child .v { font-size: 24px; }
+.sc-nums.three .v { font-size: 24px; line-height: 1.25; white-space: nowrap; }
 .sc-nums.three .v small { font-size: 12px; }
 .chart-card { background: #fff; border: 1px solid #d5dcea; border-radius: 12px; padding: 12px 14px 8px; margin: 8px 0 12px;
               box-shadow: 0 1px 4px rgba(31,58,115,.06); }
@@ -462,10 +471,10 @@ def store_card_html(D, c, yms):
     op_neg = " neg" if (c["op"] is not None and c["op"] < 0) else ""
     return (
         '<div class="sc">'
-        '<div class="sc-top"><div>'
+        '<div class="sc-top"><div class="sc-info">'
         f'<div class="sc-name">{escape(c["name"])}</div>'
-        f'<div class="sc-tags">{"".join(tags)}</div>'
         f'<div class="sc-meta">{" · ".join(meta)}</div></div>'
+        f'<div class="sc-tags col">{"".join(tags)}</div>'
         f'<div class="sc-donut">{donut_svg(c["rate"], rate_color(c["rate"]), size=88, stroke=10, dec=0)}'
         '<div class="cap">예상매출 달성률</div></div></div>'
         '<div class="sc-nums three">'
@@ -496,17 +505,19 @@ def monthly_table_html(rows):
 
 def render_store_detail(D, name, yms, period_text):
     m = D["master_by_name"].get(name, {})
-    st.markdown(f"##### 🏪 {name}")
     tags = []
     if m.get("place"):
         tags.append(f'<span class="sc-tag place">{escape(m["place"])}</span>')
     if m.get("type"):
         tags.append(f'<span class="sc-tag">{escape(m["type"])}</span>')
     info = [escape(x) for x in (m.get("manager"), (m.get("open_date") and f"오픈 {m['open_date']}"), m.get("region")) if x]
-    st.markdown(f'<div class="sc-tags">{"".join(tags)}</div><div class="sc-meta">{" · ".join(info)}</div>',
-                unsafe_allow_html=True)
-    if m.get("address"):
-        st.caption("📍 " + m["address"])
+    addr = f'<div class="sh-addr">📍 {escape(m["address"])}</div>' if m.get("address") else ""
+    st.markdown(
+        '<div class="store-head"><div class="sh-row">'
+        f'<div class="sh-name">{escape(name)}</div>{"".join(tags)}</div>'
+        f'<div class="sh-meta">{" · ".join(info)}</div>{addr}</div>',
+        unsafe_allow_html=True,
+    )
 
     c = calc_store(D, name, yms)
     per = D["monthly"].get(name, {})
@@ -566,7 +577,7 @@ def render_store_detail(D, name, yms, period_text):
         + sales_chart_svg(pts, open_ym, last_ym) + '</div>'
     )
     if op_cnt == 0:
-        ops_card = ('<div class="chart-card"><div class="chart-title">💰 영업이익 흐름 (천원)</div>'
+        ops_card = ('<div class="chart-card empty"><div class="chart-title">💰 영업이익 흐름 (천원)</div>'
                     '<div class="chart-note">영업이익이 아직 입력되지 않았습니다.</div></div>')
     else:
         ops_card = (
@@ -783,7 +794,7 @@ def view_performance(D, yms, mode, period_text):
     st.markdown(f"#### 🏆 팀 전체 · {period_text}")
     st.markdown(group_cards(calc_group(D, all_names, yms), mode), unsafe_allow_html=True)
 
-    st.markdown("#### 👤 담당자별")
+    st.markdown('<h4 style="margin:18px 0 0;">👤 담당자별</h4>', unsafe_allow_html=True)
     sel_mgr = st.session_state.get("tool_mgr")
     managers = sorted({m["manager"] for m in D["masters"] if m["manager"]})
     if not managers:
