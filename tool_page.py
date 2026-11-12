@@ -318,9 +318,9 @@ TOOL_CSS = """
 .pb-chip { font-size: 13px; font-weight: 700; color: #2c4a8a; background: #ffffff; border: 1px solid #c9d4ea;
     border-radius: 999px; padding: 4px 14px; }
 .pb-chip b { color: #0b9a6a; margin-right: 6px; }
-.st-key-periodbody { padding: 18px 20px 18px 59px !important; }
-.st-key-periodbody [data-testid="stHorizontalBlock"] { align-items: center !important; gap: 0.8rem; }
-.pb-lab { font-size: 14px; font-weight: 700; color: #55648a; text-align: left; white-space: nowrap; line-height: 48px; height: 48px; margin: 0; position: relative; top: -6px; }
+.st-key-periodbody { padding: 26px 20px 10px 59px !important; }
+.st-key-periodbody [data-testid="stHorizontalBlock"] { align-items: flex-start !important; gap: 0.8rem; }
+.pb-lab { font-size: 14px; font-weight: 700; color: #55648a; text-align: left; white-space: nowrap; line-height: 48px; height: 48px; margin: 0; }
 .st-key-periodbody [data-testid="stElementContainer"], .st-key-periodbody [data-testid="element-container"] { margin: 0 !important; }
 /* 알약 선택(라디오를 알약처럼 꾸밈): 조회 기간 / 담당자 필터 공통. 선택된 항목 = 네이비 바탕 + 흰 글씨 */
 .st-key-periodbody [data-testid="stWidgetLabel"], .st-key-mgr_filter [data-testid="stWidgetLabel"] { display: none !important; }
@@ -343,11 +343,11 @@ div[class*="st-key-pl_"][class*="_on"] button p { color: #ffffff !important; }
 .st-key-periodbody [data-testid="stColumn"], .st-key-periodbody [data-testid="column"] {
     flex: 0 0 auto !important; width: auto !important; min-width: 0 !important; }
 .st-key-periodbody [data-testid="stColumn"]:last-child, .st-key-periodbody [data-testid="column"]:last-child { margin-left: auto; }
-.st-key-periodbody [data-testid="stSelectbox"] { width: 170px; }
+.st-key-periodbody [data-testid="stSelectbox"] { width: 170px; margin-top: 4px; }
 .st-key-periodbody [data-baseweb="select"] > div { min-height: 48px !important; height: 48px !important; }
 .st-key-periodbody div.stButton > button { min-height: 48px !important; height: 48px; padding: 0 18px; }
 .pb-lab.gap { margin-left: 26px; }
-.pb-tilde { font-size: 16px; font-weight: 700; color: #55648a; line-height: 48px; margin: 0; position: relative; top: -6px; }
+.pb-tilde { font-size: 16px; font-weight: 700; color: #55648a; line-height: 48px; height: 48px; margin: 0; }
 /* 탭 메뉴: 눈에 띄는 알약 형태 (클래스 이름에 의존하지 않도록 속성으로 지정) */
 [data-baseweb="tab-list"], [role="tablist"], [data-testid="stTabs"] > div:first-child { gap: 8px !important; background: #eef2fa !important; padding: 6px !important; border-radius: 14px !important; }
 button[data-baseweb="tab"], button[role="tab"], [data-testid="stTab"] { height: 48px !important; padding: 0 26px !important; border-radius: 10px !important; background: transparent !important; }
@@ -359,23 +359,25 @@ button[role="tab"][aria-selected="true"] span, [data-testid="stTab"][aria-select
 [data-baseweb="tab-highlight"], [data-baseweb="tab-border"] { display: none !important; }
 .st-key-mgr_filter { margin-top: 18px; }
 .st-key-mgr_filter [data-testid="stHorizontalBlock"], div[class*="st-key-mgrbox_"] [data-testid="stHorizontalBlock"] {
-    align-items: center !important; justify-content: flex-start !important; gap: 16px !important; }
+    align-items: flex-start !important; justify-content: flex-start !important; gap: 16px !important; }
 .st-key-mgr_filter [data-testid="stColumn"], .st-key-mgr_filter [data-testid="column"],
 div[class*="st-key-mgrbox_"] [data-testid="stColumn"], div[class*="st-key-mgrbox_"] [data-testid="column"] {
     flex: 0 0 auto !important; width: auto !important; min-width: 0 !important; }
-.st-key-mgr_filter .sec-h { margin: 0; white-space: nowrap; }
+.st-key-mgr_filter .sec-h { margin: 0; white-space: nowrap; height: 48px; }
+.st-key-mgr_filter div[class*="st-key-mgrbtn_"] { margin-top: 5px; }
+div[class*="st-key-mgrbtn_ph"] { visibility: hidden; }
 /* 담당자 필터/오픈점 보기: 제목 글자(22px)에 맞춰 크게 */
-.st-key-mgr_filter div[class*="st-key-pl_"] button { height: 44px; min-height: 44px; padding: 0 24px; }
-.st-key-mgr_filter div[class*="st-key-pl_"] button p { font-size: 19px !important; }
-.mgr-row { min-height: 44px; }
+.st-key-mgr_filter div[class*="st-key-pl_"] button { height: 38px; min-height: 38px; padding: 0 22px; }
+.st-key-mgr_filter div[class*="st-key-pl_"] button p { font-size: 16px !important; }
+.mgr-row { min-height: 38px; padding-top: 0; }
 .st-key-mgr_filter [data-testid="stVerticalBlock"] { gap: 0 !important; }
 .mgr-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; padding-top: 4px; }
 .mgr-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .mgr-chip { font-size: 13px; font-weight: 600; color: #2c4a8a; background: #eaf0fb; border-radius: 999px; padding: 4px 12px; }
 div[class*="st-key-mgrbtn_"] { display: flex; }
-div[class*="st-key-mgrbtn_"] button { min-width: 0; height: 44px; min-height: 44px; border: none !important; border-radius: 10px !important;
-    background: #eef2fa !important; padding: 0 22px; }
-div[class*="st-key-mgrbtn_"] button p { font-weight: 700 !important; font-size: 18px !important; color: #2c4a8a; white-space: nowrap; margin: 0; }
+div[class*="st-key-mgrbtn_"] button { min-width: 0; height: 38px; min-height: 38px; border: none !important; border-radius: 10px !important;
+    background: #eef2fa !important; padding: 0 20px; }
+div[class*="st-key-mgrbtn_"] button p { font-weight: 700 !important; font-size: 16px !important; color: #2c4a8a; white-space: nowrap; margin: 0; }
 div[class*="st-key-mgrbtn_"] button:hover { background: #2c4a8a !important; }
 div[class*="st-key-mgrbtn_"] button:hover p { color: #ffffff !important; }
 .sec-h { display: flex; align-items: center; gap: 10px; font-size: 22px; font-weight: 800; color: #1a2b4f; margin: 22px 0 16px; }
@@ -1184,6 +1186,10 @@ def view_performance(D, yms, mode, period_text):
                             st.session_state["tool_show_open"] = True
                             st.session_state["tool_store_a"] = None
                         st.button("오픈점 보기 ▶", key=f"tool_mgr_{mgr}", on_click=_open)
+                else:
+                    # 버튼이 없을 때도 같은 높이를 차지하게 하는 '보이지 않는 자리표시' (이름~카드 간격을 항상 같게)
+                    with st.container(key=f"mgrbtn_ph{mi}"):
+                        st.button("오픈점 보기 ▶", key=f"tool_ph_{mi}", disabled=True)
             st.markdown(group_cards(calc_group(D, names, yms), mode, prev_of(names), D, mgr),
                         unsafe_allow_html=True)
         return names
