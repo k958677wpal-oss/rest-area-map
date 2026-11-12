@@ -376,6 +376,22 @@ div[class*="st-key-backbtn_"] button { height: 40px; min-height: 40px; border: n
 div[class*="st-key-backbtn_"] button p { font-weight: 700 !important; font-size: 15px !important; color: #2c4a8a; white-space: nowrap; margin: 0; }
 div[class*="st-key-backbtn_"] button:hover { background: #2c4a8a !important; }
 div[class*="st-key-backbtn_"] button:hover p { color: #ffffff !important; }
+/* 요약 화면: 지표별 비교 그래프 카드 2x2 */
+.sm-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(480px, 1fr)); gap: 14px; margin: 8px 0 14px; }
+.sm-card { background: #ffffff; border: 1px solid #d5dcea; border-radius: 14px; padding: 16px 20px 10px; min-width: 0; }
+.sm-t { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 800; color: #1f3a73; }
+.sm-n { font-size: 12px; color: #8591ab; margin: 4px 0 10px; }
+.sm-row { display: flex; align-items: center; gap: 12px; height: 40px; }
+.sm-nm { width: 56px; flex: none; font-size: 14px; font-weight: 700; color: #3a4a6b; }
+.sm-tr { position: relative; flex: 1; height: 16px; border-radius: 99px; overflow: hidden; }
+.sm-fl { position: absolute; left: 0; top: 0; height: 100%; display: block; }
+.sm-avg { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: #1f2d4d; opacity: .65; }
+.sm-v { width: 132px; flex: none; text-align: right; font-size: 15px; font-weight: 800; color: #1f2d4d; line-height: 1.2; white-space: nowrap; }
+.sm-v small { display: block; font-size: 11px; font-weight: 500; color: #8591ab; min-height: 13px; }
+.sm-v.top { color: #0b9a6a; }
+div[class*="st-key-mgrbtn_"] button:disabled { opacity: .45; }
+div[class*="st-key-mgrbtn_"] button:disabled:hover { background: #eef2fa !important; }
+div[class*="st-key-mgrbtn_"] button:disabled:hover p { color: #2c4a8a !important; }
 .st-key-mgr_filter .sec-h { margin: 0; white-space: nowrap; height: 48px; }
 /* 담당자별 줄: 제목 / 필터 / 오픈점 보기 모두 48px 높이 상자 안에서 세로 가운데 */
 .st-key-mgr_filter [data-testid="stHorizontalBlock"] { height: 48px !important; align-items: center !important; }
@@ -735,6 +751,8 @@ def pill_select(options, key, on_change=None):
 
 def pick_period(months):
     """조회 기간 바: 카드 하나 안에 [제목] [보기 방식] [월 선택] [월 선택] [여백] [새로고침]"""
+    if "tool_pmode" not in st.session_state:
+        st.session_state["tool_pmode"] = "누계"      # 처음 접속하면 '올해 1월 ~ 최신월 누계'로 시작
     with st.container(key="periodbar"):
         head = st.empty()
         with st.container(key="periodbody"):
@@ -1147,6 +1165,88 @@ def render_store_cards(D, names, yms, period_text, ctx, sort_by="오픈일 빠�
 
 
 # ───────────────────────── 탭 화면 ─────────────────────────
+def _sm_card(icon, color, title, note, items, avg_frac):
+    """요약 그래프 카드 1장. items: dict(name, key, frac, main, sub, color, rest)"""
+    keys = [it["key"] for it in items if it["key"] is not None]
+    top = max(keys) if (len(keys) > 1 and max(keys) > min(keys) and max(keys) > 0) else None
+    out = [f'<div class="sm-card"><div class="sm-t">{mini_icon(icon, color, 20)}{title}</div><div class="sm-n">{note}</div>']
+    for it in items:
+        fl = ""
+        if it["frac"] is not None:
+            fl = f'<i class="sm-fl" style="width:{max(0.0, min(it["frac"], 1.0)) * 100:.1f}%;background:{it["color"]}"></i>'
+        mk = ""
+        if avg_frac is not None:
+            mk = f'<b class="sm-avg" style="left:{max(0.0, min(avg_frac, 1.0)) * 100:.1f}%"></b>'
+        cls = " top" if (top is not None and it["key"] == top) else ""
+        out.append(
+            f'<div class="sm-row"><div class="sm-nm">{escape(it["name"])}</div>'
+            f'<div class="sm-tr" style="background:{it.get("rest", "#eef2fa")}">{fl}{mk}</div>'
+            f'<div class="sm-v{cls}">{it["main"]}<small>{it["sub"]}</small></div></div>')
+    out.append("</div>")
+    return "".join(out)
+
+
+def summary_html(D, managers, yms, all_names):
+    """요약: 담당자별 출점수 / 일매출 / 예상매출 달성점 구성비 / 흑자점 구성비 비교 그래프 4장"""
+    G = []
+    for mgr in managers:
+        names = [m["name"] for m in D["masters"] if m["manager"] == mgr]
+        G.append((mgr, calc_group(D, names, yms)))
+    T = calc_group(D, all_names, yms)
+
+    # 1) 출점수
+    vals = [g["opened"] for _, g in G]
+    mx = max(vals) if max(vals) > 0 else 1
+    avg = sum(vals) / len(vals)
+    items = [dict(name=n, key=g["opened"], frac=g["opened"] / mx, main=f'{g["opened"]}점', sub="",
+                  color=COLOR_NAVY) for n, g in G]
+    c1 = _sm_card("store", COLOR_NAVY, "출점수", f"선택 기간에 새로 오픈한 점포 · 합계 {T['opened']}점 · 점선 = 담당자 평균 {avg:.1f}점",
+                  items, avg / mx)
+
+    # 2) 일매출
+    dv = [g["daily"] for _, g in G if g["daily"] is not None]
+    tdaily = T["daily"]
+    mx = max(dv + ([tdaily] if tdaily else []) + [1])
+    items = []
+    for n, g in G:
+        d = g["daily"]
+        if d is None:
+            items.append(dict(name=n, key=None, frac=None, main="-", sub="실적 없음", color=COLOR_BLUE))
+        else:
+            col = COLOR_BLUE if (tdaily is None or d >= tdaily) else "#9dc3ee"
+            items.append(dict(name=n, key=d, frac=d / mx, main=fnum(d), sub="천원", color=col))
+    c2 = _sm_card("coin", COLOR_BLUE, "일매출",
+                  "점포당 일매출 · 점선 = 팀 평균" + (f" {fnum(tdaily)}천원 · 연한 막대 = 팀 평균 미만" if tdaily else ""),
+                  items, (tdaily / mx) if tdaily else None)
+
+    # 3) 예상매출 달성점 구성비 (모수 = 예상목표가 있어 달성률을 구할 수 있는 점포)
+    def ratio_items(num_k, den_k, color, rest, sub_extra):
+        its = []
+        for n, g in G:
+            den, num = g[den_k], g[num_k]
+            if den > 0:
+                r = num / den
+                its.append(dict(name=n, key=r, frac=r, main=f"{r * 100:.1f}%",
+                                sub=f"{num}/{den}점" + sub_extra(g), color=color, rest=rest))
+            else:
+                its.append(dict(name=n, key=None, frac=None, main="-", sub="대상 없음", color=color, rest=rest))
+        tr = (T[num_k] / T[den_k]) if T[den_k] > 0 else None
+        return its, tr
+
+    its, tr = ratio_items("achieved", "rate_n", COLOR_GOOD, "#e6ebf4", lambda g: "")
+    c3 = _sm_card("target", COLOR_GOOD, "예상매출 달성점 구성비",
+                  "초록 = 달성(100% 이상) · 회색 = 미달 · 모수 = 예상목표가 있는 점포 · 점선 = 팀 " +
+                  (f"{tr * 100:.1f}%" if tr is not None else "-"), its, tr)
+
+    # 4) 흑자점 구성비 (모수 = 영업이익이 입력된 점포)
+    its, tr = ratio_items("black", "op_n", COLOR_GOOD, "#f7c6d0", lambda g: f" · 입력 {g['op_n']}/{g['data_n']}")
+    c4 = _sm_card("check", COLOR_GOOD, "흑자점 구성비",
+                  "초록 = 흑자 · 분홍 = 적자 · 모수 = 영업이익이 입력된 점포 · 점선 = 팀 " +
+                  (f"{tr * 100:.1f}%" if tr is not None else "-"), its, tr)
+
+    return f'<div class="sm-grid">{c1}{c2}{c3}{c4}</div>'
+
+
 def view_performance(D, yms, mode, period_text):
     all_names = [m["name"] for m in D["masters"]]
 
@@ -1167,9 +1267,9 @@ def view_performance(D, yms, mode, period_text):
         return
 
     # 제목 + 담당자 알약 필터 (전체 / 이름...)
-    options = ["전체"] + managers
+    options = ["요약"] + managers
     if st.session_state.get("tool_mgr_pick") not in options:
-        st.session_state["tool_mgr_pick"] = "전체"
+        st.session_state["tool_mgr_pick"] = "요약"
 
     def _reset_detail():
         for k in list(st.session_state.keys()):
@@ -1191,9 +1291,14 @@ def view_performance(D, yms, mode, period_text):
             # 오픈점 보기 버튼: 항상 담당자 필터 바로 오른쪽 (전체/담당자 선택과 무관하게 같은 자리)
             showing = st.session_state.get("tool_show_open", False)
             with st.container(key="mgrbtn_filter"):
-                st.button("오픈점 닫기 ▲" if showing else "오픈점 보기 ▶", key="tool_open_toggle", on_click=_toggle)
-    pick = pick or "전체"
+                st.button("오픈점 닫기 ▲" if showing else "오픈점 보기 ▶", key="tool_open_toggle", on_click=_toggle,
+                          disabled=((pick or "요약") == "요약"))
+    pick = pick or "요약"
     show_open = st.session_state.get("tool_show_open", False)
+
+    if pick == "요약":
+        st.markdown(summary_html(D, managers, yms, all_names), unsafe_allow_html=True)
+        return
 
     def _mgr_box(mgr, mi):
         names = [m["name"] for m in D["masters"] if m["manager"] == mgr]
@@ -1208,7 +1313,7 @@ def view_performance(D, yms, mode, period_text):
                 render_store_cards(D, names, yms, period_text, ctx=f"a{mi}")
 
     for mi, mgr in enumerate(managers):
-        if pick == "전체" or pick == mgr:
+        if pick == mgr:
             _mgr_box(mgr, mi)
 
 
