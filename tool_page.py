@@ -318,8 +318,13 @@ TOOL_CSS = """
 .pb-chip { font-size: 13px; font-weight: 700; color: #2c4a8a; background: #ffffff; border: 1px solid #c9d4ea;
     border-radius: 999px; padding: 4px 14px; }
 .pb-chip b { color: #0b9a6a; margin-right: 6px; }
-.st-key-periodbody { padding: 20px 20px 20px 59px !important; }
-.st-key-periodbody [data-testid="stHorizontalBlock"] { align-items: flex-start !important; gap: 0.8rem; }
+/* 조회 기간 흰 영역: 높이를 84px 로 고정하고, 그 안에서 한 줄(40px)을 세로 가운데에 놓음 (padding 에 의존하지 않음) */
+.st-key-periodbody { display: flex !important; flex-direction: column !important; justify-content: center !important;
+    height: 84px !important; min-height: 84px !important; padding: 0 20px 0 59px !important; box-sizing: border-box !important; }
+.st-key-periodbody [data-testid="stHorizontalBlock"] { align-items: flex-start !important; gap: 0.8rem;
+    height: 40px !important; min-height: 40px !important; }
+.st-key-periodbody [data-testid="stRadio"], .st-key-periodbody [data-testid="stSelectbox"], .st-key-periodbody [data-testid="stButton"] {
+    height: 40px !important; min-height: 40px !important; display: flex !important; flex-direction: column; justify-content: center; }
 .pb-lab { font-size: 14px; font-weight: 700; color: #55648a; text-align: left; white-space: nowrap; line-height: 40px; height: 40px; margin: 0; }
 .st-key-periodbody [data-testid="stElementContainer"], .st-key-periodbody [data-testid="element-container"] { margin: 0 !important; }
 /* 알약 선택(라디오를 알약처럼 꾸밈): 조회 기간 / 담당자 필터 공통. 선택된 항목 = 네이비 바탕 + 흰 글씨 */
@@ -364,8 +369,18 @@ button[role="tab"][aria-selected="true"] span, [data-testid="stTab"][aria-select
 div[class*="st-key-mgrbox_"] [data-testid="stColumn"], div[class*="st-key-mgrbox_"] [data-testid="column"] {
     flex: 0 0 auto !important; width: auto !important; min-width: 0 !important; }
 .st-key-mgr_filter .sec-h { margin: 0; white-space: nowrap; height: 48px; }
-.st-key-mgr_filter div[class*="st-key-mgrbtn_"] { margin-top: 5px; }
-.mgr-row { min-height: 38px; padding-top: 0; }
+/* 담당자별 줄: 제목 / 필터 / 오픈점 보기 모두 48px 높이 상자 안에서 세로 가운데 */
+.st-key-mgr_filter [data-testid="stHorizontalBlock"] { height: 48px !important; align-items: center !important; }
+.st-key-mgr_filter [data-testid="stColumn"], .st-key-mgr_filter [data-testid="column"] { height: 48px !important; }
+.st-key-mgr_filter [data-testid="stRadio"], .st-key-mgr_filter [data-testid="stButton"] {
+    height: 48px !important; min-height: 48px !important; display: flex !important; flex-direction: column; justify-content: center; }
+.st-key-mgr_filter div[class*="st-key-mgrbtn_"] { height: 48px; align-items: center; }
+/* 라디오 글자 크기: 안쪽 어떤 요소든 같은 크기로 (오픈점 보기 버튼과 같은 16px) */
+.st-key-mgr_filter [data-testid="stRadio"] label, .st-key-mgr_filter [data-testid="stRadio"] label * {
+    font-size: 16px !important; font-weight: 700 !important; line-height: 1.2 !important; }
+.st-key-periodbody [data-testid="stRadio"] label, .st-key-periodbody [data-testid="stRadio"] label * {
+    font-size: 15px !important; font-weight: 700 !important; line-height: 1.2 !important; }
+.mgr-row { min-height: 44px; padding-top: 0; margin-bottom: 6px; }
 .st-key-mgr_filter [data-testid="stVerticalBlock"] { gap: 0 !important; }
 .mgr-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; padding-top: 4px; }
 .mgr-chips { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -1174,9 +1189,10 @@ def view_performance(D, yms, mode, period_text):
         names = [m["name"] for m in D["masters"] if m["manager"] == mgr]
         chips = "".join(f'<span class="mgr-chip">{escape(n)}</span>' for n in names)
         with st.container(key=f"mgrbox_{mi}"):
+            # 이름 줄 + 카드를 한 덩어리로 그려서 간격을 내 CSS(mgr-row 의 margin-bottom)만으로 정함
             st.markdown(f'<div class="mgr-row"><div class="mgr-name">{escape(mgr)}</div>'
-                        f'<div class="mgr-chips">{chips}</div></div>', unsafe_allow_html=True)
-            st.markdown(group_cards(calc_group(D, names, yms), mode, prev_of(names), D, mgr),
+                        f'<div class="mgr-chips">{chips}</div></div>'
+                        + group_cards(calc_group(D, names, yms), mode, prev_of(names), D, mgr),
                         unsafe_allow_html=True)
             if show_open:
                 render_store_cards(D, names, yms, period_text, ctx=f"a{mi}")
