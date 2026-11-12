@@ -789,20 +789,24 @@ if "logged_in" not in st.session_state:
     st.session_state["logged_in"] = False
 
 if not st.session_state["logged_in"]:
-    if APPLY_THEME:
-        st.markdown(
-            '<div class="hub-header">'
-            '<div class="hub-title">🛣️ 휴게소 데이터 허브</div>'
-            '<div class="hub-sub">Powered by 특수개발팀 · GS25 점포개발 &nbsp;|&nbsp; 🔐 로그인</div>'
-            '</div>',
-            unsafe_allow_html=True,
-        )
-    else:
-        st.title("🔐 로그인 (Powered by 특수개발팀)")
-    with st.form("login_form"):
-        user_id = st.text_input("사번 (ID)")
-        user_pw = st.text_input("생년월일 6자리 (PW)", type="password", max_chars=6)
-        submitted = st.form_submit_button("로그인")
+    _lg_l, _lg_c, _lg_r = st.columns([1, 2, 1])
+    with _lg_c:
+        st.markdown("<div style='height:6vh'></div>", unsafe_allow_html=True)
+        if APPLY_THEME:
+            st.markdown(
+                '<div class="hub-header" style="text-align:center;padding:26px 24px;">'
+                '<div class="hub-title">🧭 특수개발 워크스페이스</div>'
+                '<div class="hub-sub">휴게소 데이터 허브 · SD 허브</div>'
+                '<div class="hub-sub" style="margin-top:10px;">Powered by 특수개발팀 · GS25 점포개발</div>'
+                '</div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.title("🔐 로그인 (Powered by 특수개발팀)")
+        with st.form("login_form"):
+            user_id = st.text_input("사번 (ID)")
+            user_pw = st.text_input("생년월일 6자리 (PW)", type="password", max_chars=6)
+            submitted = st.form_submit_button("로그인", use_container_width=True)
     if submitted:
         input_id = normalize_value(user_id)
         input_pw = normalize_value(user_pw)
