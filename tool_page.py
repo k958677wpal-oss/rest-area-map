@@ -308,16 +308,29 @@ TOOL_CSS = """
 .kpi .kpi-g2 .tk { position: absolute; top: -3px; bottom: -3px; width: 2px; background: #55648a; border-radius: 2px; }
 .kpi .kpi-g2 .lb { position: relative; height: 14px; margin-top: 5px; }
 .kpi .kpi-g2 .lb span { position: absolute; transform: translateX(-50%); font-size: 10.5px; color: #7d8aa8; font-weight: 600; }
-.st-key-periodbar { background: linear-gradient(160deg, #ffffff 40%, #f1f5fc 100%); border: 1px solid #dde3ef; border-radius: 14px;
-    padding: 12px 18px 12px; box-shadow: 0 3px 10px rgba(31,58,115,.07); margin-bottom: 4px; }
-.st-key-periodbar [data-testid="stHorizontalBlock"] { align-items: flex-end; }
-.pb-title { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 800; color: #1f3a73; padding-bottom: 9px; white-space: nowrap; }
+.st-key-periodbar { background: #ffffff; border: 1px solid #d5dcea; border-radius: 16px; padding: 0 !important; gap: 0 !important;
+    overflow: hidden; box-shadow: 0 4px 14px rgba(31,58,115,.09); margin-bottom: 8px; }
+.pb-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+    padding: 12px 20px; background: linear-gradient(90deg, #eef3fc, #f8faff); border-bottom: 1px solid #e0e6f2; }
+.pb-title { display: flex; align-items: center; gap: 9px; font-size: 16px; font-weight: 800; color: #1f3a73; }
+.pb-title .ic { width: 30px; height: 30px; border-radius: 9px; display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(145deg, #1f3a73, #3d64b0); }
+.pb-chip { font-size: 13px; font-weight: 700; color: #2c4a8a; background: #ffffff; border: 1px solid #c9d4ea;
+    border-radius: 999px; padding: 4px 14px; }
+.pb-chip b { color: #0b9a6a; margin-right: 6px; }
+.st-key-periodbody { padding: 14px 20px 16px !important; }
+.st-key-periodbody [data-testid="stHorizontalBlock"] { align-items: flex-end; }
+.st-key-periodbody label p { font-size: 12.5px !important; font-weight: 700 !important; color: #6b7a99 !important; }
 .mgr-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; padding-top: 4px; }
 .mgr-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .mgr-chip { font-size: 13px; font-weight: 600; color: #2c4a8a; background: #eaf0fb; border-radius: 999px; padding: 4px 12px; }
 div[class*="st-key-mgrbtn_"] { display: flex; justify-content: flex-end; }
 div[class*="st-key-mgrbtn_"] button { min-width: 150px; }
-.sec-h { display: flex; align-items: center; gap: 10px; font-size: 22px; font-weight: 800; color: #1a2b4f; margin: 20px 0 6px; }
+.sec-h { display: flex; align-items: center; gap: 10px; font-size: 22px; font-weight: 800; color: #1a2b4f; margin: 22px 0 16px; }
+.sc-top { justify-content: space-evenly !important; }
+.sc-info { flex: 0 1 auto !important; }
+.sc-nums.three > div { text-align: center; }
+.sc-nums.three .v { justify-content: center; }
 .sec-ic { width: 34px; height: 34px; border-radius: 10px; display: flex; align-items: center; justify-content: center;
           background: linear-gradient(145deg, #1f3a73, #3d64b0); flex: none; }
 div[class*="st-key-mgrbox_"] { border-bottom: 1px solid #e3e8f2; padding-bottom: 14px; }
@@ -365,7 +378,8 @@ div[data-testid="stVerticalBlock"] { gap: 0.7rem; }
               box-shadow: 0 1px 4px rgba(31,58,115,.06); }
 .chart-card .chart-title { font-size: 14px; font-weight: 800; color: #1f3a73; margin-bottom: 2px; }
 .chart-card .chart-note { font-size: 11.5px; color: #8591ab; margin-bottom: 4px; }
-.chart-card svg { width: 100%; max-width: 900px; height: auto; display: block; margin: 0 auto; }
+.chart-card > svg { width: 100%; max-width: 900px; height: auto; display: block; margin: 0 auto; }
+.chart-card .chart-title svg, .sec-title svg, .sh-addr svg { display: inline-block; vertical-align: -3px; }
 .legend-note { font-size: 11.5px; color: #8591ab; margin: 2px 0 8px; }
 .tbl-wrap { overflow-x: auto; margin: 6px 0 10px; }
 table.tbl { border-collapse: collapse; width: 100%; font-size: 13px; background: #fff; }
@@ -440,15 +454,16 @@ def mini_icon(kind, color, size=18):
              f'<path d="M7 5H3.5c0 3 1.3 4.8 3.8 5.2M17 5h3.5c0 3-1.3 4.8-3.8 5.2" stroke="{color}" stroke-width="1.6" fill="none"/>'
              f'<rect x="10.9" y="13.5" width="2.2" height="4" fill="{color}"/><rect x="7.5" y="17.5" width="9" height="3.2" rx="1.2" fill="{color}"/>')
     elif kind == "badge":
+        ink = "#2a4685"
         b = (f'<rect x="4" y="3" width="16" height="19" rx="2.5" fill="{color}"/>'
-             '<rect x="9.5" y="5" width="5" height="1.8" rx=".9" fill="#fff" fill-opacity=".55"/>'
-             '<circle cx="12" cy="11.5" r="2.8" fill="#fff"/><path d="M7.2 19c0-3 2.2-4.4 4.8-4.4s4.8 1.4 4.8 4.4z" fill="#fff"/>')
+             f'<rect x="9" y="5" width="6" height="2" rx="1" fill="{ink}"/>'
+             f'<circle cx="12" cy="11.8" r="2.7" fill="{ink}"/><path d="M7.4 19.2c0-3 2.1-4.4 4.6-4.4s4.6 1.4 4.6 4.4z" fill="{ink}"/>')
     elif kind == "cal":
         b = (f'<rect x="3" y="5" width="18" height="16" rx="3" fill="{color}"/>'
              '<rect x="3" y="5" width="18" height="5" rx="2" fill="#000" fill-opacity=".18"/>'
              f'<rect x="7" y="2.5" width="2.2" height="5" rx="1.1" fill="{color}"/><rect x="14.8" y="2.5" width="2.2" height="5" rx="1.1" fill="{color}"/>'
-             '<rect x="6.5" y="12.5" width="3" height="3" rx=".8" fill="#fff"/><rect x="11" y="12.5" width="3" height="3" rx=".8" fill="#fff"/>'
-             '<rect x="15.5" y="12.5" width="2.5" height="3" rx=".8" fill="#fff" fill-opacity=".6"/>')
+             '<rect x="6.5" y="12.5" width="3" height="3" rx=".8" fill="#2a4685"/><rect x="11" y="12.5" width="3" height="3" rx=".8" fill="#2a4685"/>'
+             '<rect x="15.5" y="12.5" width="2.5" height="3" rx=".8" fill="#2a4685" fill-opacity=".6"/>')
     elif kind == "pin":
         b = (f'<path d="M12 22s7-6.2 7-12a7 7 0 0 0-14 0c0 5.8 7 12 7 12z" fill="{color}"/>'
              '<circle cx="12" cy="10" r="2.8" fill="#fff"/>')
@@ -508,7 +523,7 @@ def delta_html(cur, prev, kind):
     if cur is None:
         return ""
     if prev is None:
-        return '<div class="kpi-d d0">전월 자료 없음</div>'
+        return ""        # 전월 자료가 없으면 줄 자체를 빼서 카드가 비어 보이지 않게 함
     d = cur - prev
     if kind == "pp":
         thr, txt = 0.05, f"{abs(d):,.1f}%p"
@@ -551,8 +566,8 @@ def group_cards(G, mode, P=None, D=None, who="팀"):
     p_ok = use_d and P["data_n"] > 0
     pv = (lambda k: P[k] if p_ok else None)
     # 1) 출점수 (+ 목표가 있으면 달성 막대)
-    open_sub = ""
-    open_bot = "" if cumulative else f'<div class="kpi-d d0">당월 신규 {G["new_in_period"]}점</div>'
+    open_sub = "" if cumulative else f"당월 신규 {G['new_in_period']}점"
+    open_bot = ""
     goal_year = find_goal(D, who, "출점수", "연간") if D else None
     goal_mon = find_goal(D, who, "출점수", "월") if (D and not cumulative) else None
     goal_part = ""
@@ -615,28 +630,41 @@ def refresh_button(key):
 def pick_period(months):
     """조회 기간 바: 카드 하나 안에 [제목] [보기 방식] [월 선택] [월 선택] [여백] [새로고침]"""
     with st.container(key="periodbar"):
-        t, c1, c2, c3, _sp, c5 = st.columns([1.15, 1.3, 1.6, 1.6, 1.3, 1.2])
-        with t:
-            st.markdown(f'<div class="pb-title">{mini_icon("cal", COLOR_NAVY, 22)}조회 기간</div>',
-                        unsafe_allow_html=True)
-        with c1:
-            mode = st.radio("보기 방식", ["월별", "누계"], horizontal=True, key="tool_pmode")
-        with c5:
-            refresh_button("tool_refresh")
-        if mode == "월별":
-            with c2:
-                m = st.selectbox("기준 월", months[::-1], format_func=ym_label, key="tool_pm")
-            return mode, [m], ym_label(m)
-        last_year = months[-1][:4]
-        first_of_year = [x for x in months if x[:4] == last_year][0]
-        with c2:
-            s = st.selectbox("시작월", months, index=months.index(first_of_year), format_func=ym_label, key="tool_ps")
-        with c3:
-            e = st.selectbox("종료월", months, index=len(months) - 1, format_func=ym_label, key="tool_pe")
-        if s > e:
-            s, e = e, s
-        yms = [x for x in months if s <= x <= e]
-        return mode, yms, f"{ym_label(s)} ~ {ym_label(e)}"
+        head = st.empty()
+        with st.container(key="periodbody"):
+            c1, c2, c3, _sp, c5 = st.columns([1.5, 1.7, 1.7, 1.2, 1.3])
+            with c1:
+                mode = None
+                if hasattr(st, "segmented_control"):      # 알약 모양 선택 버튼 (최신 스트림릿)
+                    if "tool_pmode" not in st.session_state:
+                        st.session_state["tool_pmode"] = "월별"
+                    mode = st.segmented_control("보기 방식", ["월별", "누계"], key="tool_pmode",
+                                                selection_mode="single")
+                    mode = mode or "월별"
+                else:
+                    mode = st.radio("보기 방식", ["월별", "누계"], horizontal=True, key="tool_pmode")
+            with c5:
+                refresh_button("tool_refresh")
+            if mode == "월별":
+                with c2:
+                    m = st.selectbox("기준 월", months[::-1], format_func=ym_label, key="tool_pm")
+                yms, text = [m], ym_label(m)
+            else:
+                last_year = months[-1][:4]
+                first_of_year = [x for x in months if x[:4] == last_year][0]
+                with c2:
+                    s = st.selectbox("시작월", months, index=months.index(first_of_year),
+                                     format_func=ym_label, key="tool_ps")
+                with c3:
+                    e = st.selectbox("종료월", months, index=len(months) - 1, format_func=ym_label, key="tool_pe")
+                if s > e:
+                    s, e = e, s
+                yms = [x for x in months if s <= x <= e]
+                text = f"{ym_label(s)} ~ {ym_label(e)}"
+        head.markdown(
+            f'<div class="pb-head"><div class="pb-title"><span class="ic">{mini_icon("cal", "#ffffff", 18)}</span>조회 기간</div>'
+            f'<div class="pb-chip"><b>{mode}</b>{text}</div></div>', unsafe_allow_html=True)
+    return mode, yms, text
 
 
 # ───────────────────────── 점포 카드 / 상세 ─────────────────────────
