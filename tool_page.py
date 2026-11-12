@@ -273,12 +273,16 @@ TOOL_CSS = """
 .kpi .kpi-v.neg { color: #d0143c; }
 .kpi .kpi-v small { font-size: 13px; font-weight: 600; color: #6b7a99; margin-left: 2px; }
 .kpi .kpi-s { font-size: 11.5px; color: #8591ab; margin-top: 2px; line-height: 1.4; }
-.mgr-name { font-size: 17px; font-weight: 800; color: #1f3a73; margin: 0 0 2px; }
+div[data-testid="stVerticalBlock"] { gap: 0.7rem; }
+.mgr-name { font-size: 22px; font-weight: 800; color: #1f3a73; margin: 0 0 2px; }
 .mgr-sub { font-size: 12px; color: #8591ab; margin-bottom: 4px; }
+.sec-title { font-size: 15px; font-weight: 800; color: #1f3a73; margin: 18px 0 6px; padding-top: 14px; border-top: 2px solid #e3e8f2; }
+.chart-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(560px, 1fr)); gap: 12px; align-items: stretch; }
+.chart-grid .chart-card { margin: 0; }
 
-.sc { display: flex; flex-direction: column; gap: 10px; }
+.sc { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
 .sc-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.sc-name { font-size: 16px; font-weight: 800; color: #1f3a73; line-height: 1.3; word-break: keep-all; }
+.sc-name { font-size: 20px; font-weight: 800; color: #1f3a73; line-height: 1.3; word-break: keep-all; }
 .sc-tags { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px; }
 .sc-tag { font-size: 11px; background: #eaf0fb; color: #2c4a8a; border-radius: 6px; padding: 2px 7px; font-weight: 600; }
 .sc-tag.place { background: #fff3e0; color: #b25e00; }
@@ -301,7 +305,7 @@ TOOL_CSS = """
               box-shadow: 0 1px 4px rgba(31,58,115,.06); }
 .chart-card .chart-title { font-size: 14px; font-weight: 800; color: #1f3a73; margin-bottom: 2px; }
 .chart-card .chart-note { font-size: 11.5px; color: #8591ab; margin-bottom: 4px; }
-.chart-card svg { width: 100%; max-width: 720px; height: auto; display: block; }
+.chart-card svg { width: 100%; max-width: 900px; height: auto; display: block; margin: 0 auto; }
 .legend-note { font-size: 11.5px; color: #8591ab; margin: 2px 0 8px; }
 .tbl-wrap { overflow-x: auto; margin: 6px 0 10px; }
 table.tbl { border-collapse: collapse; width: 100%; font-size: 13px; background: #fff; }
@@ -331,7 +335,7 @@ def donut_svg(pct, color, size=76, stroke=9, dec=0):
     ratio = 0.0 if pct is None else max(0.0, min(pct, 100.0)) / 100.0
     text = "-" if pct is None else f"{pct:.{dec}f}%"
     col = COLOR_GRAY if pct is None else color
-    fs = 14 if size >= 76 else 12
+    fs = 16 if size >= 84 else (14 if size >= 76 else 12)
     cx = size / 2.0
     return (
         f'<svg width="{size}" height="{size}" viewBox="0 0 {size} {size}" style="flex:none">'
@@ -390,8 +394,18 @@ def group_cards(G, mode):
 
 
 # ───────────────────────── 기간 선택 ─────────────────────────
+def refresh_button(key):
+    """작은 새로고침 버튼 (라벨이 있는 입력칸과 높이를 맞추기 위해 위에 빈 칸을 둠)"""
+    st.markdown('<div style="height:27px"></div>', unsafe_allow_html=True)
+    if st.button("↻ 새로고침", key=key, use_container_width=True):
+        load_perf.clear()
+        st.rerun()
+
+
 def pick_period(months):
-    c1, c2, c3 = st.columns([1.1, 1.4, 1.4])
+    c1, c2, c3, _sp, c5 = st.columns([1.2, 1.6, 1.6, 2.2, 1.2])
+    with c5:
+        refresh_button("tool_refresh")
     with c1:
         mode = st.radio("보기 방식", ["월별", "누계"], horizontal=True, key="tool_pmode")
     if mode == "월별":
@@ -452,7 +466,7 @@ def store_card_html(D, c, yms):
         f'<div class="sc-name">{escape(c["name"])}</div>'
         f'<div class="sc-tags">{"".join(tags)}</div>'
         f'<div class="sc-meta">{" · ".join(meta)}</div></div>'
-        f'<div class="sc-donut">{donut_svg(c["rate"], rate_color(c["rate"]), size=76, dec=0)}'
+        f'<div class="sc-donut">{donut_svg(c["rate"], rate_color(c["rate"]), size=88, stroke=10, dec=0)}'
         '<div class="cap">예상매출 달성률</div></div></div>'
         '<div class="sc-nums three">'
         f'<div><div class="l">일매출</div><div class="v">{fnum(c["daily"])}<small>천원</small></div></div>'
@@ -544,27 +558,25 @@ def render_store_detail(D, name, yms, period_text):
     pts = year_points(per, tgt, open_ym, year)
     last_ym = max(per)
 
-    # 1) 매출 지표
-    st.markdown(
+    # 그래프 영역: 넓은 화면은 좌우(매출 | 영업이익), 좁은 화면은 위아래 (CSS grid 가 자동 전환)
+    sales_card = (
         f'<div class="chart-card"><div class="chart-title">📈 매출 흐름 ({year}년, 일매출 천원)</div>'
-        '<div class="chart-note">막대 = 일매출 · 주황 선/숫자 = 예상일매출 · 위 숫자 = 매익율 · 아래 숫자 = 달성률 '
+        '<div class="chart-note">막대 = 일매출 · 주황 = 예상일매출 · 아래 표 = 월별 예상일매출 / 달성률 / 매익율 '
         '(막대에 마우스를 올리면 자세히 보입니다)</div>'
-        + sales_chart_svg(pts, open_ym, last_ym) + '</div>',
-        unsafe_allow_html=True,
+        + sales_chart_svg(pts, open_ym, last_ym) + '</div>'
     )
-
-    # 2) 영업이익 흐름
     if op_cnt == 0:
-        st.markdown('<div class="chart-card"><div class="chart-title">💰 영업이익 흐름 (천원)</div>'
-                    '<div class="chart-note">영업이익이 아직 입력되지 않았습니다.</div></div>', unsafe_allow_html=True)
+        ops_card = ('<div class="chart-card"><div class="chart-title">💰 영업이익 흐름 (천원)</div>'
+                    '<div class="chart-note">영업이익이 아직 입력되지 않았습니다.</div></div>')
     else:
-        st.markdown(
+        ops_card = (
             f'<div class="chart-card"><div class="chart-title">💰 영업이익 흐름 ({year}년, 천원)'
             f' <span style="font-weight:600;color:#6b7a99;font-size:12px;">· 입력된 달 누계 {fnum(op_total)}천원</span></div>'
             '<div class="chart-note">초록 = 흑자 · 빨강 = 적자</div>'
-            + ops_chart_svg(pts, open_ym, last_ym) + '</div>',
-            unsafe_allow_html=True,
+            + ops_chart_svg(pts, open_ym, last_ym) + '</div>'
         )
+    st.markdown('<div class="sec-title">📊 월별 흐름</div>'
+                f'<div class="chart-grid">{sales_card}{ops_card}</div>', unsafe_allow_html=True)
 
     with st.expander("월별 상세 표 보기"):
         st.markdown(monthly_table_html(rows), unsafe_allow_html=True)
@@ -610,7 +622,7 @@ def sales_chart_svg(pts, open_ym="", last_ym=""):
     x0, x1 = CH_X0, CH_X1
     slot = (x1 - x0) / 12.0
     bw = 26.0
-    y_top, y_base = 62, 140
+    y_top, y_base = 30, 130
     vals = [p["daily"] for p in pts if p["daily"] is not None] + [p["target"] for p in pts if p["target"] is not None]
     vmax = max(vals) if vals else 1.0
     if vmax <= 0:
@@ -619,8 +631,9 @@ def sales_chart_svg(pts, open_ym="", last_ym=""):
     y_m = y_base + 16       # 월
     y_t = y_base + 33       # 예상일매출
     y_r = y_base + 50       # 달성률
-    y_o = y_base + 65       # 오픈 표시
-    H = y_base + 72
+    y_g = y_base + 67       # 매익율
+    y_o = y_base + 82       # 오픈 표시
+    H = y_base + 88
 
     out = [f'<svg viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg" font-family="inherit">']
     # 범례
@@ -629,7 +642,7 @@ def sales_chart_svg(pts, open_ym="", last_ym=""):
                f'<line x1="{W - 95}" y1="8" x2="{W - 81}" y2="8" stroke="{COLOR_WARN}" stroke-width="3"/>'
                f'<text x="{W - 76}" y="11" font-size="10" fill="#6b7a99">예상일매출</text>')
     # 행 이름
-    out.append('<text x="2" y="31" font-size="10" font-weight="700" fill="#6b7a99">매익율</text>')
+    out.append(f'<text x="2" y="{y_g}" font-size="10" font-weight="700" fill="#6b7a99">매익율</text>')
     out.append(f'<text x="2" y="{y_m}" font-size="10" font-weight="700" fill="#6b7a99">월</text>')
     out.append(f'<text x="2" y="{y_t}" font-size="10" font-weight="700" fill="{COLOR_WARN}">예상일매출</text>')
     out.append(f'<text x="2" y="{y_r}" font-size="10" font-weight="700" fill="#6b7a99">달성률</text>')
@@ -645,7 +658,7 @@ def sales_chart_svg(pts, open_ym="", last_ym=""):
                    f'fill="{lab_col}">{p["mo"]}월</text>')
         if has:
             mt = "-" if p["margin"] is None else f'{p["margin"]:.1f}%'
-            out.append(f'<text x="{cx:.1f}" y="31" text-anchor="middle" font-size="10" font-weight="700" fill="#1f3a73">{mt}</text>')
+            out.append(f'<text x="{cx:.1f}" y="{y_g}" text-anchor="middle" font-size="10" font-weight="700" fill="#1f3a73">{mt}</text>')
             if p["daily"] is not None:
                 h = max(p["daily"] * scale, 1.0)
                 out.append(f'<rect x="{cx - bw / 2:.1f}" y="{y_base - h:.1f}" width="{bw:.1f}" height="{h:.1f}" '
@@ -682,12 +695,13 @@ def sales_chart_svg(pts, open_ym="", last_ym=""):
 
 def ops_chart_svg(pts, open_ym="", last_ym=""):
     """1~12월 고정 칸 영업이익 막대 (흑자 초록 / 적자 빨강, 입력 전은 '미입력')"""
-    W, H = CH_W, 170
+    W, H = CH_W, 218        # 매출 그래프와 같은 높이 (좌우로 놓였을 때 월 위치가 맞도록)
     x0, x1 = CH_X0, CH_X1
     n = len(pts)
     slot = (x1 - x0) / n
     bw = 26.0
-    y_top, y_bot = 22, 110
+    y_top, y_bot = 30, 118
+    y_month = 146
     vals = [p["op"] for p in pts if p["op"] is not None]
     vmax = max([0.0] + vals)
     vmin = min([0.0] + vals)
@@ -717,10 +731,10 @@ def ops_chart_svg(pts, open_ym="", last_ym=""):
             out.append(f'<text x="{cx:.1f}" y="{ty:.1f}" text-anchor="middle" font-size="10" font-weight="700" '
                        f'fill="{col}">{v:,.0f}</text>')
         lab_col = "#c3cbdc" if p["state"] == "pre" or (not has and last_ym and p["ym"] > last_ym) else "#6b7a99"
-        out.append(f'<text x="{cx:.1f}" y="{H - 24}" text-anchor="middle" font-size="11" font-weight="{"700" if has else "400"}" '
+        out.append(f'<text x="{cx:.1f}" y="{y_month}" text-anchor="middle" font-size="11" font-weight="{"700" if has else "400"}" '
                    f'fill="{lab_col}">{p["mo"]}월</text>')
         if open_ym and p["ym"] == open_ym:
-            out.append(f'<text x="{cx:.1f}" y="{H - 10}" text-anchor="middle" font-size="9" font-weight="700" '
+            out.append(f'<text x="{cx:.1f}" y="{y_month + 16}" text-anchor="middle" font-size="9" font-weight="700" '
                        f'fill="{COLOR_GOOD}">▲오픈</text>')
     out.append("</svg>")
     return "".join(out)
@@ -783,7 +797,7 @@ def view_performance(D, yms, mode, period_text):
         st.button("← 담당자 목록으로", key="tool_mgr_back", on_click=_back)
         names = [m["name"] for m in D["masters"] if m["manager"] == sel_mgr]
         st.markdown(f'<div class="mgr-name">{escape(sel_mgr)}</div>'
-                    f'<div class="mgr-sub">{period_text} · 담당 {len(names)}점</div>', unsafe_allow_html=True)
+                    f'<div class="mgr-sub">{period_text}</div>', unsafe_allow_html=True)
         st.markdown(group_cards(calc_group(D, names, yms), mode), unsafe_allow_html=True)
         render_store_cards(D, names, yms, period_text, ctx="a")
         return
@@ -793,7 +807,7 @@ def view_performance(D, yms, mode, period_text):
         with st.container(border=True):
             c1, c2 = st.columns([5, 1])
             with c1:
-                st.markdown(f'<div class="mgr-name">{escape(mgr)}</div><div class="mgr-sub">담당 {len(names)}점</div>',
+                st.markdown(f'<div class="mgr-name" style="margin-top:6px">{escape(mgr)}</div>',
                             unsafe_allow_html=True)
             with c2:
                 def _open(mg=mgr):
@@ -838,21 +852,21 @@ def view_stores(D, yms, period_text):
 def render_tool(get_gc):
     st.markdown(TOOL_CSS, unsafe_allow_html=True)
 
-    top1, top2 = st.columns([6, 1])
-    with top2:
-        if st.button("↻ 새로고침", key="tool_refresh", use_container_width=True):
-            load_perf.clear()
-            st.rerun()
-
     D = load_perf(get_gc)
+    problem = None
     if D.get("error"):
-        st.error(D["error"])
-        return
-    if not D["masters"]:
-        st.info("점포마스터 탭에 점포가 아직 없습니다.")
-        return
-    if not D["months"]:
-        st.info("월실적 탭에 실적 데이터가 아직 없습니다.")
+        problem = ("error", D["error"])
+    elif not D["masters"]:
+        problem = ("info", "점포마스터 탭에 점포가 아직 없습니다.")
+    elif not D["months"]:
+        problem = ("info", "월실적 탭에 실적 데이터가 아직 없습니다.")
+    if problem:
+        (st.error if problem[0] == "error" else st.info)(problem[1])
+        e1, _e2 = st.columns([1, 5])
+        with e1:
+            if st.button("↻ 새로고침", key="tool_refresh_err", use_container_width=True):
+                load_perf.clear()
+                st.rerun()
         return
 
     mode, yms, period_text = pick_period(D["months"])
