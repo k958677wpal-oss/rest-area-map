@@ -16,6 +16,8 @@ PERF_SHEET_NAME = "특수팀_실적관리"
 TAB_STORE = "점포마스터"
 TAB_MONTH = "월실적"
 TAB_TARGET = "예상목표"
+TAB_GOAL = "목표"          # (선택) MBO 목표: 대상 | 지표 | 기간 | 목표값
+TEAM_KEYS = ("팀", "팀전체", "전체", "특수개발팀", "특수팀")
 
 KIND_DAILY_KEYWORD = "일매출"
 KIND_PROFIT_KEYWORD = "이익"
@@ -180,9 +182,20 @@ def load_perf(_get_gc):
                 if v is not None:
                     d[slot][k] = v
 
+    # '목표' 탭(선택): 대상 | 지표 | 기간(연간/월) | 목표값  -> 없으면 그냥 건너뜀
+    goals = {}
+    goal_v = read_tab(TAB_GOAL)
+    for rec in _records(goal_v or []):
+        who = rec.get("대상", "").replace(" ", "")
+        metric = rec.get("지표", "").replace(" ", "")
+        period = rec.get("기간", "").replace(" ", "") or "연간"
+        val = _num(rec.get("목표값", ""))
+        if who and metric and val is not None:
+            goals[(who, metric, period)] = val
+
     months = sorted({ym for per in monthly.values() for ym in per})
     return {"error": None, "masters": masters, "master_by_name": master_by_name,
-            "monthly": monthly, "targets": targets, "months": months}
+            "monthly": monthly, "targets": targets, "months": months, "goals": goals}
 
 
 # ───────────────────────── 지표 계산 ─────────────────────────
@@ -225,11 +238,13 @@ def calc_group(D, names, yms):
     rows = [calc_store(D, n, yms) for n in names]
     data_rows = [r for r in rows if r["has_data"]]
 
-    opened, new_in_period = 0, 0
+    opened, new_in_period, opened_year = 0, 0, 0
     for n in names:
         oy = D["master_by_name"].get(n, {}).get("open_ym", "")
         if oy and end and oy <= end:
             opened += 1
+            if oy[:4] == end[:4]:
+                opened_year += 1
             if start and oy >= start:
                 new_in_period += 1
     if opened == 0:
@@ -255,7 +270,7 @@ def calc_group(D, names, yms):
     rate_rows = [r for r in data_rows if r["rate"] is not None]
     achieved = len([r for r in rate_rows if r["rate"] >= 100.0])
 
-    return {"opened": opened, "new_in_period": new_in_period, "data_n": len(data_rows),
+    return {"opened": opened, "new_in_period": new_in_period, "opened_year": opened_year, "data_n": len(data_rows),
             "daily": daily, "target": target, "rate": rate, "margin": margin,
             "op_sum": op_sum, "op_n": len(op_rows), "black": black,
             "rate_n": len(rate_rows), "achieved": achieved}
@@ -274,8 +289,34 @@ TOOL_CSS = """
 .kpi .kpi-v.neg { color: #d0143c; }
 .kpi .kpi-v small { font-size: 14px; font-weight: 600; color: #6b7a99; margin-left: 3px; }
 .kpi .kpi-s { font-size: 12px; color: #7d8aa8; margin-top: 5px; line-height: 1.4; }
-.kpi .kpi-g { height: 6px; background: #e6ebf4; border-radius: 99px; margin-top: 9px; overflow: hidden; }
-.kpi .kpi-g i { display: block; height: 100%; border-radius: 99px; background: var(--ac); }
+.kpi { display: flex; flex-direction: column; }
+.kpi .kpi-bot { margin-top: auto; padding-top: 10px; }
+.kpi.nobot { justify-content: center; }
+.kpi .kpi-d { font-size: 12.5px; font-weight: 600; color: #7d8aa8; }
+.kpi .kpi-d b { font-weight: 800; }
+.kpi .kpi-d.up { color: #0b9a6a; }
+.kpi .kpi-d.dn { color: #d0143c; }
+.kpi .kpi-d.d0 { color: #9aa5bd; font-weight: 500; }
+.kpi .kpi-goal { display: flex; justify-content: space-between; align-items: baseline; font-size: 12.5px; color: #55648a; font-weight: 600; margin-bottom: 4px; }
+.kpi .kpi-goal b { font-weight: 800; }
+.kpi .kpi-gp { height: 6px; background: #e6ebf4; border-radius: 99px; overflow: hidden; margin-bottom: 8px; }
+.kpi .kpi-gp i { display: block; height: 100%; border-radius: 99px; }
+.kpi .kpi-g2 { margin-bottom: 8px; }
+.kpi .kpi-g2 .trk { position: relative; height: 8px; border-radius: 99px;
+    background: linear-gradient(90deg, #fbdde2 0 66.67%, #ffe8c2 66.67% 83.33%, #cfeee1 83.33% 100%); }
+.kpi .kpi-g2 .fl { position: absolute; left: 0; top: 0; height: 100%; border-radius: 99px; background: var(--ac); }
+.kpi .kpi-g2 .tk { position: absolute; top: -3px; bottom: -3px; width: 2px; background: #55648a; border-radius: 2px; }
+.kpi .kpi-g2 .lb { position: relative; height: 14px; margin-top: 5px; }
+.kpi .kpi-g2 .lb span { position: absolute; transform: translateX(-50%); font-size: 10.5px; color: #7d8aa8; font-weight: 600; }
+.st-key-periodbar { background: linear-gradient(160deg, #ffffff 40%, #f1f5fc 100%); border: 1px solid #dde3ef; border-radius: 14px;
+    padding: 12px 18px 12px; box-shadow: 0 3px 10px rgba(31,58,115,.07); margin-bottom: 4px; }
+.st-key-periodbar [data-testid="stHorizontalBlock"] { align-items: flex-end; }
+.pb-title { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 800; color: #1f3a73; padding-bottom: 9px; white-space: nowrap; }
+.mgr-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; padding-top: 4px; }
+.mgr-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.mgr-chip { font-size: 13px; font-weight: 600; color: #2c4a8a; background: #eaf0fb; border-radius: 999px; padding: 4px 12px; }
+div[class*="st-key-mgrbtn_"] { display: flex; justify-content: flex-end; }
+div[class*="st-key-mgrbtn_"] button { min-width: 150px; }
 .sec-h { display: flex; align-items: center; gap: 10px; font-size: 22px; font-weight: 800; color: #1a2b4f; margin: 20px 0 6px; }
 .sec-ic { width: 34px; height: 34px; border-radius: 10px; display: flex; align-items: center; justify-content: center;
           background: linear-gradient(145deg, #1f3a73, #3d64b0); flex: none; }
@@ -394,6 +435,23 @@ def mini_icon(kind, color, size=18):
     elif kind == "team":
         b = (f'<circle cx="9" cy="8" r="3.6" fill="{color}"/><path d="M2 20c0-4 3-6.5 7-6.5s7 2.5 7 6.5z" fill="{color}"/>'
              f'<circle cx="17" cy="9" r="3" fill="{color}" fill-opacity=".7"/><path d="M16 14c4 0 6.5 2 6.5 6H18c0-2.5-.8-4.5-2-6z" fill="{color}" fill-opacity=".7"/>')
+    elif kind == "trophy":
+        b = (f'<path d="M7 3h10v6a5 5 0 0 1-10 0z" fill="{color}"/>'
+             f'<path d="M7 5H3.5c0 3 1.3 4.8 3.8 5.2M17 5h3.5c0 3-1.3 4.8-3.8 5.2" stroke="{color}" stroke-width="1.6" fill="none"/>'
+             f'<rect x="10.9" y="13.5" width="2.2" height="4" fill="{color}"/><rect x="7.5" y="17.5" width="9" height="3.2" rx="1.2" fill="{color}"/>')
+    elif kind == "badge":
+        b = (f'<rect x="4" y="3" width="16" height="19" rx="2.5" fill="{color}"/>'
+             '<rect x="9.5" y="5" width="5" height="1.8" rx=".9" fill="#fff" fill-opacity=".55"/>'
+             '<circle cx="12" cy="11.5" r="2.8" fill="#fff"/><path d="M7.2 19c0-3 2.2-4.4 4.8-4.4s4.8 1.4 4.8 4.4z" fill="#fff"/>')
+    elif kind == "cal":
+        b = (f'<rect x="3" y="5" width="18" height="16" rx="3" fill="{color}"/>'
+             '<rect x="3" y="5" width="18" height="5" rx="2" fill="#000" fill-opacity=".18"/>'
+             f'<rect x="7" y="2.5" width="2.2" height="5" rx="1.1" fill="{color}"/><rect x="14.8" y="2.5" width="2.2" height="5" rx="1.1" fill="{color}"/>'
+             '<rect x="6.5" y="12.5" width="3" height="3" rx=".8" fill="#fff"/><rect x="11" y="12.5" width="3" height="3" rx=".8" fill="#fff"/>'
+             '<rect x="15.5" y="12.5" width="2.5" height="3" rx=".8" fill="#fff" fill-opacity=".6"/>')
+    elif kind == "pin":
+        b = (f'<path d="M12 22s7-6.2 7-12a7 7 0 0 0-14 0c0 5.8 7 12 7 12z" fill="{color}"/>'
+             '<circle cx="12" cy="10" r="2.8" fill="#fff"/>')
     else:   # person
         b = f'<circle cx="12" cy="8" r="4.4" fill="{color}"/><path d="M3.5 21c0-5 3.8-8 8.5-8s8.5 3 8.5 8z" fill="{color}"/>'
     return (f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" '
@@ -415,11 +473,18 @@ def kpi_html(items):
         ac = it.get("accent", COLOR_NAVY)
         ic = mini_icon(it["icon"], ac) if it.get("icon") else ""
         g = it.get("gauge")
-        gauge = (f'<div class="kpi-g"><i style="width:{max(0.0, min(g, 100.0)):.0f}%"></i></div>'
-                 if g is not None else "")
+        gauge = ""
+        if g is not None:
+            w = max(0.0, min(g, 120.0)) / 120.0 * 100.0
+            gauge = (f'<div class="kpi-g2"><div class="trk"><i class="fl" style="width:{w:.1f}%"></i>'
+                     '<b class="tk" style="left:66.67%"></b><b class="tk" style="left:83.33%"></b></div>'
+                     '<div class="lb"><span style="left:66.67%">80%</span><span style="left:83.33%">100%</span></div></div>')
+        delta = it.get("delta") or ""
+        bot = f'<div class="kpi-bot">{gauge}{delta}</div>' if (gauge or delta) else ""
+        nb = "" if bot else " nobot"
         out.append(
-            f'<div class="kpi" style="--ac:{ac}"><div class="kpi-l">{ic}{it["label"]}</div>'
-            f'<div class="kpi-v{cls}">{it["value"]}{u}</div>{sub}{gauge}</div>'
+            f'<div class="kpi{nb}" style="--ac:{ac}"><div class="kpi-l">{ic}{it["label"]}</div>'
+            f'<div class="kpi-v{cls}">{it["value"]}{u}</div>{sub}{bot}</div>'
         )
     out.append("</div>")
     return "".join(out)
@@ -431,10 +496,71 @@ def _op_accent(v):
     return COLOR_GOOD if v >= 0 else COLOR_BAD
 
 
-def group_cards(G, mode):
+def _prev_ym(ym):
+    y, m = int(ym[:4]), int(ym[4:]) - 1
+    if m == 0:
+        y, m = y - 1, 12
+    return f"{y:04d}{m:02d}"
+
+
+def delta_html(cur, prev, kind):
+    """'전월 대비 ▲ 1.2%p' 한 줄. kind: pp(%p) / pt(점) / amt(천원)"""
+    if cur is None:
+        return ""
+    if prev is None:
+        return '<div class="kpi-d d0">전월 자료 없음</div>'
+    d = cur - prev
+    if kind == "pp":
+        thr, txt = 0.05, f"{abs(d):,.1f}%p"
+    elif kind == "pt":
+        thr, txt = 0.5, f"{abs(d):,.0f}점"
+    else:
+        thr, txt = 0.5, f"{abs(d):,.0f}천원"
+    if abs(d) < thr:
+        return '<div class="kpi-d d0">전월과 동일</div>'
+    cls, ar = ("up", "▲") if d > 0 else ("dn", "▼")
+    return f'<div class="kpi-d {cls}">전월 대비 <b>{ar} {txt}</b></div>'
+
+
+def goal_html(cur, goal, unit, tag="목표"):
+    """목표가 있을 때만 쓰는 '목표 12점 중 5점 · 42%' + 진행 막대"""
+    if goal is None or goal <= 0 or cur is None:
+        return ""
+    pct = cur / goal * 100.0
+    col = COLOR_GOOD if pct >= 100 else COLOR_NAVY
+    return (f'<div class="kpi-goal"><span>{tag} {goal:,.0f}{unit} 중 <b>{cur:,.0f}{unit}</b></span>'
+            f'<b style="color:{col}">{pct:.0f}%</b></div>'
+            f'<div class="kpi-gp"><i style="width:{max(0.0, min(pct, 100.0)):.0f}%;background:{col}"></i></div>')
+
+
+def find_goal(D, who, metric, period):
+    """who: '팀' 또는 담당자 이름. 없으면 None"""
+    goals = D.get("goals", {}) if D else {}
+    if who == "팀":
+        for k in TEAM_KEYS:
+            if (k, metric, period) in goals:
+                return goals[(k, metric, period)]
+        return None
+    return goals.get((who.replace(" ", ""), metric, period))
+
+
+def group_cards(G, mode, P=None, D=None, who="팀"):
+    """P: 전월 계산 결과(월별 보기에서만 전달), D/who: 목표 조회용"""
     cumulative = (mode == "누계")
-    # 1) 출점수
-    open_sub = "" if cumulative else f"당월 신규 {G['new_in_period']}점"
+    use_d = P is not None
+    p_ok = use_d and P["data_n"] > 0
+    pv = (lambda k: P[k] if p_ok else None)
+    # 1) 출점수 (+ 목표가 있으면 달성 막대)
+    open_sub = ""
+    open_bot = "" if cumulative else f'<div class="kpi-d d0">당월 신규 {G["new_in_period"]}점</div>'
+    goal_year = find_goal(D, who, "출점수", "연간") if D else None
+    goal_mon = find_goal(D, who, "출점수", "월") if (D and not cumulative) else None
+    goal_part = ""
+    if goal_year is not None:
+        goal_part = goal_html(G["opened_year"], goal_year, "점", "올해 목표")
+    elif goal_mon is not None:
+        goal_part = goal_html(G["new_in_period"], goal_mon, "점", "월 목표")
+    open_bot = goal_part + open_bot
     # 영업이익 / 흑자점의 작은 글자
     if G["op_n"] == 0:
         op_sub = "영업이익 미입력"
@@ -446,51 +572,71 @@ def group_cards(G, mode):
         op_sub = part.replace(" · ", "", 1)
         black_sub = f"{G['op_n']}점 중 구성비 {pct_text(G['black'], G['op_n'])}{part}"
 
+    dl = (lambda cur, prev, kind: delta_html(cur, prev, kind)) if use_d else (lambda *a: "")
+    black_cur = G["black"] if G["op_n"] > 0 else None
+    black_prev = P["black"] if (p_ok and P["op_n"] > 0) else None
     items = [
-        dict(label="출점수", value=fnum(G["opened"]), unit="점", sub=open_sub, accent=COLOR_NAVY, icon="store"),
-        dict(label="매익율", value=fnum(G["margin"], 1), unit="%", accent=COLOR_PURPLE, icon="pct"),
-        dict(label="일매출", value=fnum(G["daily"]), unit="천원", accent=COLOR_BLUE, icon="coin"),
+        dict(label="출점수", value=fnum(G["opened"]), unit="점", sub=open_sub, accent=COLOR_NAVY, icon="store",
+             delta=open_bot),
+        dict(label="매익율", value=fnum(G["margin"], 1), unit="%", accent=COLOR_PURPLE, icon="pct",
+             delta=dl(G["margin"], pv("margin"), "pp")),
+        dict(label="일매출", value=fnum(G["daily"]), unit="천원", accent=COLOR_BLUE, icon="coin",
+             delta=dl(G["daily"], pv("daily"), "amt")),
         dict(label="예상매출 달성률", value=fnum(G["rate"], 1), unit="%",
              sub=f"{G['rate_n']}점 중 {G['achieved']}점 달성 · 구성비 {pct_text(G['achieved'], G['rate_n'])}",
              neg=(G["rate"] is not None and G["rate"] < 100),
-             accent=rate_color(G["rate"]), icon="target", gauge=G["rate"]),
+             accent=rate_color(G["rate"]), icon="target", gauge=G["rate"],
+             delta=dl(G["rate"], pv("rate"), "pp")),
         dict(label="영업이익 누계" if cumulative else "영업이익", value=fnum(G["op_sum"]), unit="천원",
              sub=op_sub, neg=(G["op_sum"] is not None and G["op_sum"] < 0),
-             accent=_op_accent(G["op_sum"]), icon="bars"),
-        dict(label="흑자점", value=fnum(G["black"]), unit="점", sub=black_sub, accent=COLOR_GOOD, icon="check"),
+             accent=_op_accent(G["op_sum"]), icon="bars",
+             delta=dl(G["op_sum"], pv("op_sum"), "amt")),
+        dict(label="흑자점", value=fnum(G["black"]), unit="점", sub=black_sub, accent=COLOR_GOOD, icon="check",
+             delta=dl(black_cur, black_prev, "pt")),
     ]
     return kpi_html(items)
 
 
 # ───────────────────────── 기간 선택 ─────────────────────────
+def icon_button(label, icon, **kw):
+    """머티리얼 아이콘 버튼. 스트림릿 버전이 icon 을 지원하지 않으면 아이콘 없이 표시"""
+    try:
+        return st.button(label, icon=icon, **kw)
+    except TypeError:
+        return st.button(label, **kw)
+
+
 def refresh_button(key):
-    """작은 새로고침 버튼 (라벨이 있는 입력칸과 높이를 맞추기 위해 위에 빈 칸을 둠)"""
-    st.markdown('<div style="height:27px"></div>', unsafe_allow_html=True)
-    if st.button("↻ 새로고침", key=key, use_container_width=True):
+    if icon_button("새로고침", ":material/refresh:", key=key, use_container_width=True):
         load_perf.clear()
         st.rerun()
 
 
 def pick_period(months):
-    c1, c2, c3, _sp, c5 = st.columns([1.2, 1.6, 1.6, 2.2, 1.2])
-    with c5:
-        refresh_button("tool_refresh")
-    with c1:
-        mode = st.radio("보기 방식", ["월별", "누계"], horizontal=True, key="tool_pmode")
-    if mode == "월별":
+    """조회 기간 바: 카드 하나 안에 [제목] [보기 방식] [월 선택] [월 선택] [여백] [새로고침]"""
+    with st.container(key="periodbar"):
+        t, c1, c2, c3, _sp, c5 = st.columns([1.15, 1.3, 1.6, 1.6, 1.3, 1.2])
+        with t:
+            st.markdown(f'<div class="pb-title">{mini_icon("cal", COLOR_NAVY, 22)}조회 기간</div>',
+                        unsafe_allow_html=True)
+        with c1:
+            mode = st.radio("보기 방식", ["월별", "누계"], horizontal=True, key="tool_pmode")
+        with c5:
+            refresh_button("tool_refresh")
+        if mode == "월별":
+            with c2:
+                m = st.selectbox("기준 월", months[::-1], format_func=ym_label, key="tool_pm")
+            return mode, [m], ym_label(m)
+        last_year = months[-1][:4]
+        first_of_year = [x for x in months if x[:4] == last_year][0]
         with c2:
-            m = st.selectbox("기준 월", months[::-1], format_func=ym_label, key="tool_pm")
-        return mode, [m], ym_label(m)
-    last_year = months[-1][:4]
-    first_of_year = [x for x in months if x[:4] == last_year][0]
-    with c2:
-        s = st.selectbox("시작월", months, index=months.index(first_of_year), format_func=ym_label, key="tool_ps")
-    with c3:
-        e = st.selectbox("종료월", months, index=len(months) - 1, format_func=ym_label, key="tool_pe")
-    if s > e:
-        s, e = e, s
-    yms = [x for x in months if s <= x <= e]
-    return mode, yms, f"{ym_label(s)} ~ {ym_label(e)}"
+            s = st.selectbox("시작월", months, index=months.index(first_of_year), format_func=ym_label, key="tool_ps")
+        with c3:
+            e = st.selectbox("종료월", months, index=len(months) - 1, format_func=ym_label, key="tool_pe")
+        if s > e:
+            s, e = e, s
+        yms = [x for x in months if s <= x <= e]
+        return mode, yms, f"{ym_label(s)} ~ {ym_label(e)}"
 
 
 # ───────────────────────── 점포 카드 / 상세 ─────────────────────────
@@ -570,7 +716,8 @@ def render_store_detail(D, name, yms, period_text):
     if m.get("type"):
         tags.append(f'<span class="sc-tag">{escape(m["type"])}</span>')
     info = [escape(x) for x in (m.get("manager"), (m.get("open_date") and f"오픈 {m['open_date']}"), m.get("region")) if x]
-    addr = f'<div class="sh-addr">📍 {escape(m["address"])}</div>' if m.get("address") else ""
+    addr = (f'<div class="sh-addr">{mini_icon("pin", COLOR_BAD, 16)} {escape(m["address"])}</div>'
+            if m.get("address") else "")
     st.markdown(
         '<div class="store-head"><div class="sh-row">'
         f'<div class="sh-name">{escape(name)}</div>{"".join(tags)}</div>'
@@ -583,17 +730,28 @@ def render_store_detail(D, name, yms, period_text):
     tgt = D["targets"].get(name, {"daily": {}, "profit": {}})
     open_ym = m.get("open_ym", "")
 
-    # 선택 기간 요약 카드
+    # 선택 기간 요약 카드 (월별 보기일 때만 전월 대비)
+    if len(yms) == 1:
+        pc = calc_store(D, name, [_prev_ym(yms[0])])
+        pk = (lambda k: pc[k] if pc["has_data"] else None)
+        dl = lambda cur, prev, kind: delta_html(cur, prev, kind)
+    else:
+        pk = (lambda k: None)
+        dl = lambda *a: ""
     items = [
-        dict(label="일매출", value=fnum(c["daily"]), unit="천원", sub=period_text, accent=COLOR_BLUE, icon="coin"),
+        dict(label="일매출", value=fnum(c["daily"]), unit="천원", sub=period_text, accent=COLOR_BLUE, icon="coin",
+             delta=dl(c["daily"], pk("daily"), "amt")),
         dict(label="예상매출 달성률", value=fnum(c["rate"], 1), unit="%",
              sub="예상 " + fnum(c["target"], 0, "천원"),
              neg=(c["rate"] is not None and c["rate"] < 100),
-             accent=rate_color(c["rate"]), icon="target", gauge=c["rate"]),
-        dict(label="매익율", value=fnum(c["margin"], 1), unit="%", accent=COLOR_PURPLE, icon="pct"),
+             accent=rate_color(c["rate"]), icon="target", gauge=c["rate"],
+             delta=dl(c["rate"], pk("rate"), "pp")),
+        dict(label="매익율", value=fnum(c["margin"], 1), unit="%", accent=COLOR_PURPLE, icon="pct",
+             delta=dl(c["margin"], pk("margin"), "pp")),
         dict(label="영업이익", value=fnum(c["op"]), unit="천원",
              sub="" if c["op"] is not None else "미입력",
-             neg=(c["op"] is not None and c["op"] < 0), accent=_op_accent(c["op"]), icon="bars"),
+             neg=(c["op"] is not None and c["op"] < 0), accent=_op_accent(c["op"]), icon="bars",
+             delta=dl(c["op"], pk("op"), "amt")),
     ]
     st.markdown(kpi_html(items), unsafe_allow_html=True)
 
@@ -631,22 +789,22 @@ def render_store_detail(D, name, yms, period_text):
 
     # 그래프 영역: 넓은 화면은 좌우(매출 | 영업이익), 좁은 화면은 위아래 (CSS grid 가 자동 전환)
     sales_card = (
-        f'<div class="chart-card"><div class="chart-title">📈 매출 흐름 ({year}년, 일매출 천원)</div>'
+        f'<div class="chart-card"><div class="chart-title">{mini_icon("bars", COLOR_NAVY, 17)} 매출 흐름 ({year}년, 일매출 천원)</div>'
         '<div class="chart-note">막대 = 일매출 · 주황 = 예상일매출 · 아래 표 = 월별 예상일매출 / 달성률 / 매익율 '
         '(막대에 마우스를 올리면 자세히 보입니다)</div>'
         + sales_chart_svg(pts, open_ym, last_ym) + '</div>'
     )
     if op_cnt == 0:
-        ops_card = ('<div class="chart-card empty"><div class="chart-title">💰 영업이익 흐름 (천원)</div>'
+        ops_card = (f'<div class="chart-card empty"><div class="chart-title">{mini_icon("coin", COLOR_GOOD, 17)} 영업이익 흐름 (천원)</div>'
                     '<div class="chart-note">영업이익이 아직 입력되지 않았습니다. 입력하면 월별 흐름이 여기에 표시됩니다.</div></div>')
     else:
         ops_card = (
-            f'<div class="chart-card"><div class="chart-title">💰 영업이익 흐름 ({year}년, 천원)'
+            f'<div class="chart-card"><div class="chart-title">{mini_icon("coin", COLOR_GOOD, 17)} 영업이익 흐름 ({year}년, 천원)'
             f' <span style="font-weight:600;color:#6b7a99;font-size:12px;">· 입력된 달 누계 {fnum(op_total)}천원</span></div>'
             '<div class="chart-note">초록 = 흑자 · 빨강 = 적자</div>'
             + ops_chart_svg(pts, open_ym, last_ym) + '</div>'
         )
-    st.markdown('<div class="sec-title">📊 월별 흐름</div>'
+    st.markdown(f'<div class="sec-title">{mini_icon("bars", COLOR_NAVY, 18)} 월별 흐름</div>'
                 f'<div class="chart-grid">{sales_card}{ops_card}</div>', unsafe_allow_html=True)
 
     with st.expander("월별 상세 표 보기"):
@@ -851,10 +1009,17 @@ def render_store_cards(D, names, yms, period_text, ctx, sort_by="오픈일 최�
 def view_performance(D, yms, mode, period_text):
     all_names = [m["name"] for m in D["masters"]]
 
-    st.markdown(sec_heading("team", f"팀 전체 · {period_text}"), unsafe_allow_html=True)
-    st.markdown(group_cards(calc_group(D, all_names, yms), mode), unsafe_allow_html=True)
+    def prev_of(names):
+        # 월별 보기에서만 '전월 대비'를 계산 (누계 보기는 None)
+        if mode == "월별" and len(yms) == 1:
+            return calc_group(D, names, [_prev_ym(yms[0])])
+        return None
 
-    st.markdown(sec_heading("person", "담당자별"), unsafe_allow_html=True)
+    st.markdown(sec_heading("trophy", f"팀 전체 · {period_text}"), unsafe_allow_html=True)
+    st.markdown(group_cards(calc_group(D, all_names, yms), mode, prev_of(all_names), D, "팀"),
+                unsafe_allow_html=True)
+
+    st.markdown(sec_heading("badge", "담당자별"), unsafe_allow_html=True)
     sel_mgr = st.session_state.get("tool_mgr")
     managers = sorted({m["manager"] for m in D["masters"] if m["manager"]})
     if not managers:
@@ -869,22 +1034,26 @@ def view_performance(D, yms, mode, period_text):
         names = [m["name"] for m in D["masters"] if m["manager"] == sel_mgr]
         st.markdown(f'<div class="mgr-name">{escape(sel_mgr)}</div>'
                     f'<div class="mgr-sub">{period_text}</div>', unsafe_allow_html=True)
-        st.markdown(group_cards(calc_group(D, names, yms), mode), unsafe_allow_html=True)
+        st.markdown(group_cards(calc_group(D, names, yms), mode, prev_of(names), D, sel_mgr),
+                    unsafe_allow_html=True)
         render_store_cards(D, names, yms, period_text, ctx="a")
         return
 
     for mi, mgr in enumerate(managers):
         names = [m["name"] for m in D["masters"] if m["manager"] == mgr]
+        chips = "".join(f'<span class="mgr-chip">{escape(n)}</span>' for n in names)
         with st.container(key=f"mgrbox_{mi}"):
-            c1, c2 = st.columns([5, 1])
+            c1, c2 = st.columns([7, 1.4])
             with c1:
-                st.markdown(f'<div class="mgr-name" style="margin-top:6px">{escape(mgr)}</div>',
-                            unsafe_allow_html=True)
+                st.markdown(f'<div class="mgr-row"><div class="mgr-name">{escape(mgr)}</div>'
+                            f'<div class="mgr-chips">{chips}</div></div>', unsafe_allow_html=True)
             with c2:
-                def _open(mg=mgr):
-                    st.session_state["tool_mgr"] = mg
-                st.button("오픈점 보기 ▶", key=f"tool_mgr_{mgr}", on_click=_open, use_container_width=True)
-            st.markdown(group_cards(calc_group(D, names, yms), mode), unsafe_allow_html=True)
+                with st.container(key=f"mgrbtn_{mi}"):
+                    def _open(mg=mgr):
+                        st.session_state["tool_mgr"] = mg
+                    st.button("오픈점 보기 ▶", key=f"tool_mgr_{mgr}", on_click=_open)
+            st.markdown(group_cards(calc_group(D, names, yms), mode, prev_of(names), D, mgr),
+                        unsafe_allow_html=True)
 
 
 def view_stores(D, yms, period_text):
@@ -935,14 +1104,16 @@ def render_tool(get_gc):
         (st.error if problem[0] == "error" else st.info)(problem[1])
         e1, _e2 = st.columns([1, 5])
         with e1:
-            if st.button("↻ 새로고침", key="tool_refresh_err", use_container_width=True):
+            if icon_button("새로고침", ":material/refresh:", key="tool_refresh_err", use_container_width=True):
                 load_perf.clear()
                 st.rerun()
         return
 
     mode, yms, period_text = pick_period(D["months"])
 
-    tab_perf, tab_store, tab_weekly = st.tabs(["📊 실적 현황", "🏪 점포 현황", "📝 주간 활동 보고"])
+    tab_perf, tab_store, tab_weekly = st.tabs([":material/bar_chart: 실적 현황",
+                                               ":material/storefront: 점포 현황",
+                                               ":material/edit_note: 주간 활동 보고"])
     with tab_perf:
         view_performance(D, yms, mode, period_text)
     with tab_store:
