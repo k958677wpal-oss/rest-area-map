@@ -320,21 +320,22 @@ TOOL_CSS = """
 .pb-chip b { color: #0b9a6a; margin-right: 6px; }
 .st-key-periodbody { padding: 14px 20px 16px !important; }
 .st-key-periodbody [data-testid="stHorizontalBlock"] { align-items: flex-start !important; }
-.st-key-periodbody [data-testid="stVerticalBlock"] { gap: 0 !important; }
-.pb-lab { font-size: 12.5px; font-weight: 700; color: #6b7a99; margin: 0 0 5px 2px; min-height: 18px; }
+.pb-lab { font-size: 12.5px; font-weight: 700; color: #6b7a99; margin: 0 0 0 2px; padding-top: 12px; min-height: 18px; line-height: 18px; }
 .st-key-periodbody [data-testid="stButtonGroup"] button, .st-key-periodbody [data-baseweb="button-group"] button,
 .st-key-periodbody [data-testid="stSegmentedControl"] button { min-height: 42px !important; height: 42px !important; padding: 0 24px !important; font-weight: 700 !important; }
 .st-key-periodbody [data-baseweb="select"] > div { min-height: 42px !important; height: 42px !important; }
 .st-key-periodbody button[kind], .st-key-periodbody div.stButton > button { min-height: 42px !important; }
 /* 탭 메뉴: 눈에 띄는 알약 형태 (클래스 이름에 의존하지 않도록 속성으로 지정) */
-[data-baseweb="tab-list"] { gap: 8px !important; background: #eef2fa !important; padding: 6px !important; border-radius: 14px !important; }
-button[data-baseweb="tab"] { height: 48px !important; padding: 0 26px !important; border-radius: 10px !important; background: transparent !important; }
-button[data-baseweb="tab"] p, button[data-baseweb="tab"] div { font-size: 17px !important; font-weight: 700 !important; color: #55648a; }
-button[data-baseweb="tab"]:hover { background: #dfe7f6 !important; }
-button[data-baseweb="tab"][aria-selected="true"] { background: #2c4a8a !important; box-shadow: 0 3px 8px rgba(31,58,115,.28); }
-button[data-baseweb="tab"][aria-selected="true"] p, button[data-baseweb="tab"][aria-selected="true"] div,
-button[data-baseweb="tab"][aria-selected="true"] span { color: #ffffff !important; }
+[data-baseweb="tab-list"], [role="tablist"], [data-testid="stTabs"] > div:first-child { gap: 8px !important; background: #eef2fa !important; padding: 6px !important; border-radius: 14px !important; }
+button[data-baseweb="tab"], button[role="tab"], [data-testid="stTab"] { height: 48px !important; padding: 0 26px !important; border-radius: 10px !important; background: transparent !important; }
+button[role="tab"] p, button[role="tab"] div, button[role="tab"] span, [data-testid="stTab"] p { font-size: 17px !important; font-weight: 700 !important; color: #55648a; }
+button[role="tab"]:hover, [data-testid="stTab"]:hover { background: #dfe7f6 !important; }
+button[role="tab"][aria-selected="true"], [data-testid="stTab"][aria-selected="true"] { background: #2c4a8a !important; box-shadow: 0 3px 8px rgba(31,58,115,.28); }
+button[role="tab"][aria-selected="true"] p, button[role="tab"][aria-selected="true"] div,
+button[role="tab"][aria-selected="true"] span, [data-testid="stTab"][aria-selected="true"] p { color: #ffffff !important; }
 [data-baseweb="tab-highlight"], [data-baseweb="tab-border"] { display: none !important; }
+.st-key-mgr_filter [data-testid="stHorizontalBlock"] { align-items: center !important; }
+.st-key-mgr_filter [data-testid="stButtonGroup"] button { min-height: 40px; padding: 0 20px; font-weight: 700; }
 .mgr-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; padding-top: 4px; }
 .mgr-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .mgr-chip { font-size: 13px; font-weight: 600; color: #2c4a8a; background: #eaf0fb; border-radius: 999px; padding: 4px 12px; }
@@ -1081,27 +1082,34 @@ def view_performance(D, yms, mode, period_text):
     st.markdown(group_cards(calc_group(D, all_names, yms), mode, prev_of(all_names), D, "팀"),
                 unsafe_allow_html=True)
 
-    st.markdown(sec_heading("badge", "담당자별"), unsafe_allow_html=True)
-    sel_mgr = st.session_state.get("tool_mgr")
     managers = sorted({m["manager"] for m in D["masters"] if m["manager"]})
     if not managers:
+        st.markdown(sec_heading("badge", "담당자별"), unsafe_allow_html=True)
         st.info("점포마스터에 담당자가 입력되어 있지 않습니다.")
         return
 
-    if sel_mgr and sel_mgr in managers:
-        def _back():
-            st.session_state["tool_mgr"] = None
-            st.session_state["tool_store_a"] = None
-        st.button("← 담당자 목록으로", key="tool_mgr_back", on_click=_back)
-        names = [m["name"] for m in D["masters"] if m["manager"] == sel_mgr]
-        st.markdown(f'<div class="mgr-name">{escape(sel_mgr)}</div>'
-                    f'<div class="mgr-sub">{period_text}</div>', unsafe_allow_html=True)
-        st.markdown(group_cards(calc_group(D, names, yms), mode, prev_of(names), D, sel_mgr),
-                    unsafe_allow_html=True)
-        render_store_cards(D, names, yms, period_text, ctx="a")
-        return
+    # 제목 + 담당자 알약 필터 (전체 / 이름...)
+    options = ["전체"] + managers
+    if st.session_state.get("tool_mgr_pick") not in options:
+        st.session_state["tool_mgr_pick"] = "전체"
 
-    for mi, mgr in enumerate(managers):
+    def _reset_detail():
+        st.session_state["tool_store_a"] = None
+
+    with st.container(key="mgr_filter"):
+        h1, h2 = st.columns([1.3, 6])
+        with h1:
+            st.markdown(sec_heading("badge", "담당자별"), unsafe_allow_html=True)
+        with h2:
+            if hasattr(st, "segmented_control"):
+                pick = st.segmented_control("담당자", options, key="tool_mgr_pick", selection_mode="single",
+                                            label_visibility="collapsed", on_change=_reset_detail)
+            else:
+                pick = st.radio("담당자", options, horizontal=True, key="tool_mgr_pick",
+                                label_visibility="collapsed", on_change=_reset_detail)
+    pick = pick or "전체"
+
+    def _mgr_box(mgr, mi, show_btn):
         names = [m["name"] for m in D["masters"] if m["manager"] == mgr]
         chips = "".join(f'<span class="mgr-chip">{escape(n)}</span>' for n in names)
         with st.container(key=f"mgrbox_{mi}"):
@@ -1110,12 +1118,23 @@ def view_performance(D, yms, mode, period_text):
                 st.markdown(f'<div class="mgr-row"><div class="mgr-name">{escape(mgr)}</div>'
                             f'<div class="mgr-chips">{chips}</div></div>', unsafe_allow_html=True)
             with c2:
-                with st.container(key=f"mgrbtn_{mi}"):
-                    def _open(mg=mgr):
-                        st.session_state["tool_mgr"] = mg
-                    st.button("오픈점 보기 ▶", key=f"tool_mgr_{mgr}", on_click=_open)
+                if show_btn:
+                    with st.container(key=f"mgrbtn_{mi}"):
+                        def _open(mg=mgr):
+                            st.session_state["tool_mgr_pick"] = mg
+                            st.session_state["tool_store_a"] = None
+                        st.button("오픈점 보기 ▶", key=f"tool_mgr_{mgr}", on_click=_open)
             st.markdown(group_cards(calc_group(D, names, yms), mode, prev_of(names), D, mgr),
                         unsafe_allow_html=True)
+        return names
+
+    if pick != "전체":
+        names = _mgr_box(pick, managers.index(pick), show_btn=False)
+        render_store_cards(D, names, yms, period_text, ctx="a")
+        return
+
+    for mi, mgr in enumerate(managers):
+        _mgr_box(mgr, mi, show_btn=True)
 
 
 def view_stores(D, yms, period_text):
