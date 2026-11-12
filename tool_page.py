@@ -416,7 +416,7 @@ div[class*="st-key-backbtn_"] button:hover p { color: #ffffff !important; }
 .sm-avl { position: absolute; top: -17px; transform: translateX(-50%); font-size: 12px; font-weight: 800; color: #1f2d4d; white-space: nowrap; line-height: 1; }
 /* 점포 카드의 오픈 순번 배지 */
 .sc-no { display: flex; align-items: center; justify-content: center; min-width: 32px; height: 32px; padding: 0 6px; box-sizing: border-box;
-    border-radius: 10px; background: #2c4a8a; color: #fff; font-size: 15px; font-weight: 800; flex: none; align-self: flex-start; }
+    border-radius: 10px; background: #2c4a8a; color: #fff; font-size: 15px; font-weight: 800; flex: none; }
 .sm-v { width: 140px; flex: none; text-align: right; font-size: 17px; font-weight: 800; color: #1f2d4d; line-height: 1.2; white-space: nowrap; }
 .sm-v small { display: block; font-size: 12px; font-weight: 500; color: #6b7a99; min-height: 13px; }
 .sm-v.top { color: #0b9a6a; }
@@ -449,6 +449,7 @@ div[class*="st-key-mgrbtn_"] button:hover p { color: #ffffff !important; }
 .sec-h { display: flex; align-items: center; gap: 10px; font-size: 22px; font-weight: 800; color: #1a2b4f; margin: 22px 0 16px; }
 .sc-top { justify-content: space-evenly !important; align-items: center; gap: 12px; }
 .sc-info { flex: 0 1 auto !important; min-width: 0; }
+.sc-lead { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .sc-nums.three > div { text-align: center; }
 .sc-nums.three .v { justify-content: center; }
 .sec-ic { width: 34px; height: 34px; border-radius: 10px; display: flex; align-items: center; justify-content: center;
@@ -875,9 +876,9 @@ def store_card_html(D, c, yms, no=None):
     # 위: [오픈 순번] [이름·태그·담당자] [달성률 도넛] / 아래: 일매출 · 매익율 · 영업이익(강조)
     return (
         '<div class="sc">'
-        f'<div class="sc-top">{no_html}<div class="sc-info">'
+        f'<div class="sc-top"><div class="sc-lead">{no_html}<div class="sc-info">'
         f'<div class="sc-namerow"><span class="sc-name">{escape(c["name"])}</span>{"".join(tags)}</div>'
-        f'<div class="sc-meta">{" · ".join(meta)}</div></div>'
+        f'<div class="sc-meta">{" · ".join(meta)}</div></div></div>'
         f'<div class="sc-donut">{donut_svg(c["rate"], rate_color(c["rate"]), size=76, stroke=9, dec=0)}'
         '<div class="cap">예상매출 달성률</div></div></div>'
         '<div class="sc-nums three">'
