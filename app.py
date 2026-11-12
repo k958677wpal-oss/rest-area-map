@@ -149,7 +149,7 @@ if APPLY_THEME:
         }
 
         .st-key-pick_hub, .st-key-pick_sd {
-            background: #ffffff; border: 1px solid #d5dcea; border-radius: 20px; padding: 26px 24px 20px !important;
+            background: #ffffff; border: 1px solid #d5dcea; border-radius: 20px; padding: 22px 24px 16px !important;
             box-shadow: 0 6px 20px rgba(31,58,115,0.10); transition: transform .2s ease, box-shadow .2s ease;
             animation: wsRise .6s ease both;
         }
@@ -158,8 +158,8 @@ if APPLY_THEME:
         .st-key-pick_hub:hover, .st-key-pick_sd:hover { transform: translateY(-5px); box-shadow: 0 16px 34px rgba(31,58,115,0.20); }
         .pk-ic { font-size: 42px; line-height: 1; }
         .pk-name { font-size: 22px; font-weight: 800; color: #1f3a73; margin-top: 10px; }
-        .pk-desc { font-size: 13.5px; color: #6b7a99; margin-top: 8px; line-height: 1.55; min-height: 62px; }
-        .pk-chips { margin: 8px 0 6px; display: flex; flex-wrap: wrap; gap: 6px; }
+        .pk-desc { font-size: 13.5px; color: #6b7a99; margin-top: 8px; line-height: 1.55; }
+        .pk-chips { margin: 10px 0 4px; display: flex; flex-wrap: wrap; gap: 6px; }
         .pk-chips span { font-size: 12px; font-weight: 700; color: #2c4a8a; background: #eaf0fb; border-radius: 999px; padding: 4px 11px; }
 
         /* 탭: 선택색을 네이비로 */
@@ -858,13 +858,12 @@ if not st.session_state["logged_in"]:
                     st.markdown(
                         '<div class="lg-icon">🧭</div>'
                         '<div class="lg-title">특수개발 워크스페이스</div>'
-                        '<div class="lg-sub">휴게소 데이터 허브 · SD 허브</div>'
+                        '<div class="lg-sub">휴게소 데이터 허브 · SD 데이터 허브</div>'
                         '<div class="lg-badge">⚙️ Powered by 특수개발팀</div>'
                         '<div class="lg-mini"><div class="lg-mini-ic">🛣️</div>'
                         '<div><b>휴게소 데이터 허브</b><span>지도 · 입찰 · 방문이력</span></div></div>'
                         '<div class="lg-mini"><div class="lg-mini-ic">📊</div>'
-                        '<div><b>SD 허브</b><span>실적 · 점포 · 주간보고</span></div></div>'
-                        '<div class="lg-road"></div>',
+                        '<div><b>SD 데이터 허브</b><span>실적 · 점포 · 주간보고</span></div></div>',
                         unsafe_allow_html=True,
                     )
             with _c_right:
@@ -930,11 +929,12 @@ if app_mode == "select":
     _pk_l, _pk_c, _pk_r = st.columns([1, 6, 1])
     with _pk_c:
         st.markdown(
-            '<div class="hub-header" style="text-align:center;padding:26px 24px;">'
+            '<div class="hub-header" style="text-align:center;padding:22px 24px 20px;margin-bottom:6px;">'
             '<div class="hub-title">🧭 특수개발 워크스페이스</div>'
-            f'<div class="hub-sub">{st.session_state.get("user_name", "")}님, 어디로 이동할까요?</div>'
-            '<div class="lg-badge" style="margin-top:12px;">⚙️ Powered by 특수개발팀</div>'
-            '</div>',
+            '<div class="lg-badge" style="margin-top:10px;">⚙️ Powered by 특수개발팀</div>'
+            '</div>'
+            '<div style="text-align:center;font-size:16px;font-weight:700;color:#1f3a73;margin:10px 0 4px;">'
+            f'{st.session_state.get("user_name", "")}님, 어디로 이동할까요?</div>',
             unsafe_allow_html=True,
         )
         _pk1, _pk2 = st.columns(2)
@@ -953,23 +953,23 @@ if app_mode == "select":
             with st.container(key="pick_sd"):
                 st.markdown(
                     '<div class="pk-ic">📊</div>'
-                    '<div class="pk-name">SD 허브</div>'
+                    '<div class="pk-name">SD 데이터 허브</div>'
                     '<div class="pk-desc">팀과 담당자별 실적, 오픈점 현황을 한눈에 확인하고 그래프로 흐름을 봅니다.</div>'
                     '<div class="pk-chips"><span>실적 현황</span><span>점포 현황</span><span>주간 보고</span></div>',
                     unsafe_allow_html=True,
                 )
-                st.button("SD 허브 들어가기 ▶", key="pick_sd_btn", on_click=_go_mode, args=("tool",),
+                st.button("SD 데이터 허브 들어가기 ▶", key="pick_sd_btn", on_click=_go_mode, args=("tool",),
                           use_container_width=True)
     st.stop()
 
 if app_mode == "tool":
-    _head_title = "📊 SD 허브"
-    _head_sub = "Powered by 특수개발팀 · 실적 · 점포 · 주간보고"
-    _switch_label = "🔄 휴게소 허브"
+    _head_title = "📊 SD 데이터 허브"
+    _head_sub = "Powered by 특수개발팀"
+    _switch_label = "🔄 휴게소 데이터 허브"
 else:
     _head_title = "🛣️ 휴게소 데이터 허브"
     _head_sub = "Powered by 특수개발팀"
-    _switch_label = "🔄 SD 허브"
+    _switch_label = "🔄 SD 데이터 허브"
 
 if APPLY_THEME:
     with st.container(key="hub_head"):
