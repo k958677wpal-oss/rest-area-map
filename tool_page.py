@@ -318,9 +318,23 @@ TOOL_CSS = """
 .pb-chip { font-size: 13px; font-weight: 700; color: #2c4a8a; background: #ffffff; border: 1px solid #c9d4ea;
     border-radius: 999px; padding: 4px 14px; }
 .pb-chip b { color: #0b9a6a; margin-right: 6px; }
-.st-key-periodbody { padding: 14px 20px 16px !important; }
-.st-key-periodbody [data-testid="stHorizontalBlock"] { align-items: flex-start !important; }
-.pb-lab { font-size: 12.5px; font-weight: 700; color: #6b7a99; margin: 0 0 0 2px; padding-top: 12px; min-height: 18px; line-height: 18px; }
+.st-key-periodbody { padding: 18px 20px 18px !important; }
+.st-key-periodbody [data-testid="stHorizontalBlock"] { align-items: center !important; gap: 0.8rem; }
+.pb-lab { font-size: 14px; font-weight: 700; color: #55648a; text-align: right; white-space: nowrap; line-height: 42px; }
+/* 알약 선택 버튼: 탭 메뉴와 같은 스타일 (조회 기간 / 담당자 필터 공통) */
+.st-key-periodbody [data-testid="stButtonGroup"], .st-key-mgr_filter [data-testid="stButtonGroup"] {
+    background: #eef2fa; padding: 5px; border-radius: 14px; gap: 6px; width: fit-content; }
+.st-key-periodbody [data-testid="stButtonGroup"] button, .st-key-mgr_filter [data-testid="stButtonGroup"] button {
+    border: none !important; border-radius: 10px !important; background: transparent !important; height: 38px !important;
+    min-height: 38px !important; padding: 0 20px !important; }
+.st-key-periodbody [data-testid="stButtonGroup"] button p, .st-key-mgr_filter [data-testid="stButtonGroup"] button p {
+    font-size: 15px !important; font-weight: 700 !important; color: #55648a; }
+.st-key-periodbody [data-testid="stButtonGroup"] button:hover, .st-key-mgr_filter [data-testid="stButtonGroup"] button:hover { background: #dfe7f6 !important; }
+.st-key-periodbody button[data-testid="stBaseButton-segmented_controlActive"], .st-key-mgr_filter button[data-testid="stBaseButton-segmented_controlActive"],
+.st-key-periodbody button[kind="segmented_controlActive"], .st-key-mgr_filter button[kind="segmented_controlActive"] {
+    background: #2c4a8a !important; box-shadow: 0 3px 8px rgba(31,58,115,.28); }
+.st-key-periodbody button[data-testid="stBaseButton-segmented_controlActive"] p, .st-key-mgr_filter button[data-testid="stBaseButton-segmented_controlActive"] p,
+.st-key-periodbody button[kind="segmented_controlActive"] p, .st-key-mgr_filter button[kind="segmented_controlActive"] p { color: #ffffff !important; }
 .st-key-periodbody [data-testid="stButtonGroup"] button, .st-key-periodbody [data-baseweb="button-group"] button,
 .st-key-periodbody [data-testid="stSegmentedControl"] button { min-height: 42px !important; height: 42px !important; padding: 0 24px !important; font-weight: 700 !important; }
 .st-key-periodbody [data-baseweb="select"] > div { min-height: 42px !important; height: 42px !important; }
@@ -334,13 +348,18 @@ button[role="tab"][aria-selected="true"], [data-testid="stTab"][aria-selected="t
 button[role="tab"][aria-selected="true"] p, button[role="tab"][aria-selected="true"] div,
 button[role="tab"][aria-selected="true"] span, [data-testid="stTab"][aria-selected="true"] p { color: #ffffff !important; }
 [data-baseweb="tab-highlight"], [data-baseweb="tab-border"] { display: none !important; }
-.st-key-mgr_filter [data-testid="stHorizontalBlock"] { align-items: center !important; }
-.st-key-mgr_filter [data-testid="stButtonGroup"] button { min-height: 40px; padding: 0 20px; font-weight: 700; }
+.st-key-mgr_filter [data-testid="stHorizontalBlock"] { align-items: center !important; gap: 1rem; }
+.st-key-mgr_filter .sec-h { margin: 22px 0 16px; white-space: nowrap; }
+.st-key-mgr_filter [data-testid="stVerticalBlock"] { gap: 0 !important; }
 .mgr-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; padding-top: 4px; }
 .mgr-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .mgr-chip { font-size: 13px; font-weight: 600; color: #2c4a8a; background: #eaf0fb; border-radius: 999px; padding: 4px 12px; }
-div[class*="st-key-mgrbtn_"] { display: flex; justify-content: flex-end; }
-div[class*="st-key-mgrbtn_"] button { min-width: 150px; }
+div[class*="st-key-mgrbtn_"] { display: flex; justify-content: flex-end; width: 100% !important; }
+div[class*="st-key-mgrbtn_"] button { min-width: 140px; height: 40px; border: none !important; border-radius: 10px !important;
+    background: #eef2fa !important; }
+div[class*="st-key-mgrbtn_"] button p { font-weight: 700 !important; color: #2c4a8a; }
+div[class*="st-key-mgrbtn_"] button:hover { background: #2c4a8a !important; }
+div[class*="st-key-mgrbtn_"] button:hover p { color: #ffffff !important; }
 .sec-h { display: flex; align-items: center; gap: 10px; font-size: 22px; font-weight: 800; color: #1a2b4f; margin: 22px 0 16px; }
 .sc-top { justify-content: space-evenly !important; }
 .sc-info { flex: 0 1 auto !important; }
@@ -659,10 +678,12 @@ def pick_period(months):
     with st.container(key="periodbar"):
         head = st.empty()
         with st.container(key="periodbody"):
-            c1, c2, c3, _sp, c5 = st.columns([1.5, 1.7, 1.7, 1.2, 1.3])
-            lab = lambda t: st.markdown(f'<div class="pb-lab">{t}</div>', unsafe_allow_html=True)   # 글자 줄 높이를 모두 같게
-            with c1:
+            # 라벨을 위가 아니라 입력칸 '왼쪽'에 두고 전부 세로 가운데 정렬 -> 겹침/높이 어긋남이 생기지 않음
+            l1, c1, l2, c2, l3, c3, c5 = st.columns([0.75, 1.5, 0.6, 1.8, 0.6, 1.8, 1.0])
+            lab = lambda t: st.markdown(f'<div class="pb-lab">{t}</div>', unsafe_allow_html=True)
+            with l1:
                 lab("보기 방식")
+            with c1:
                 if hasattr(st, "segmented_control"):      # 알약 모양 선택 버튼 (최신 스트림릿)
                     if "tool_pmode" not in st.session_state:
                         st.session_state["tool_pmode"] = "월별"
@@ -673,23 +694,25 @@ def pick_period(months):
                     mode = st.radio("보기 방식", ["월별", "누계"], horizontal=True, key="tool_pmode",
                                     label_visibility="collapsed")
             with c5:
-                lab("&nbsp;")
                 refresh_button("tool_refresh")
             if mode == "월별":
-                with c2:
+                with l2:
                     lab("기준 월")
+                with c2:
                     m = st.selectbox("기준 월", months[::-1], format_func=ym_label, key="tool_pm",
                                      label_visibility="collapsed")
                 yms, text = [m], ym_label(m)
             else:
                 last_year = months[-1][:4]
                 first_of_year = [x for x in months if x[:4] == last_year][0]
-                with c2:
+                with l2:
                     lab("시작월")
+                with c2:
                     s = st.selectbox("시작월", months, index=months.index(first_of_year),
                                      format_func=ym_label, key="tool_ps", label_visibility="collapsed")
-                with c3:
+                with l3:
                     lab("종료월")
+                with c3:
                     e = st.selectbox("종료월", months, index=len(months) - 1, format_func=ym_label,
                                      key="tool_pe", label_visibility="collapsed")
                 if s > e:
@@ -1097,7 +1120,7 @@ def view_performance(D, yms, mode, period_text):
         st.session_state["tool_store_a"] = None
 
     with st.container(key="mgr_filter"):
-        h1, h2 = st.columns([1.3, 6])
+        h1, h2 = st.columns([1.6, 7])
         with h1:
             st.markdown(sec_heading("badge", "담당자별"), unsafe_allow_html=True)
         with h2:
