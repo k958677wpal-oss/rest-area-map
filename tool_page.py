@@ -293,12 +293,15 @@ TOOL_CSS = """
 .sc-donut { display: flex; flex-direction: column; align-items: center; flex: none; }
 .sc-donut .cap { font-size: 11px; color: #6b7a99; font-weight: 700; margin-top: 1px; }
 .sc-nums.three > div { min-width: 0; }
-.sc-nums.three .v { font-size: 15px; }
+.sc-nums.three .l { font-size: 12px; font-weight: 600; color: #6b7a99; }
+.sc-nums.three .v { font-size: 21px; line-height: 1.25; }
+.sc-nums.three > div:first-child .v { font-size: 24px; }
+.sc-nums.three .v small { font-size: 12px; }
 .chart-card { background: #fff; border: 1px solid #d5dcea; border-radius: 12px; padding: 12px 14px 8px; margin: 8px 0 12px;
               box-shadow: 0 1px 4px rgba(31,58,115,.06); }
 .chart-card .chart-title { font-size: 14px; font-weight: 800; color: #1f3a73; margin-bottom: 2px; }
 .chart-card .chart-note { font-size: 11.5px; color: #8591ab; margin-bottom: 4px; }
-.chart-card svg { width: 100%; height: auto; display: block; }
+.chart-card svg { width: 100%; max-width: 720px; height: auto; display: block; }
 .legend-note { font-size: 11.5px; color: #8591ab; margin: 2px 0 8px; }
 .tbl-wrap { overflow-x: auto; margin: 6px 0 10px; }
 table.tbl { border-collapse: collapse; width: 100%; font-size: 13px; background: #fff; }
@@ -513,7 +516,8 @@ def render_store_detail(D, name, yms, period_text):
         st.info("이 점포의 월 실적이 아직 없습니다.")
         return
 
-    pts, rows = [], []
+    # 월별 표 행 + 영업이익 누계 (전체 기간)
+    rows = []
     op_total, op_cnt = 0.0, 0
     for ym in sorted(per):
         r = per[ym]
@@ -526,30 +530,39 @@ def render_store_detail(D, name, yms, period_text):
         if r["op"] is not None:
             op_total += r["op"]
             op_cnt += 1
-        pts.append({"ym": ym, "daily": daily, "target": t_daily, "rate": rate, "margin": margin, "op": r["op"]})
         rows.append([
             ym_label(ym), fnum(r["sales"] / 1000.0), fnum(r["days"]), fnum(daily), fnum(t_daily),
             fnum(rate, 1), fnum(margin, 1), fnum(r["op"]), fnum(t_profit),
         ])
 
+    # 보여줄 연도 (실적이 두 해 이상이면 선택)
+    years = sorted({ym[:4] for ym in per})
+    if len(years) > 1:
+        year = st.selectbox("그래프 연도", years, index=len(years) - 1, key=f"tool_year_{name}")
+    else:
+        year = years[0]
+    pts = year_points(per, tgt, open_ym, year)
+    last_ym = max(per)
+
     # 1) 매출 지표
     st.markdown(
-        '<div class="chart-card"><div class="chart-title">📈 매출 흐름 (월별 일매출, 천원)</div>'
-        '<div class="chart-note">막대 = 일매출 · 주황 선 = 예상일매출 · 맨 위 숫자 = 매익율 · 맨 아래 숫자 = 예상매출 달성률</div>'
-        + sales_chart_svg(pts) + '</div>',
+        f'<div class="chart-card"><div class="chart-title">📈 매출 흐름 ({year}년, 일매출 천원)</div>'
+        '<div class="chart-note">막대 = 일매출 · 주황 선/숫자 = 예상일매출 · 위 숫자 = 매익율 · 아래 숫자 = 달성률 '
+        '(막대에 마우스를 올리면 자세히 보입니다)</div>'
+        + sales_chart_svg(pts, open_ym, last_ym) + '</div>',
         unsafe_allow_html=True,
     )
 
     # 2) 영업이익 흐름
     if op_cnt == 0:
-        st.markdown('<div class="chart-card"><div class="chart-title">💰 영업이익 흐름 (월별, 천원)</div>'
+        st.markdown('<div class="chart-card"><div class="chart-title">💰 영업이익 흐름 (천원)</div>'
                     '<div class="chart-note">영업이익이 아직 입력되지 않았습니다.</div></div>', unsafe_allow_html=True)
     else:
         st.markdown(
-            '<div class="chart-card"><div class="chart-title">💰 영업이익 흐름 (월별, 천원)'
+            f'<div class="chart-card"><div class="chart-title">💰 영업이익 흐름 ({year}년, 천원)'
             f' <span style="font-weight:600;color:#6b7a99;font-size:12px;">· 입력된 달 누계 {fnum(op_total)}천원</span></div>'
             '<div class="chart-note">초록 = 흑자 · 빨강 = 적자</div>'
-            + ops_chart_svg(pts) + '</div>',
+            + ops_chart_svg(pts, open_ym, last_ym) + '</div>',
             unsafe_allow_html=True,
         )
 
@@ -562,70 +575,119 @@ def _mlabel(ym):
     return f"{ym[2:4]}.{int(ym[4:]):02d}"
 
 
-def sales_chart_svg(pts):
-    """월별 일매출 막대 + 예상일매출 선 + 위쪽 매익율 + 아래쪽 달성률"""
-    W, H = 720, 270
-    x0, x1 = 64, W - 12
-    n = len(pts)
-    slot = (x1 - x0) / n
-    bw = min(46.0, slot * 0.56)
-    y_top, y_base = 78, 204
+def year_points(per, tgt, open_ym, year):
+    """해당 연도 1~12월 칸 만들기. state: pre(오픈 전) / data(실적 있음) / none(오픈 후인데 실적 없음)"""
+    pts = []
+    for mo in range(1, 13):
+        ym = f"{year}{mo:02d}"
+        p = {"ym": ym, "mo": mo, "state": "none", "daily": None, "target": None,
+             "rate": None, "margin": None, "op": None, "sales": None}
+        if open_ym and ym < open_ym:
+            p["state"] = "pre"
+        r = per.get(ym)
+        k = _month_diff(open_ym, ym) if open_ym else None
+        if k is not None and k >= 0:
+            p["target"] = tgt["daily"].get(k)
+        if r:
+            p["state"] = "data"
+            p["sales"] = r["sales"]
+            p["daily"] = (r["sales"] / r["days"] / 1000.0) if r["days"] > 0 else None
+            p["rate"] = (p["daily"] / p["target"] * 100.0) if (p["daily"] is not None and p["target"]) else None
+            p["margin"] = (r["pl"] / r["sales"] * 100.0) if (r["pl"] is not None and r["sales"] > 0) else None
+            p["op"] = r["op"]
+        pts.append(p)
+    return pts
+
+
+CH_W = 700          # 그래프 기준 폭 (12칸 고정)
+CH_X0 = 62          # 왼쪽 행 이름 영역
+CH_X1 = CH_W - 6
+
+
+def sales_chart_svg(pts, open_ym="", last_ym=""):
+    """1~12월 고정 칸. 위: 매익율 / 막대: 일매출 + 예상일매출 선 / 아래: 월·예상일매출·달성률"""
+    W = CH_W
+    x0, x1 = CH_X0, CH_X1
+    slot = (x1 - x0) / 12.0
+    bw = 26.0
+    y_top, y_base = 62, 140
     vals = [p["daily"] for p in pts if p["daily"] is not None] + [p["target"] for p in pts if p["target"] is not None]
     vmax = max(vals) if vals else 1.0
     if vmax <= 0:
         vmax = 1.0
     scale = (y_base - y_top) / vmax
+    y_m = y_base + 16       # 월
+    y_t = y_base + 33       # 예상일매출
+    y_r = y_base + 50       # 달성률
+    y_o = y_base + 65       # 오픈 표시
+    H = y_base + 72
 
     out = [f'<svg viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg" font-family="inherit">']
     # 범례
-    out.append(f'<rect x="{W - 200}" y="6" width="10" height="10" fill="{COLOR_NAVY}" rx="2"/>'
-               f'<text x="{W - 186}" y="15" font-size="11" fill="#6b7a99">일매출</text>'
-               f'<line x1="{W - 130}" y1="11" x2="{W - 112}" y2="11" stroke="{COLOR_WARN}" stroke-width="3"/>'
-               f'<text x="{W - 106}" y="15" font-size="11" fill="#6b7a99">예상일매출</text>')
+    out.append(f'<rect x="{W - 150}" y="3" width="9" height="9" fill="{COLOR_NAVY}" rx="2"/>'
+               f'<text x="{W - 137}" y="11" font-size="10" fill="#6b7a99">일매출</text>'
+               f'<line x1="{W - 95}" y1="8" x2="{W - 81}" y2="8" stroke="{COLOR_WARN}" stroke-width="3"/>'
+               f'<text x="{W - 76}" y="11" font-size="10" fill="#6b7a99">예상일매출</text>')
     # 행 이름
-    out.append('<text x="4" y="44" font-size="11" font-weight="700" fill="#6b7a99">매익율</text>')
-    out.append(f'<text x="4" y="{y_base + 44}" font-size="11" font-weight="700" fill="#6b7a99">달성률</text>')
-    out.append(f'<line x1="{x0 - 6}" y1="{y_base}" x2="{x1}" y2="{y_base}" stroke="#d5dcea" stroke-width="1"/>')
+    out.append('<text x="2" y="31" font-size="10" font-weight="700" fill="#6b7a99">매익율</text>')
+    out.append(f'<text x="2" y="{y_m}" font-size="10" font-weight="700" fill="#6b7a99">월</text>')
+    out.append(f'<text x="2" y="{y_t}" font-size="10" font-weight="700" fill="{COLOR_WARN}">예상일매출</text>')
+    out.append(f'<text x="2" y="{y_r}" font-size="10" font-weight="700" fill="#6b7a99">달성률</text>')
+    out.append(f'<line x1="{x0 - 4}" y1="{y_base}" x2="{x1}" y2="{y_base}" stroke="#d5dcea" stroke-width="1"/>')
 
     line_pts = []
     for i, p in enumerate(pts):
         cx = x0 + slot * (i + 0.5)
-        # 매익율
-        mt = "-" if p["margin"] is None else f'{p["margin"]:.1f}%'
-        out.append(f'<text x="{cx:.1f}" y="44" text-anchor="middle" font-size="12" font-weight="700" fill="#1f3a73">{mt}</text>')
-        # 막대
-        if p["daily"] is not None:
-            h = max(p["daily"] * scale, 1.0)
-            out.append(f'<rect x="{cx - bw / 2:.1f}" y="{y_base - h:.1f}" width="{bw:.1f}" height="{h:.1f}" '
-                       f'fill="{COLOR_NAVY}" rx="3"/>')
-            out.append(f'<text x="{cx:.1f}" y="{y_base - h - 6:.1f}" text-anchor="middle" font-size="11" '
-                       f'font-weight="700" fill="#1f2d4d">{p["daily"]:,.0f}</text>')
-        # 예상 표시
-        if p["target"] is not None:
+        has = p["state"] == "data"
+        faint = p["state"] != "data" and not (last_ym and p["ym"] <= last_ym and p["state"] == "none")
+        lab_col = "#c3cbdc" if p["state"] == "pre" or (not has and last_ym and p["ym"] > last_ym) else "#6b7a99"
+        out.append(f'<text x="{cx:.1f}" y="{y_m}" text-anchor="middle" font-size="11" font-weight="{"700" if has else "400"}" '
+                   f'fill="{lab_col}">{p["mo"]}월</text>')
+        if has:
+            mt = "-" if p["margin"] is None else f'{p["margin"]:.1f}%'
+            out.append(f'<text x="{cx:.1f}" y="31" text-anchor="middle" font-size="10" font-weight="700" fill="#1f3a73">{mt}</text>')
+            if p["daily"] is not None:
+                h = max(p["daily"] * scale, 1.0)
+                out.append(f'<rect x="{cx - bw / 2:.1f}" y="{y_base - h:.1f}" width="{bw:.1f}" height="{h:.1f}" '
+                           f'fill="{COLOR_NAVY}" rx="3"/>')
+                out.append(f'<text x="{cx:.1f}" y="{y_base - h - 4:.1f}" text-anchor="middle" font-size="10" '
+                           f'font-weight="700" fill="#1f2d4d">{p["daily"]:,.0f}</text>')
+            rt = "-" if p["rate"] is None else f'{p["rate"]:.0f}%'
+            out.append(f'<text x="{cx:.1f}" y="{y_r}" text-anchor="middle" font-size="11" font-weight="800" '
+                       f'fill="{rate_color(p["rate"]) if p["rate"] is not None else "#8591ab"}">{rt}</text>')
+        # 예상일매출 (실적이 있는 달에만 표시)
+        if has and p["target"] is not None:
             ty = y_base - p["target"] * scale
-            out.append(f'<line x1="{cx - bw / 2 - 5:.1f}" y1="{ty:.1f}" x2="{cx + bw / 2 + 5:.1f}" y2="{ty:.1f}" '
-                       f'stroke="{COLOR_WARN}" stroke-width="3" stroke-linecap="round"/>')
+            out.append(f'<line x1="{cx - bw / 2 - 4:.1f}" y1="{ty:.1f}" x2="{cx + bw / 2 + 4:.1f}" y2="{ty:.1f}" '
+                       f'stroke="{COLOR_WARN}" stroke-width="2.5" stroke-linecap="round"/>')
             line_pts.append(f"{cx:.1f},{ty:.1f}")
-        # 월 / 달성률
-        out.append(f'<text x="{cx:.1f}" y="{y_base + 18}" text-anchor="middle" font-size="11" fill="#6b7a99">{_mlabel(p["ym"])}</text>')
-        rt = "-" if p["rate"] is None else f'{p["rate"]:.0f}%'
-        out.append(f'<text x="{cx:.1f}" y="{y_base + 44}" text-anchor="middle" font-size="12" font-weight="800" '
-                   f'fill="{rate_color(p["rate"]) if p["rate"] is not None else "#8591ab"}">{rt}</text>')
+            out.append(f'<text x="{cx:.1f}" y="{y_t}" text-anchor="middle" font-size="10" font-weight="700" '
+                       f'fill="{COLOR_WARN}">{p["target"]:,.0f}</text>')
+        # 오픈 표시
+        if open_ym and p["ym"] == open_ym:
+            out.append(f'<text x="{cx:.1f}" y="{y_o}" text-anchor="middle" font-size="9" font-weight="700" '
+                       f'fill="{COLOR_GOOD}">▲오픈</text>')
+        # 마우스 올렸을 때 말풍선
+        if has:
+            tip = (f'{p["ym"][:4]}년 {p["mo"]}월 · 일매출 {fnum(p["daily"])}천원 / 예상 {fnum(p["target"])}천원 / '
+                   f'달성률 {fnum(p["rate"], 1)}% / 매익율 {fnum(p["margin"], 1)}%')
+            out.append(f'<rect x="{cx - slot / 2:.1f}" y="0" width="{slot:.1f}" height="{H}" fill="transparent">'
+                       f'<title>{tip}</title></rect>')
     if len(line_pts) >= 2:
         out.append(f'<polyline points="{" ".join(line_pts)}" fill="none" stroke="{COLOR_WARN}" '
-                   f'stroke-width="1.5" stroke-dasharray="4 3"/>')
+                   f'stroke-width="1.2" stroke-dasharray="4 3"/>')
     out.append("</svg>")
     return "".join(out)
 
 
-def ops_chart_svg(pts):
-    """월별 영업이익 막대 (흑자 초록 / 적자 빨강, 미입력은 회색 글자)"""
-    W, H = 720, 240
-    x0, x1 = 20, W - 12
+def ops_chart_svg(pts, open_ym="", last_ym=""):
+    """1~12월 고정 칸 영업이익 막대 (흑자 초록 / 적자 빨강, 입력 전은 '미입력')"""
+    W, H = CH_W, 170
+    x0, x1 = CH_X0, CH_X1
     n = len(pts)
     slot = (x1 - x0) / n
-    bw = min(46.0, slot * 0.56)
-    y_top, y_bot = 34, 176
+    bw = 26.0
+    y_top, y_bot = 22, 110
     vals = [p["op"] for p in pts if p["op"] is not None]
     vmax = max([0.0] + vals)
     vmin = min([0.0] + vals)
@@ -637,21 +699,29 @@ def ops_chart_svg(pts):
     zy = Y(0.0)
     out = [f'<svg viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg" font-family="inherit">']
     out.append(f'<line x1="{x0}" y1="{zy:.1f}" x2="{x1}" y2="{zy:.1f}" stroke="#b8c2d8" stroke-width="1"/>')
+    out.append(f'<text x="2" y="{zy + 3:.1f}" font-size="10" font-weight="700" fill="#6b7a99">영업이익</text>')
     for i, p in enumerate(pts):
         cx = x0 + slot * (i + 0.5)
         v = p["op"]
-        if v is None:
-            out.append(f'<text x="{cx:.1f}" y="{zy - 6:.1f}" text-anchor="middle" font-size="11" fill="#a0aac0">미입력</text>')
-        else:
+        has = p["state"] == "data"
+        if has and v is None:
+            out.append(f'<text x="{cx:.1f}" y="{zy - 5:.1f}" text-anchor="middle" font-size="9" fill="#a0aac0">미입력</text>')
+        elif v is not None:
             yv = Y(v)
             top, h = (yv, zy - yv) if v >= 0 else (zy, yv - zy)
             h = max(h, 1.0)
             col = COLOR_GOOD if v >= 0 else COLOR_BAD
-            out.append(f'<rect x="{cx - bw / 2:.1f}" y="{top:.1f}" width="{bw:.1f}" height="{h:.1f}" fill="{col}" rx="3"/>')
-            ty = top - 6 if v >= 0 else top + h + 14
-            out.append(f'<text x="{cx:.1f}" y="{ty:.1f}" text-anchor="middle" font-size="11" font-weight="700" '
+            out.append(f'<rect x="{cx - bw / 2:.1f}" y="{top:.1f}" width="{bw:.1f}" height="{h:.1f}" fill="{col}" rx="3">'
+                       f'<title>{p["ym"][:4]}년 {p["mo"]}월 영업이익 {v:,.0f}천원</title></rect>')
+            ty = top - 4 if v >= 0 else top + h + 11
+            out.append(f'<text x="{cx:.1f}" y="{ty:.1f}" text-anchor="middle" font-size="10" font-weight="700" '
                        f'fill="{col}">{v:,.0f}</text>')
-        out.append(f'<text x="{cx:.1f}" y="{H - 12}" text-anchor="middle" font-size="11" fill="#6b7a99">{_mlabel(p["ym"])}</text>')
+        lab_col = "#c3cbdc" if p["state"] == "pre" or (not has and last_ym and p["ym"] > last_ym) else "#6b7a99"
+        out.append(f'<text x="{cx:.1f}" y="{H - 24}" text-anchor="middle" font-size="11" font-weight="{"700" if has else "400"}" '
+                   f'fill="{lab_col}">{p["mo"]}월</text>')
+        if open_ym and p["ym"] == open_ym:
+            out.append(f'<text x="{cx:.1f}" y="{H - 10}" text-anchor="middle" font-size="9" font-weight="700" '
+                       f'fill="{COLOR_GOOD}">▲오픈</text>')
     out.append("</svg>")
     return "".join(out)
 
