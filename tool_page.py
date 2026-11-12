@@ -17,6 +17,7 @@ TAB_STORE = "점포마스터"
 TAB_MONTH = "월실적"
 TAB_TARGET = "예상목표"
 TAB_GOAL = "목표"          # (선택) MBO 목표: 대상 | 지표 | 기간 | 목표값
+TAB_MGR = "담당자"         # (선택) 담당자 표시 순서: 담당자 | 순서 | 사용여부(N 이면 화면에서 숨김)
 TEAM_KEYS = ("팀", "팀전체", "전체", "특수개발팀", "특수팀")
 
 KIND_DAILY_KEYWORD = "일매출"
@@ -193,9 +194,30 @@ def load_perf(_get_gc):
         if who and metric and val is not None:
             goals[(who, metric, period)] = val
 
+    # '담당자' 탭(선택): 담당자 | 순서 | 사용여부 -> 없으면 가나다순
+    mgr_order, mgr_hidden = {}, set()
+    for rec in _records(read_tab(TAB_MGR) or []):
+        n = rec.get("담당자", "").strip()
+        if not n:
+            continue
+        o = _num(rec.get("순서", ""))
+        if o is not None:
+            mgr_order[n] = o
+        if rec.get("사용여부", "").strip().upper() in ("N", "X", "NO", "FALSE", "0", "미사용", "아니오"):
+            mgr_hidden.add(n)
+
     months = sorted({ym for per in monthly.values() for ym in per})
     return {"error": None, "masters": masters, "master_by_name": master_by_name,
-            "monthly": monthly, "targets": targets, "months": months, "goals": goals}
+            "monthly": monthly, "targets": targets, "months": months, "goals": goals,
+            "mgr_order": mgr_order, "mgr_hidden": mgr_hidden}
+
+
+def ordered_managers(D):
+    """화면에 보여줄 담당자 목록: '담당자' 탭의 순서 -> 탭에 없는 사람은 뒤에 가나다순, 사용여부 N 은 제외"""
+    hidden = D.get("mgr_hidden", set())
+    order = D.get("mgr_order", {})
+    names = {m["manager"] for m in D["masters"] if m["manager"] and m["manager"] not in hidden}
+    return sorted(names, key=lambda n: (n not in order, order.get(n, 0), n))
 
 
 # ───────────────────────── 지표 계산 ─────────────────────────
@@ -377,7 +399,9 @@ div[class*="st-key-backbtn_"] button p { font-weight: 700 !important; font-size:
 div[class*="st-key-backbtn_"] button:hover { background: #2c4a8a !important; }
 div[class*="st-key-backbtn_"] button:hover p { color: #ffffff !important; }
 /* 요약 화면: 지표별 비교 그래프 카드 2x2 */
-.sm-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(480px, 1fr)); gap: 14px; margin: 8px 0 14px; }
+.sm-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin: 8px 0 14px; }
+@media (max-width: 900px) { .sm-grid { grid-template-columns: minmax(0, 1fr); } }
+.sm-v small:empty { display: none; }
 .sm-card { background: #ffffff; border: 1px solid #d5dcea; border-radius: 14px; padding: 16px 20px 10px; min-width: 0; }
 .sm-t { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 800; color: #1f3a73; }
 .sm-n { font-size: 12px; color: #8591ab; margin: 4px 0 10px; }
@@ -385,7 +409,7 @@ div[class*="st-key-backbtn_"] button:hover p { color: #ffffff !important; }
 .sm-nm { width: 56px; flex: none; font-size: 14px; font-weight: 700; color: #3a4a6b; }
 .sm-tr { position: relative; flex: 1; height: 16px; border-radius: 99px; overflow: hidden; }
 .sm-fl { position: absolute; left: 0; top: 0; height: 100%; display: block; }
-.sm-avg { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: #1f2d4d; opacity: .65; }
+.sm-avg { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: #1f2d4d; box-shadow: 0 0 0 1px rgba(255,255,255,.9); }
 .sm-v { width: 132px; flex: none; text-align: right; font-size: 15px; font-weight: 800; color: #1f2d4d; line-height: 1.2; white-space: nowrap; }
 .sm-v small { display: block; font-size: 11px; font-weight: 500; color: #8591ab; min-height: 13px; }
 .sm-v.top { color: #0b9a6a; }
@@ -1260,7 +1284,7 @@ def view_performance(D, yms, mode, period_text):
     st.markdown(group_cards(calc_group(D, all_names, yms), mode, prev_of(all_names), D, "팀"),
                 unsafe_allow_html=True)
 
-    managers = sorted({m["manager"] for m in D["masters"] if m["manager"]})
+    managers = ordered_managers(D)
     if not managers:
         st.markdown(sec_heading("badge", "담당자별"), unsafe_allow_html=True)
         st.info("점포마스터에 담당자가 입력되어 있지 않습니다.")
@@ -1324,7 +1348,7 @@ def view_stores(D, yms, period_text):
         render_store_cards(D, [], yms, period_text, ctx="b")
         return
 
-    managers = sorted({m["manager"] for m in D["masters"] if m["manager"]})
+    managers = ordered_managers(D)
     types = sorted({m["type"] for m in D["masters"] if m["type"]})
     places = sorted({m["place"] for m in D["masters"] if m["place"]})
     c1, c2, c3 = st.columns(3)
