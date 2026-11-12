@@ -103,6 +103,65 @@ if APPLY_THEME:
             .st-key-hub_head .st-key-mode_btn { position: static; margin: -4px 0 10px 0; }
         }
 
+        /* ===== 로그인 / 허브 선택 화면 ===== */
+        @keyframes wsRise { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
+        .st-key-login_card {
+            border-radius: 22px; overflow: hidden; background: #ffffff;
+            border: 1px solid #e1e7f3; box-shadow: 0 16px 44px rgba(31,58,115,0.20);
+            gap: 0 !important; padding: 0 !important; animation: wsRise .6s ease both;
+        }
+        .st-key-login_card [data-testid="stHorizontalBlock"] { gap: 0 !important; align-items: stretch !important; }
+        .st-key-login_left {
+            position: relative; overflow: hidden; min-height: 500px; padding: 38px 32px 70px 32px;
+            background:
+                radial-gradient(circle at 88% 10%, rgba(255,255,255,0.16) 0, transparent 36%),
+                radial-gradient(circle at 6% 96%, rgba(255,255,255,0.10) 0, transparent 40%),
+                linear-gradient(145deg, #1a3166 0%, #2c4a8a 55%, #3d64b0 100%);
+        }
+        .st-key-login_right { min-height: 500px; padding: 44px 40px 30px 40px; background: #ffffff; }
+        .st-key-login_right [data-testid="stForm"] { border: none !important; padding: 0 !important; }
+        .lg-icon { font-size: 44px; line-height: 1; margin-bottom: 10px; }
+        .lg-title { font-size: 28px; font-weight: 800; color: #ffffff !important; letter-spacing: -0.6px; line-height: 1.25; }
+        .lg-sub { font-size: 14px; color: rgba(255,255,255,0.85) !important; margin-top: 6px; }
+        .lg-badge {
+            display: inline-block; margin-top: 14px; padding: 5px 13px; border-radius: 999px;
+            background: rgba(255,255,255,0.18); border: 1px solid rgba(255,255,255,0.45);
+            color: #ffffff !important; font-size: 12.5px; font-weight: 700;
+        }
+        .lg-mini {
+            display: flex; align-items: center; gap: 12px; margin-top: 14px; padding: 12px 14px;
+            background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.25); border-radius: 14px;
+        }
+        .lg-badge + .lg-mini { margin-top: 26px; }
+        .lg-mini-ic { font-size: 24px; flex: none; }
+        .lg-mini b { display: block; color: #ffffff !important; font-size: 14px; }
+        .lg-mini span { display: block; color: rgba(255,255,255,0.8) !important; font-size: 12px; margin-top: 2px; }
+        .lg-road {
+            position: absolute; left: 32px; right: 32px; bottom: 34px; height: 0;
+            border-top: 3px dashed rgba(255,255,255,0.40);
+        }
+        .lg-form-title { font-size: 24px; font-weight: 800; color: #1f3a73; }
+        .lg-form-sub { font-size: 13px; color: #8591ab; margin: 4px 0 18px; }
+        @media (max-width: 640px) {
+            .st-key-login_left { min-height: auto; padding: 26px 22px 56px 22px; }
+            .st-key-login_right { min-height: auto; padding: 26px 22px 22px 22px; }
+            .lg-title { font-size: 23px; }
+        }
+
+        .st-key-pick_hub, .st-key-pick_sd {
+            background: #ffffff; border: 1px solid #d5dcea; border-radius: 20px; padding: 26px 24px 20px !important;
+            box-shadow: 0 6px 20px rgba(31,58,115,0.10); transition: transform .2s ease, box-shadow .2s ease;
+            animation: wsRise .6s ease both;
+        }
+        .st-key-pick_hub { border-top: 6px solid #2c4a8a; }
+        .st-key-pick_sd { border-top: 6px solid #0b9a6a; }
+        .st-key-pick_hub:hover, .st-key-pick_sd:hover { transform: translateY(-5px); box-shadow: 0 16px 34px rgba(31,58,115,0.20); }
+        .pk-ic { font-size: 42px; line-height: 1; }
+        .pk-name { font-size: 22px; font-weight: 800; color: #1f3a73; margin-top: 10px; }
+        .pk-desc { font-size: 13.5px; color: #6b7a99; margin-top: 8px; line-height: 1.55; min-height: 62px; }
+        .pk-chips { margin: 8px 0 6px; display: flex; flex-wrap: wrap; gap: 6px; }
+        .pk-chips span { font-size: 12px; font-weight: 700; color: #2c4a8a; background: #eaf0fb; border-radius: 999px; padding: 4px 11px; }
+
         /* 탭: 선택색을 네이비로 */
         button[data-baseweb="tab"][aria-selected="true"] {
             color: #2c4a8a !important;
@@ -789,31 +848,44 @@ if "logged_in" not in st.session_state:
     st.session_state["logged_in"] = False
 
 if not st.session_state["logged_in"]:
-    _lg_l, _lg_c, _lg_r = st.columns([1, 2, 1])
+    _lg_l, _lg_c, _lg_r = st.columns([1, 4, 1])
     with _lg_c:
-        st.markdown("<div style='height:6vh'></div>", unsafe_allow_html=True)
-        if APPLY_THEME:
-            st.markdown(
-                '<div class="hub-header" style="text-align:center;padding:26px 24px;">'
-                '<div class="hub-title">🧭 특수개발 워크스페이스</div>'
-                '<div class="hub-sub">휴게소 데이터 허브 · SD 허브</div>'
-                '<div class="hub-sub" style="margin-top:10px;">Powered by 특수개발팀 · GS25 점포개발</div>'
-                '</div>',
-                unsafe_allow_html=True,
-            )
-        else:
-            st.title("🔐 로그인 (Powered by 특수개발팀)")
-        with st.form("login_form"):
-            user_id = st.text_input("사번 (ID)")
-            user_pw = st.text_input("생년월일 6자리 (PW)", type="password", max_chars=6)
-            submitted = st.form_submit_button("로그인", use_container_width=True)
+        st.markdown("<div style='height:3vh'></div>", unsafe_allow_html=True)
+        with st.container(key="login_card"):
+            _c_left, _c_right = st.columns([5, 4])
+            with _c_left:
+                with st.container(key="login_left"):
+                    st.markdown(
+                        '<div class="lg-icon">🧭</div>'
+                        '<div class="lg-title">특수개발 워크스페이스</div>'
+                        '<div class="lg-sub">휴게소 데이터 허브 · SD 허브</div>'
+                        '<div class="lg-badge">⚙️ Powered by 특수개발팀</div>'
+                        '<div class="lg-mini"><div class="lg-mini-ic">🛣️</div>'
+                        '<div><b>휴게소 데이터 허브</b><span>지도 · 입찰 · 방문이력</span></div></div>'
+                        '<div class="lg-mini"><div class="lg-mini-ic">📊</div>'
+                        '<div><b>SD 허브</b><span>실적 · 점포 · 주간보고</span></div></div>'
+                        '<div class="lg-road"></div>',
+                        unsafe_allow_html=True,
+                    )
+            with _c_right:
+                with st.container(key="login_right"):
+                    st.markdown(
+                        '<div class="lg-form-title">로그인</div>'
+                        '<div class="lg-form-sub">사번과 생년월일 6자리를 입력해 주세요.</div>',
+                        unsafe_allow_html=True,
+                    )
+                    with st.form("login_form"):
+                        user_id = st.text_input("👤 사번 (ID)")
+                        user_pw = st.text_input("🔒 생년월일 6자리 (PW)", type="password", max_chars=6)
+                        submitted = st.form_submit_button("로그인", use_container_width=True)
+                    msg_box = st.empty()
     if submitted:
         input_id = normalize_value(user_id)
         input_pw = normalize_value(user_pw)
         try:
             login_df = load_login_data()
         except Exception as e:
-            st.error(f"로그인 정보 로드 오류: {e}")
+            msg_box.error(f"로그인 정보 로드 오류: {e}")
             st.stop()
         id_col = find_column(login_df, "사번")
         pw_col = find_column(login_df, "생년월일")
@@ -839,16 +911,56 @@ if not st.session_state["logged_in"]:
                 pass
             st.rerun()
         else:
-            st.error("사번 또는 비밀번호가 올바르지 않습니다.")
+            msg_box.error("사번 또는 비밀번호가 올바르지 않습니다.")
     st.stop()
 
 # --- 로그인 성공 시 ---
 if "app_mode" not in st.session_state:
-    st.session_state["app_mode"] = "hub"
+    st.session_state["app_mode"] = "select"     # 로그인 직후에는 허브 선택 화면
 app_mode = st.session_state["app_mode"]
 
 def _switch_mode():
     st.session_state["app_mode"] = "tool" if st.session_state.get("app_mode", "hub") == "hub" else "hub"
+
+def _go_mode(mode):
+    st.session_state["app_mode"] = mode
+
+# --- 허브 선택 화면 ---
+if app_mode == "select":
+    _pk_l, _pk_c, _pk_r = st.columns([1, 6, 1])
+    with _pk_c:
+        st.markdown(
+            '<div class="hub-header" style="text-align:center;padding:26px 24px;">'
+            '<div class="hub-title">🧭 특수개발 워크스페이스</div>'
+            f'<div class="hub-sub">{st.session_state.get("user_name", "")}님, 어디로 이동할까요?</div>'
+            '<div class="lg-badge" style="margin-top:12px;">⚙️ Powered by 특수개발팀</div>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+        _pk1, _pk2 = st.columns(2)
+        with _pk1:
+            with st.container(key="pick_hub"):
+                st.markdown(
+                    '<div class="pk-ic">🛣️</div>'
+                    '<div class="pk-name">휴게소 데이터 허브</div>'
+                    '<div class="pk-desc">전국 휴게소를 지도에서 찾고, 입찰 현황과 방문 이력, 주간 활동 보고를 관리합니다.</div>'
+                    '<div class="pk-chips"><span>스마트 노선 맵</span><span>입찰 현황</span><span>방문 이력</span></div>',
+                    unsafe_allow_html=True,
+                )
+                st.button("휴게소 데이터 허브 들어가기 ▶", key="pick_hub_btn", on_click=_go_mode, args=("hub",),
+                          use_container_width=True)
+        with _pk2:
+            with st.container(key="pick_sd"):
+                st.markdown(
+                    '<div class="pk-ic">📊</div>'
+                    '<div class="pk-name">SD 허브</div>'
+                    '<div class="pk-desc">팀과 담당자별 실적, 오픈점 현황을 한눈에 확인하고 그래프로 흐름을 봅니다.</div>'
+                    '<div class="pk-chips"><span>실적 현황</span><span>점포 현황</span><span>주간 보고</span></div>',
+                    unsafe_allow_html=True,
+                )
+                st.button("SD 허브 들어가기 ▶", key="pick_sd_btn", on_click=_go_mode, args=("tool",),
+                          use_container_width=True)
+    st.stop()
 
 if app_mode == "tool":
     _head_title = "📊 SD 허브"
@@ -856,7 +968,7 @@ if app_mode == "tool":
     _switch_label = "🔄 휴게소 허브"
 else:
     _head_title = "🛣️ 휴게소 데이터 허브"
-    _head_sub = "Powered by 특수개발팀 · GS25 점포개발"
+    _head_sub = "Powered by 특수개발팀"
     _switch_label = "🔄 SD 허브"
 
 if APPLY_THEME:
