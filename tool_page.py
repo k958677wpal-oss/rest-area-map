@@ -318,27 +318,26 @@ TOOL_CSS = """
 .pb-chip { font-size: 13px; font-weight: 700; color: #2c4a8a; background: #ffffff; border: 1px solid #c9d4ea;
     border-radius: 999px; padding: 4px 14px; }
 .pb-chip b { color: #0b9a6a; margin-right: 6px; }
-.st-key-periodbody { padding: 18px 20px 18px !important; }
+.st-key-periodbody { padding: 18px 20px 18px 59px !important; }
 .st-key-periodbody [data-testid="stHorizontalBlock"] { align-items: center !important; gap: 0.8rem; }
-.pb-lab { font-size: 14px; font-weight: 700; color: #55648a; text-align: left; white-space: nowrap; line-height: 48px; height: 48px; margin: 0; }
+.pb-lab { font-size: 14px; font-weight: 700; color: #55648a; text-align: left; white-space: nowrap; line-height: 48px; height: 48px; margin: 0; position: relative; top: -6px; }
 .st-key-periodbody [data-testid="stElementContainer"], .st-key-periodbody [data-testid="element-container"] { margin: 0 !important; }
 /* 알약 선택(라디오를 알약처럼 꾸밈): 조회 기간 / 담당자 필터 공통. 선택된 항목 = 네이비 바탕 + 흰 글씨 */
 .st-key-periodbody [data-testid="stWidgetLabel"], .st-key-mgr_filter [data-testid="stWidgetLabel"] { display: none !important; }
 .st-key-periodbody [data-testid="stMarkdownContainer"] p, .st-key-mgr_filter [data-testid="stMarkdownContainer"] { margin: 0; }
-.st-key-periodbody [role="radiogroup"], .st-key-mgr_filter [role="radiogroup"] {
-    display: flex !important; flex-direction: row !important; flex-wrap: nowrap; gap: 6px !important; align-items: center;
-    background: #eef2fa; padding: 5px; border-radius: 14px; width: fit-content; }
-.st-key-periodbody [role="radiogroup"] > label, .st-key-mgr_filter [role="radiogroup"] > label {
-    margin: 0 !important; padding: 0 22px !important; height: 38px; border-radius: 10px; cursor: pointer;
-    display: flex !important; align-items: center; justify-content: center; background: transparent; }
-.st-key-periodbody [role="radiogroup"] > label > div:first-child:not([data-testid="stMarkdownContainer"]),
-.st-key-mgr_filter [role="radiogroup"] > label > div:first-child:not([data-testid="stMarkdownContainer"]) { display: none !important; }
-.st-key-periodbody [role="radiogroup"] > label p, .st-key-mgr_filter [role="radiogroup"] > label p {
-    font-size: 15px !important; font-weight: 700 !important; color: #55648a; margin: 0 !important; white-space: nowrap; line-height: 1.2; }
-.st-key-periodbody [role="radiogroup"] > label:hover, .st-key-mgr_filter [role="radiogroup"] > label:hover { background: #dfe7f6; }
-.st-key-periodbody [role="radiogroup"] > label:has(input:checked), .st-key-mgr_filter [role="radiogroup"] > label:has(input:checked) {
-    background: #2c4a8a !important; box-shadow: 0 3px 8px rgba(31,58,115,.28); }
-.st-key-periodbody [role="radiogroup"] > label:has(input:checked) p, .st-key-mgr_filter [role="radiogroup"] > label:has(input:checked) p { color: #ffffff !important; }
+/* 알약 선택: 버튼 여러 개를 '컨테이너 이름(key)'으로 꾸밈 (_on = 선택됨 / _off = 선택 안 됨) */
+div[class*="st-key-pill_"] [data-testid="stHorizontalBlock"] {
+    display: flex !important; flex-wrap: nowrap !important; width: fit-content !important; gap: 6px !important;
+    background: #eef2fa; padding: 5px; border-radius: 14px; align-items: center !important; }
+div[class*="st-key-pill_"] [data-testid="stColumn"], div[class*="st-key-pill_"] [data-testid="column"] {
+    flex: 0 0 auto !important; width: auto !important; min-width: 0 !important; }
+div[class*="st-key-pill_"] [data-testid="stVerticalBlock"] { gap: 0 !important; }
+div[class*="st-key-pl_"] button { border: none !important; border-radius: 10px !important; background: transparent !important;
+    height: 38px; min-height: 38px; padding: 0 22px; box-shadow: none; }
+div[class*="st-key-pl_"] button p { font-size: 15px !important; font-weight: 700 !important; color: #55648a; white-space: nowrap; margin: 0; }
+div[class*="st-key-pl_"][class*="_off"] button:hover { background: #dfe7f6 !important; }
+div[class*="st-key-pl_"][class*="_on"] button { background: #2c4a8a !important; box-shadow: 0 3px 8px rgba(31,58,115,.28); }
+div[class*="st-key-pl_"][class*="_on"] button p { color: #ffffff !important; }
 /* 조회 기간 줄: 내용 크기대로 왼쪽부터 붙여 배치, 세로 가운데 */
 .st-key-periodbody [data-testid="stHorizontalBlock"] { gap: 10px !important; justify-content: flex-start !important; }
 .st-key-periodbody [data-testid="stColumn"], .st-key-periodbody [data-testid="column"] {
@@ -348,7 +347,7 @@ TOOL_CSS = """
 .st-key-periodbody [data-baseweb="select"] > div { min-height: 48px !important; height: 48px !important; }
 .st-key-periodbody div.stButton > button { min-height: 48px !important; height: 48px; padding: 0 18px; }
 .pb-lab.gap { margin-left: 26px; }
-.pb-tilde { font-size: 16px; font-weight: 700; color: #55648a; line-height: 48px; margin: 0; }
+.pb-tilde { font-size: 16px; font-weight: 700; color: #55648a; line-height: 48px; margin: 0; position: relative; top: -6px; }
 /* 탭 메뉴: 눈에 띄는 알약 형태 (클래스 이름에 의존하지 않도록 속성으로 지정) */
 [data-baseweb="tab-list"], [role="tablist"], [data-testid="stTabs"] > div:first-child { gap: 8px !important; background: #eef2fa !important; padding: 6px !important; border-radius: 14px !important; }
 button[data-baseweb="tab"], button[role="tab"], [data-testid="stTab"] { height: 48px !important; padding: 0 26px !important; border-radius: 10px !important; background: transparent !important; }
@@ -366,18 +365,17 @@ div[class*="st-key-mgrbox_"] [data-testid="stColumn"], div[class*="st-key-mgrbox
     flex: 0 0 auto !important; width: auto !important; min-width: 0 !important; }
 .st-key-mgr_filter .sec-h { margin: 0; white-space: nowrap; }
 /* 담당자 필터/오픈점 보기: 제목 글자(22px)에 맞춰 크게 */
-.st-key-mgr_filter [role="radiogroup"] > label { height: 46px; padding: 0 26px !important; }
-.st-key-mgr_filter [role="radiogroup"] > label p { font-size: 19px !important; }
-.st-key-mgr_filter div[class*="st-key-mgrbtn_"] button { height: 56px; min-height: 56px; min-width: 150px; padding: 0 26px; }
-.st-key-mgr_filter div[class*="st-key-mgrbtn_"] button p { font-size: 19px !important; }
+.st-key-mgr_filter div[class*="st-key-pl_"] button { height: 44px; min-height: 44px; padding: 0 24px; }
+.st-key-mgr_filter div[class*="st-key-pl_"] button p { font-size: 19px !important; }
+.mgr-row { min-height: 44px; }
 .st-key-mgr_filter [data-testid="stVerticalBlock"] { gap: 0 !important; }
 .mgr-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; padding-top: 4px; }
 .mgr-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .mgr-chip { font-size: 13px; font-weight: 600; color: #2c4a8a; background: #eaf0fb; border-radius: 999px; padding: 4px 12px; }
 div[class*="st-key-mgrbtn_"] { display: flex; }
-div[class*="st-key-mgrbtn_"] button { min-width: 130px; height: 38px; min-height: 38px; border: none !important; border-radius: 10px !important;
-    background: #eef2fa !important; padding: 0 20px; }
-div[class*="st-key-mgrbtn_"] button p { font-weight: 700 !important; color: #2c4a8a; }
+div[class*="st-key-mgrbtn_"] button { min-width: 0; height: 44px; min-height: 44px; border: none !important; border-radius: 10px !important;
+    background: #eef2fa !important; padding: 0 22px; }
+div[class*="st-key-mgrbtn_"] button p { font-weight: 700 !important; font-size: 18px !important; color: #2c4a8a; white-space: nowrap; margin: 0; }
 div[class*="st-key-mgrbtn_"] button:hover { background: #2c4a8a !important; }
 div[class*="st-key-mgrbtn_"] button:hover p { color: #ffffff !important; }
 .sec-h { display: flex; align-items: center; gap: 10px; font-size: 22px; font-weight: 800; color: #1a2b4f; margin: 22px 0 16px; }
@@ -693,6 +691,27 @@ def refresh_button(key):
         st.rerun()
 
 
+def pill_select(options, key, on_change=None):
+    """알약 모양 단일 선택. 버튼 여러 개를 컨테이너 이름(_on/_off)으로 꾸밈 -> 어떤 스트림릿 버전에서도 동일"""
+    cur = st.session_state.get(key)
+    if cur not in options:
+        cur = options[0]
+        st.session_state[key] = cur
+
+    def _set(opt):
+        st.session_state[key] = opt
+        if on_change:
+            on_change()
+
+    with st.container(key=f"pill_{key}"):
+        cols = st.columns(len(options))
+        for i, (c, opt) in enumerate(zip(cols, options)):
+            with c:
+                with st.container(key=f"pl_{key}_{i}_{'on' if opt == cur else 'off'}"):
+                    st.button(opt, key=f"{key}_btn_{i}", on_click=_set, args=(opt,))
+    return st.session_state[key]
+
+
 def pick_period(months):
     """조회 기간 바: 카드 하나 안에 [제목] [보기 방식] [월 선택] [월 선택] [여백] [새로고침]"""
     with st.container(key="periodbar"):
@@ -704,8 +723,7 @@ def pick_period(months):
             with l1:
                 lab("보기 방식")
             with c1:
-                mode = st.radio("보기 방식", ["월별", "누계"], horizontal=True, key="tool_pmode",
-                                label_visibility="collapsed")
+                mode = pill_select(["월별", "누계"], "tool_pmode")
             with c5:
                 refresh_button("tool_refresh")
             if mode == "월별":
@@ -1137,8 +1155,7 @@ def view_performance(D, yms, mode, period_text):
         with h1:
             st.markdown(sec_heading("badge", "담당자별"), unsafe_allow_html=True)
         with h2:
-            pick = st.radio("담당자", options, horizontal=True, key="tool_mgr_pick",
-                            label_visibility="collapsed", on_change=_reset_detail)
+            pick = pill_select(options, "tool_mgr_pick", on_change=_reset_detail)
         with h3:
             # 담당자를 하나 골랐을 때만: 그 담당자의 오픈점 카드를 펼치고 접는 버튼
             if pick and pick != "전체":
