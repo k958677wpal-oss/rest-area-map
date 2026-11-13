@@ -337,7 +337,9 @@ TOOL_CSS = """
 .kpi .kpi-gp i { display: block; flex: none; height: 100%; }
 .kpi .kpi-gp u { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: #ffffff; text-decoration: none; }
 .kpi .kpi-ex { font-size: 11.5px; font-weight: 600; color: #7d8aa8; margin-bottom: 4px; line-height: 1.35; }
-.kpi .kpi-ex.up { color: #0b9a6a; font-weight: 800; }
+.kpi .kpi-ex b.up { color: #0b9a6a; font-weight: 800; }
+.kpi .kpi-tl { position: relative; height: 13px; margin-bottom: 3px; }
+.kpi .kpi-tl span { position: absolute; top: 0; transform: translateX(-50%); font-size: 10.5px; font-weight: 700; color: #7d8aa8; line-height: 13px; }
 .kpi .kpi-g2 { margin-bottom: 8px; }
 .kpi .kpi-g2 .trk { position: relative; height: 8px; border-radius: 99px;
     background: linear-gradient(90deg, #fbdde2 0 66.67%, #ffe8c2 66.67% 83.33%, #cfeee1 83.33% 100%); }
@@ -707,9 +709,10 @@ def grade_color(g):
     return COLOR_BAD
 
 
-def goal_html(cur, goal, unit, tag="목표", grade=None, note=""):
+def goal_html(cur, goal, unit, tag="목표", grade=None, note="", top=None, top_label=""):
     """목표가 있을 때만 쓰는 '목표 12점 중 5점 · 42%' + 진행 막대.
-    목표를 넘으면 막대 안에 목표 눈금(흰 선)을 두고 초과분을 초록으로, 아래에 '+N 초과' 표시. grade 가 있으면 등급 칩"""
+    막대 끝 = 최상위 등급 기준(top) 또는 실적(더 큰 쪽). 눈금(흰 선) = 목표(G)와 최상위 등급(E+ 등).
+    목표를 넘은 부분은 초록. 아래 한 줄에 '+N 초과 · 안내'. grade 가 있으면 등급 칩"""
     if goal is None or goal <= 0 or cur is None:
         return ""
     pct = cur / goal * 100.0
@@ -717,19 +720,34 @@ def goal_html(cur, goal, unit, tag="목표", grade=None, note=""):
     chip = ""
     if grade:
         chip = f'<span class="gchip" style="background:{grade_color(grade)}" title="누계 기준 현재 등급">{grade}</span>'
+    has_top = top is not None and top > goal
+    scale = max(cur, goal, top if has_top else goal)
+    gpos = goal / scale * 100.0
+    navy_w = min(cur, goal) / scale * 100.0
+    green_w = max(cur - goal, 0.0) / scale * 100.0
+    bar = f'<i style="width:{navy_w:.1f}%;background:{COLOR_NAVY}"></i>'
+    if green_w > 0:
+        bar += f'<i style="width:{green_w:.1f}%;background:{COLOR_GOOD}"></i>'
+    ticks, labels = "", ""
+    if gpos < 99.5:
+        ticks += f'<u style="left:{gpos:.1f}%"></u>'
+    if has_top:
+        tpos = top / scale * 100.0
+        if tpos < 99.5:
+            ticks += f'<u style="left:{tpos:.1f}%"></u>'
+        gl_ = min(max(gpos, 4.0), 96.0)
+        tl_ = min(max(tpos, 4.0), 96.0)
+        labels = (f'<div class="kpi-tl"><span style="left:{gl_:.1f}%">G</span>'
+                  f'<span style="left:{tl_:.1f}%">{top_label}</span></div>')
+    parts = []
     if cur > goal:
-        bw = goal / cur * 100.0
-        bar = (f'<i style="width:{bw:.1f}%;background:{COLOR_NAVY}"></i>'
-               f'<i style="width:{100.0 - bw:.1f}%;background:{COLOR_GOOD}"></i>'
-               f'<u style="left:{bw:.1f}%"></u>')
-        extra = f'<div class="kpi-ex up">+{_n(cur - goal, unit)} 초과</div>'
-    else:
-        bar = f'<i style="width:{max(0.0, min(pct, 100.0)):.1f}%;background:{COLOR_NAVY}"></i>'
-        extra = ""
-    note_html = f'<div class="kpi-ex">{note}</div>' if note else ""
+        parts.append(f'<b class="up">+{_n(cur - goal, unit)} 초과</b>')
+    if note:
+        parts.append(note)
+    extra = f'<div class="kpi-ex">{" · ".join(parts)}</div>' if parts else ""
     return (f'<div class="kpi-goal"><span>{tag} {_n(goal, unit)} 중 <b>{_n(cur, unit)}</b></span>'
             f'<span class="gr">{chip}<b style="color:{col}">{pct:.0f}%</b></span></div>'
-            f'<div class="kpi-gp">{bar}</div>{extra}{note_html}')
+            f'<div class="kpi-gp">{bar}{ticks}</div>{labels}{extra}')
 
 
 def _who_key(who):
@@ -758,19 +776,38 @@ def find_grades(D, who, metric, period):
     return grades.get((_who_key(who), metric, period), {})
 
 
-def grade_info(D, who, metric, cur, goal, opened_year=None):
-    """(현재 등급, 안내 문구). 등급 기준이 하나도 없으면 (None, '').
-    개인의 달성점/흑자점은 올해 출점수가 출점 목표 이상이면 한 칸 위(+등급)로 올림"""
-    if cur is None or goal is None or goal <= 0:
-        return None, ""
+def grade_thresholds(D, who, metric, goal):
+    """등급별 기준값 dict (G = 목표값 포함). 등급 기준이 하나도 없으면 빈 dict"""
+    if goal is None or goal <= 0:
+        return {}
     th = dict(find_grades(D, who, metric, "연간"))
     if metric == "일매출":
         for lab, pc in DAILY_GRADE_PCT.items():
             if lab not in th:
                 th[lab] = goal * pc / 100.0
     if not th:
-        return None, ""
+        return {}
     th["G"] = goal
+    return th
+
+
+def grade_top(D, who, metric, goal):
+    """(최상위 등급 기준값, 등급 이름). 없으면 (None, '')"""
+    th = grade_thresholds(D, who, metric, goal)
+    for lab in reversed(GRADE_LADDER):
+        if lab in th and lab != "G":
+            return th[lab], lab
+    return None, ""
+
+
+def grade_info(D, who, metric, cur, goal, opened_year=None):
+    """(현재 등급, 안내 문구). 등급 기준이 하나도 없으면 (None, '').
+    개인의 달성점/흑자점은 올해 출점수가 출점 목표 이상이면 한 칸 위(+등급)로 올림"""
+    if cur is None or goal is None or goal <= 0:
+        return None, ""
+    th = grade_thresholds(D, who, metric, goal)
+    if not th:
+        return None, ""
     label = "U"
     for lab in reversed(GRADE_LADDER):
         if lab in th and cur >= th[lab] - 1e-9:
@@ -783,9 +820,9 @@ def grade_info(D, who, metric, cur, goal, opened_year=None):
         if og is not None:
             if opened_year >= og - 1e-9:
                 label = GRADE_LADDER[min(GRADE_LADDER.index(label) + 1, len(GRADE_LADDER) - 1)]
-                note = "출점 목표 달성으로 +등급 적용"
+                note = "출점 달성 +등급"
             else:
-                note = f"출점 목표 달성 시 +등급 ({_n(opened_year)}/{_n(og)}점)"
+                note = f"출점 달성 시 +등급 ({_n(opened_year)}/{_n(og)}점)"
     return label, note
 
 
@@ -803,26 +840,25 @@ def group_cards(G, mode, P=None, D=None, who="팀"):
     goal_part = ""
     if goal_year is not None:
         og, onote = grade_info(D, who, "출점수", G["opened_year"], goal_year)
-        goal_part = goal_html(G["opened_year"], goal_year, "점", "올해 목표", og, onote)
+        otop, otl = grade_top(D, who, "출점수", goal_year)
+        goal_part = goal_html(G["opened_year"], goal_year, "점", "올해 목표", og, onote, otop, otl)
     elif goal_mon is not None:
         goal_part = goal_html(G["new_in_period"], goal_mon, "점", "월 목표")
     open_bot = goal_part + open_bot
     # 영업이익 / 흑자점의 작은 글자
     if G["op_n"] == 0:
         op_sub = "영업이익 미입력"
-        black_sub = "영업이익 미입력"
     else:
         part = ""
         if G["op_n"] < G["data_n"]:
             part = f" · 입력 {G['op_n']}/{G['data_n']}점"
-        op_sub = part.replace(" · ", "", 1)
-        black_sub = f"{G['op_n']}점 중 구성비 {pct_text(G['black'], G['op_n'])}{part}"
+        op_sub = f"흑자 {G['black']}점 · {G['op_n']}점 중 구성비 {pct_text(G['black'], G['op_n'])}{part}"
 
     dl = (lambda cur, prev, kind: delta_html(cur, prev, kind)) if use_d else (lambda *a: "")
     black_cur = G["black"] if G["op_n"] > 0 else None
     black_prev = P["black"] if (p_ok and P["op_n"] > 0) else None
 
-    def gl(metric, cur, unit, cum_only=False):
+    def gl(metric, cur, unit, cum_only=False, tag="목표"):
         """'목표' 탭에 해당 지표 목표가 있으면 목표 줄, 없으면 빈 문자열 (연간 우선, 없으면 월)
         cum_only=True 이면 누계 보기에서만 표시 (연간 목표를 한 달 실적과 비교하면 의미가 어긋나므로)"""
         if not D or cur is None:
@@ -832,9 +868,10 @@ def group_cards(G, mode, P=None, D=None, who="팀"):
         g = find_goal(D, who, metric, "연간")
         if g is not None:
             gr, gnote = grade_info(D, who, metric, cur, g, G["opened_year"])
-            return goal_html(cur, g, unit, "목표", gr, gnote)
+            top, tl = grade_top(D, who, metric, g)
+            return goal_html(cur, g, unit, tag, gr, gnote, top, tl)
         g = find_goal(D, who, metric, "월")
-        return goal_html(cur, g, unit, "목표") if g is not None else ""
+        return goal_html(cur, g, unit, tag) if g is not None else ""
 
     items = [
         dict(label="출점수", value=fnum(G["opened"]), unit="점", sub=open_sub, accent=COLOR_NAVY, icon="store",
@@ -842,18 +879,17 @@ def group_cards(G, mode, P=None, D=None, who="팀"):
         dict(label="매익율", value=fnum(G["margin"], 1), unit="%", accent=COLOR_PURPLE, icon="pct",
              delta=dl(G["margin"], pv("margin"), "pp")),
         dict(label="일매출", value=fnum(G["daily"]), unit="천원", accent=COLOR_BLUE, icon="coin",
-             delta=gl("일매출", G["daily"], "천원", True) + dl(G["daily"], pv("daily"), "amt")),
+             delta=gl("일매출", G["daily"], "천원", True, "일매출 목표") + dl(G["daily"], pv("daily"), "amt")),
         dict(label="예상매출 달성률", value=fnum(G["rate"], 1), unit="%",
              sub=f"{G['rate_n']}점 중 {G['achieved']}점 달성 · 구성비 {pct_text(G['achieved'], G['rate_n'])}",
              neg=(G["rate"] is not None and G["rate"] < ACHIEVE_PCT),
-             accent=rate_color(G["rate"]), icon="target", gauge=G["rate"],
-             delta=gl("달성점", G["achieved"], "점", True) + dl(G["rate"], pv("rate"), "pp")),
+            accent=rate_color(G["rate"]), icon="target",
+            delta=gl("달성점", G["achieved"], "점", True, "달성점 목표") + dl(G["rate"], pv("rate"), "pp")),
         dict(label="영업이익 누계" if cumulative else "영업이익", value=fnum(G["op_sum"]), unit="천원",
              sub=op_sub, neg=(G["op_sum"] is not None and G["op_sum"] < 0),
              accent=_op_accent(G["op_sum"]), icon="bars",
-             delta=dl(G["op_sum"], pv("op_sum"), "amt")),
-        dict(label="흑자점", value=fnum(G["black"]), unit="점", sub=black_sub, accent=COLOR_GOOD, icon="check",
-             delta=gl("흑자점", black_cur, "점", True) + dl(black_cur, black_prev, "pt")),
+             delta=gl("흑자점", black_cur, "점", True, "흑자점 목표") + dl(G["op_sum"], pv("op_sum"), "amt")
+             + dl(black_cur, black_prev, "pt")),
     ]
     return kpi_html(items)
 
