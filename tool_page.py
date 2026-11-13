@@ -338,8 +338,13 @@ TOOL_CSS = """
 .kpi .kpi-gp u { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: #ffffff; text-decoration: none; }
 .kpi .kpi-ex { font-size: 11.5px; font-weight: 600; color: #7d8aa8; margin-bottom: 4px; line-height: 1.35; }
 .kpi .kpi-ex b.up { color: #0b9a6a; font-weight: 800; }
-.kpi .kpi-tl { position: relative; height: 13px; margin-bottom: 3px; }
-.kpi .kpi-tl span { position: absolute; top: 0; transform: translateX(-50%); font-size: 10.5px; font-weight: 700; color: #7d8aa8; line-height: 13px; }
+.kpi .kpi-tl { position: relative; height: 16px; margin-bottom: 3px; }
+.kpi .kpi-tl span { position: absolute; top: 0; transform: translateX(-50%); font-size: 11.5px; font-weight: 800; color: #7d8aa8; line-height: 16px; white-space: nowrap; }
+.kpi .kpi-tl.r { text-align: right; }
+.kpi .kpi-tl.r span { position: static; transform: none; margin-left: 10px; display: inline-block; }
+.kpi .kpi-pair { display: flex; align-items: flex-end; gap: 16px; }
+.kpi .kpi-pair .kpi-v { margin: 0; }
+.kpi .kpi-pair .kpi-sep { width: 1px; align-self: stretch; background: #dde3ef; margin: 4px 0; }
 .kpi .kpi-g2 { margin-bottom: 8px; }
 .kpi .kpi-g2 .trk { position: relative; height: 8px; border-radius: 99px;
     background: linear-gradient(90deg, #fbdde2 0 66.67%, #ffe8c2 66.67% 83.33%, #cfeee1 83.33% 100%); }
@@ -571,7 +576,7 @@ def mini_icon(kind, color, size=18):
     """카드 라벨 옆 작은 벡터 아이콘"""
     if kind == "store":
         b = f'<path d="M3 10.5 12 3l9 7.5V21H3z" fill="{color}"/><rect x="9.5" y="13" width="5" height="8" fill="#fff"/>'
-    elif kind == "pct":
+    elif kind == "pct":  # (미사용 가능)
         b = (f'<circle cx="12" cy="12" r="10" fill="{color}"/>'
              '<path d="M8 16 16 8" stroke="#fff" stroke-width="2" stroke-linecap="round"/>'
              '<circle cx="8.5" cy="8.5" r="1.8" fill="#fff"/><circle cx="15.5" cy="15.5" r="1.8" fill="#fff"/>')
@@ -641,9 +646,17 @@ def kpi_html(items):
         delta = it.get("delta") or ""
         bot = f'<div class="kpi-bot">{gauge}{delta}</div>' if (gauge or delta) else ""
         nb = "" if (bot or any_bot) else " nobot"
+        if it.get("value2") is not None:
+            v2 = it["value2"]
+            unit2 = it.get("unit2", "")
+            u2 = f"<small>{unit2}</small>" if unit2 and v2 != "-" else ""
+            vals = (f'<div class="kpi-pair"><div class="kpi-v{cls}">{it["value"]}{u}</div>'
+                    f'<span class="kpi-sep"></span><div class="kpi-v">{v2}{u2}</div></div>')
+        else:
+            vals = f'<div class="kpi-v{cls}">{it["value"]}{u}</div>'
         out.append(
             f'<div class="kpi{nb}" style="--ac:{ac}"><div class="kpi-l">{ic}{it["label"]}</div>'
-            f'<div class="kpi-v{cls}">{it["value"]}{u}</div>{sub}{bot}</div>'
+            f'{vals}{sub}{bot}</div>'
         )
     out.append("</div>")
     return "".join(out)
@@ -662,7 +675,7 @@ def _prev_ym(ym):
     return f"{y:04d}{m:02d}"
 
 
-def delta_html(cur, prev, kind):
+def delta_html(cur, prev, kind, name=""):
     """'전월 대비 ▲ 1.2%p' 한 줄. kind: pp(%p) / pt(점) / amt(천원)"""
     if cur is None:
         return ""
@@ -675,10 +688,11 @@ def delta_html(cur, prev, kind):
         thr, txt = 0.5, f"{abs(d):,.0f}점"
     else:
         thr, txt = 0.5, f"{abs(d):,.0f}천원"
+    pre = f"{name} " if name else ""
     if abs(d) < thr:
-        return '<div class="kpi-d d0">전월과 동일</div>'
+        return f'<div class="kpi-d d0">{pre}전월과 동일</div>'
     cls, ar = ("up", "▲") if d > 0 else ("dn", "▼")
-    return f'<div class="kpi-d {cls}">전월 대비 <b>{ar} {txt}</b></div>'
+    return f'<div class="kpi-d {cls}">{pre}전월 대비 <b>{ar} {txt}</b></div>'
 
 
 def _n(v, unit=""):
@@ -709,7 +723,13 @@ def grade_color(g):
     return COLOR_BAD
 
 
-def goal_html(cur, goal, unit, tag="목표", grade=None, note="", top=None, top_label=""):
+def _nn(v, unit=""):
+    """단위 글자 없이 숫자만 (라벨용)"""
+    s = _n(v, unit)
+    return s[:-len(unit)] if unit and s.endswith(unit) else s
+
+
+def goal_html(cur, goal, unit, tag="목표", grade=None, note="", top=None, top_label="", name=""):
     """목표가 있을 때만 쓰는 '목표 12점 중 5점 · 42%' + 진행 막대.
     막대 끝 = 최상위 등급 기준(top) 또는 실적(더 큰 쪽). 눈금(흰 선) = 목표(G)와 최상위 등급(E+ 등).
     목표를 넘은 부분은 초록. 아래 한 줄에 '+N 초과 · 안내'. grade 가 있으면 등급 칩"""
@@ -720,6 +740,7 @@ def goal_html(cur, goal, unit, tag="목표", grade=None, note="", top=None, top_
     chip = ""
     if grade:
         chip = f'<span class="gchip" style="background:{grade_color(grade)}" title="누계 기준 현재 등급">{grade}</span>'
+    pct_title = "G(목표) 대비 달성률"
     has_top = top is not None and top > goal
     scale = max(cur, goal, top if has_top else goal)
     gpos = goal / scale * 100.0
@@ -735,18 +756,30 @@ def goal_html(cur, goal, unit, tag="목표", grade=None, note="", top=None, top_
         tpos = top / scale * 100.0
         if tpos < 99.5:
             ticks += f'<u style="left:{tpos:.1f}%"></u>'
-        gl_ = min(max(gpos, 4.0), 96.0)
-        tl_ = min(max(tpos, 4.0), 96.0)
-        labels = (f'<div class="kpi-tl"><span style="left:{gl_:.1f}%">G</span>'
-                  f'<span style="left:{tl_:.1f}%">{top_label}</span></div>')
+        gcol, tcol = grade_color("G"), grade_color(top_label)
+        gtxt = f"G({_nn(goal, unit)})"
+        ttxt = f"{top_label}({_nn(top, unit)})"
+        if tpos - gpos < 20.0:
+            # 두 눈금이 가까우면 라벨이 겹치므로 오른쪽에 나란히 한 줄로
+            labels = (f'<div class="kpi-tl r"><span style="color:{gcol}">{gtxt}</span>'
+                      f'<span style="color:{tcol}">{ttxt}</span></div>')
+        else:
+            gl_ = min(max(gpos, 8.0), 92.0)
+            tl_ = min(max(tpos, 8.0), 92.0)
+            labels = (f'<div class="kpi-tl"><span style="left:{gl_:.1f}%;color:{gcol}">{gtxt}</span>'
+                      f'<span style="left:{tl_:.1f}%;color:{tcol}">{ttxt}</span></div>')
     parts = []
     if cur > goal:
         parts.append(f'<b class="up">+{_n(cur - goal, unit)} 초과</b>')
     if note:
         parts.append(note)
     extra = f'<div class="kpi-ex">{" · ".join(parts)}</div>' if parts else ""
-    return (f'<div class="kpi-goal"><span>{tag} {_n(goal, unit)} 중 <b>{_n(cur, unit)}</b></span>'
-            f'<span class="gr">{chip}<b style="color:{col}">{pct:.0f}%</b></span></div>'
+    if has_top:
+        left = f'{name or tag} <b>{_n(cur, unit)}</b>'
+    else:
+        left = f'{tag} {_n(goal, unit)} 중 <b>{_n(cur, unit)}</b>'
+    return (f'<div class="kpi-goal"><span>{left}</span>'
+            f'<span class="gr" title="{pct_title}">{chip}<b style="color:{col}">{pct:.0f}%</b></span></div>'
             f'<div class="kpi-gp">{bar}{ticks}</div>{labels}{extra}')
 
 
@@ -841,7 +874,7 @@ def group_cards(G, mode, P=None, D=None, who="팀"):
     if goal_year is not None:
         og, onote = grade_info(D, who, "출점수", G["opened_year"], goal_year)
         otop, otl = grade_top(D, who, "출점수", goal_year)
-        goal_part = goal_html(G["opened_year"], goal_year, "점", "올해 목표", og, onote, otop, otl)
+        goal_part = goal_html(G["opened_year"], goal_year, "점", "올해 목표", og, onote, otop, otl, "출점수")
     elif goal_mon is not None:
         goal_part = goal_html(G["new_in_period"], goal_mon, "점", "월 목표")
     open_bot = goal_part + open_bot
@@ -854,7 +887,7 @@ def group_cards(G, mode, P=None, D=None, who="팀"):
             part = f" · 입력 {G['op_n']}/{G['data_n']}점"
         op_sub = f"흑자 {G['black']}점 · {G['op_n']}점 중 구성비 {pct_text(G['black'], G['op_n'])}{part}"
 
-    dl = (lambda cur, prev, kind: delta_html(cur, prev, kind)) if use_d else (lambda *a: "")
+    dl = (lambda cur, prev, kind, name="": delta_html(cur, prev, kind, name)) if use_d else (lambda *a, **k: "")
     black_cur = G["black"] if G["op_n"] > 0 else None
     black_prev = P["black"] if (p_ok and P["op_n"] > 0) else None
 
@@ -869,27 +902,26 @@ def group_cards(G, mode, P=None, D=None, who="팀"):
         if g is not None:
             gr, gnote = grade_info(D, who, metric, cur, g, G["opened_year"])
             top, tl = grade_top(D, who, metric, g)
-            return goal_html(cur, g, unit, tag, gr, gnote, top, tl)
+            return goal_html(cur, g, unit, tag, gr, gnote, top, tl, metric)
         g = find_goal(D, who, metric, "월")
         return goal_html(cur, g, unit, tag) if g is not None else ""
 
     items = [
-        dict(label="출점수", value=fnum(G["opened"]), unit="점", sub=open_sub, accent=COLOR_NAVY, icon="store",
-             delta=open_bot),
-        dict(label="매익율", value=fnum(G["margin"], 1), unit="%", accent=COLOR_PURPLE, icon="pct",
-             delta=dl(G["margin"], pv("margin"), "pp")),
+        dict(label="출점수 / 매익율", value=fnum(G["opened"]), unit="점", sub=open_sub, accent=COLOR_NAVY,
+             icon="store", value2=fnum(G["margin"], 1), unit2="%",
+             delta=open_bot + dl(G["margin"], pv("margin"), "pp", "매익율")),
         dict(label="일매출", value=fnum(G["daily"]), unit="천원", accent=COLOR_BLUE, icon="coin",
-             delta=gl("일매출", G["daily"], "천원", True, "일매출 목표") + dl(G["daily"], pv("daily"), "amt")),
+             delta=gl("일매출", G["daily"], "천원", True, "일매출 목표") + dl(G["daily"], pv("daily"), "amt", "일매출")),
         dict(label="예상매출 달성률", value=fnum(G["rate"], 1), unit="%",
              sub=f"{G['rate_n']}점 중 {G['achieved']}점 달성 · 구성비 {pct_text(G['achieved'], G['rate_n'])}",
              neg=(G["rate"] is not None and G["rate"] < ACHIEVE_PCT),
             accent=rate_color(G["rate"]), icon="target",
-            delta=gl("달성점", G["achieved"], "점", True, "달성점 목표") + dl(G["rate"], pv("rate"), "pp")),
+            delta=gl("달성점", G["achieved"], "점", True, "달성점 목표") + dl(G["rate"], pv("rate"), "pp", "달성률")),
         dict(label="영업이익 누계" if cumulative else "영업이익", value=fnum(G["op_sum"]), unit="천원",
              sub=op_sub, neg=(G["op_sum"] is not None and G["op_sum"] < 0),
              accent=_op_accent(G["op_sum"]), icon="bars",
-             delta=gl("흑자점", black_cur, "점", True, "흑자점 목표") + dl(G["op_sum"], pv("op_sum"), "amt")
-             + dl(black_cur, black_prev, "pt")),
+             delta=gl("흑자점", black_cur, "점", True, "흑자점 목표") + dl(G["op_sum"], pv("op_sum"), "amt", "영업이익")
+             + dl(black_cur, black_prev, "pt", "흑자점")),
     ]
     return kpi_html(items)
 
