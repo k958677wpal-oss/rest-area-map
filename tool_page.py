@@ -23,6 +23,8 @@ TEAM_KEYS = ("팀", "팀전체", "전체", "특수개발팀", "특수팀")
 KIND_DAILY_KEYWORD = "일매출"
 KIND_PROFIT_KEYWORD = "이익"
 
+ACHIEVE_PCT = 80.0         # 달성점으로 세는 기준(예상일매출 대비 달성률 %)
+
 COLOR_GOOD = "#0b9a6a"
 COLOR_WARN = "#f08c00"
 COLOR_BAD = "#d0143c"
@@ -290,7 +292,7 @@ def calc_group(D, names, yms):
     black = len([r for r in op_rows if r["op"] > 0])
 
     rate_rows = [r for r in data_rows if r["rate"] is not None]
-    achieved = len([r for r in rate_rows if r["rate"] >= 100.0])
+    achieved = len([r for r in rate_rows if r["rate"] >= ACHIEVE_PCT])     # MBO 달성점 = 달성률 80% 이상
 
     return {"opened": opened, "new_in_period": new_in_period, "opened_year": opened_year, "data_n": len(data_rows),
             "daily": daily, "target": target, "rate": rate, "margin": margin,
@@ -718,9 +720,12 @@ def group_cards(G, mode, P=None, D=None, who="팀"):
     black_cur = G["black"] if G["op_n"] > 0 else None
     black_prev = P["black"] if (p_ok and P["op_n"] > 0) else None
 
-    def gl(metric, cur, unit):
-        """'목' 탭에 해당 지표 목표가 있으면 목표 줄, 없으면 빈 문자열 (연간 우선, 없으면 월)"""
+    def gl(metric, cur, unit, cum_only=False):
+        """'목표' 탭에 해당 지표 목표가 있으면 목표 줄, 없으면 빈 문자열 (연간 우선, 없으면 월)
+        cum_only=True 이면 누계 보기에서만 표시 (연간 목표를 한 달 실적과 비교하면 의미가 어긋나므로)"""
         if not D or cur is None:
+            return ""
+        if cum_only and not cumulative:
             return ""
         g = find_goal(D, who, metric, "연간")
         if g is None:
@@ -736,15 +741,15 @@ def group_cards(G, mode, P=None, D=None, who="팀"):
              delta=gl("일매출", G["daily"], "천원") + dl(G["daily"], pv("daily"), "amt")),
         dict(label="예상매출 달성률", value=fnum(G["rate"], 1), unit="%",
              sub=f"{G['rate_n']}점 중 {G['achieved']}점 달성 · 구성비 {pct_text(G['achieved'], G['rate_n'])}",
-             neg=(G["rate"] is not None and G["rate"] < 100),
+             neg=(G["rate"] is not None and G["rate"] < ACHIEVE_PCT),
              accent=rate_color(G["rate"]), icon="target", gauge=G["rate"],
-             delta=gl("달성점", G["achieved"], "점") + dl(G["rate"], pv("rate"), "pp")),
+             delta=gl("달성점", G["achieved"], "점", True) + dl(G["rate"], pv("rate"), "pp")),
         dict(label="영업이익 누계" if cumulative else "영업이익", value=fnum(G["op_sum"]), unit="천원",
              sub=op_sub, neg=(G["op_sum"] is not None and G["op_sum"] < 0),
              accent=_op_accent(G["op_sum"]), icon="bars",
              delta=dl(G["op_sum"], pv("op_sum"), "amt")),
         dict(label="흑자점", value=fnum(G["black"]), unit="점", sub=black_sub, accent=COLOR_GOOD, icon="check",
-             delta=gl("흑자점", black_cur, "점") + dl(black_cur, black_prev, "pt")),
+             delta=gl("흑자점", black_cur, "점", True) + dl(black_cur, black_prev, "pt")),
     ]
     return kpi_html(items)
 
@@ -1077,6 +1082,7 @@ def sales_chart_svg(pts, open_ym="", last_ym=""):
     out.append(f'<line x1="{x0 - 4}" y1="{y_base}" x2="{x1}" y2="{y_base}" stroke="#d5dcea" stroke-width="1"/>')
 
     line_pts = []
+    top_labels = []
     for i, p in enumerate(pts):
         cx = x0 + slot * (i + 0.5)
         has = p["state"] == "data"
@@ -1091,8 +1097,10 @@ def sales_chart_svg(pts, open_ym="", last_ym=""):
                 h = max(p["daily"] * scale, 1.0)
                 out.append(f'<rect x="{cx - bw / 2:.1f}" y="{y_base - h:.1f}" width="{bw:.1f}" height="{h:.1f}" '
                            f'fill="{COLOR_NAVY}" rx="3"/>')
-                out.append(f'<text x="{cx:.1f}" y="{y_base - h - 5:.1f}" text-anchor="middle" font-size="12" '
-                           f'font-weight="700" fill="#1f2d4d">{p["daily"]:,.0f}</text>')
+                # 막대 위 숫자: 예상일매출 선 위에 그려지도록 따로 모았다가 마지막에 추가 (흰 테두리로 선과 겹쳐도 읽힘)
+                top_labels.append(f'<text x="{cx:.1f}" y="{y_base - h - 6:.1f}" text-anchor="middle" font-size="12" '
+                                  f'font-weight="700" fill="#1f2d4d" stroke="#ffffff" stroke-width="3.5" stroke-linejoin="round" '
+                                  f'paint-order="stroke" pointer-events="none">{p["daily"]:,.0f}</text>')
             rt = "-" if p["rate"] is None else f'{p["rate"]:.0f}%'
             out.append(f'<text x="{cx:.1f}" y="{y_r}" text-anchor="middle" font-size="12" font-weight="800" '
                        f'fill="{rate_color(p["rate"]) if p["rate"] is not None else "#8591ab"}">{rt}</text>')
@@ -1100,7 +1108,7 @@ def sales_chart_svg(pts, open_ym="", last_ym=""):
         if has and p["target"] is not None:
             ty = y_base - p["target"] * scale
             out.append(f'<line x1="{cx - bw / 2 - 4:.1f}" y1="{ty:.1f}" x2="{cx + bw / 2 + 4:.1f}" y2="{ty:.1f}" '
-                       f'stroke="{COLOR_WARN}" stroke-width="2.5" stroke-linecap="round"/>')
+                       f'stroke="{COLOR_WARN}" stroke-width="2" stroke-linecap="round" stroke-opacity=".85"/>')
             line_pts.append(f"{cx:.1f},{ty:.1f}")
             out.append(f'<text x="{cx:.1f}" y="{y_t}" text-anchor="middle" font-size="12" font-weight="700" '
                        f'fill="{COLOR_WARN}">{p["target"]:,.0f}</text>')
@@ -1117,6 +1125,7 @@ def sales_chart_svg(pts, open_ym="", last_ym=""):
     if len(line_pts) >= 2:
         out.append(f'<polyline points="{" ".join(line_pts)}" fill="none" stroke="{COLOR_WARN}" '
                    f'stroke-width="1.2" stroke-dasharray="4 3"/>')
+    out.extend(top_labels)      # 숫자는 선 위에 (맨 마지막)
     out.append("</svg>")
     return "".join(out)
 
@@ -1287,7 +1296,7 @@ def summary_html(D, managers, yms, all_names):
 
     its, tr = ratio_items("achieved", "rate_n", COLOR_GOOD, "#e6ebf4", lambda g: "")
     c3 = _sm_card("target", COLOR_GOOD, "예상매출 달성점 구성비",
-                  "초록 = 달성(100%↑) · 회색 = 미달 · 예상목표 있는 점포 기준",
+                  "초록 = 달성(80%↑) · 회색 = 미달 · 예상목표 있는 점포 기준",
                   its, tr, "평균", chip=(f"평균 {tr * 100:.1f}%" if tr is not None else ""))
 
     # 4) 흑자점 구성비 (모수 = 영업이익이 입력된 점포)
