@@ -338,6 +338,7 @@ TOOL_CSS = """
 .kpi .kpi-gp u { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: #ffffff; text-decoration: none; }
 .kpi .kpi-ex { font-size: 11.5px; font-weight: 600; color: #7d8aa8; margin-bottom: 4px; line-height: 1.35; }
 .kpi .kpi-ex b.up { color: #0b9a6a; font-weight: 800; }
+.kpi .kpi-ex b.dn { color: #f08c00; font-weight: 800; }
 .kpi .kpi-tl { position: relative; height: 16px; margin-bottom: 3px; }
 .kpi .kpi-tl span { position: absolute; top: 0; transform: translateX(-50%); font-size: 11.5px; font-weight: 800; color: #7d8aa8; line-height: 16px; white-space: nowrap; }
 .kpi .kpi-tl.r { text-align: right; }
@@ -760,24 +761,32 @@ def goal_html(cur, goal, unit, tag="목표", grade=None, note="", top=None, top_
         gtxt = f"G({_nn(goal, unit)})"
         ttxt = f"{top_label}({_nn(top, unit)})"
         if tpos - gpos < 20.0:
-            # 두 눈금이 가까우면 라벨이 겹치므로 오른쪽에 나란히 한 줄로
-            labels = (f'<div class="kpi-tl r"><span style="color:{gcol}">{gtxt}</span>'
-                      f'<span style="color:{tcol}">{ttxt}</span></div>')
+            # 두 눈금이 가까우면: G 라벨은 눈금의 왼쪽에, 상위 등급 라벨은 눈금의 오른쪽에 붙여 겹침을 피함
+            # (상위 눈금이 막대 오른쪽 끝 근처이면 그 라벨도 눈금의 왼쪽에 붙임)
+            tr = "translateX(-100%)" if tpos > 84.0 else "translateX(0)"
+            labels = (f'<div class="kpi-tl"><span style="left:{gpos:.1f}%;transform:translateX(-100%);'
+                      f'padding-right:3px;color:{gcol}">{gtxt}</span>'
+                      f'<span style="left:{min(tpos, 100.0):.1f}%;transform:{tr};'
+                      f'padding-left:3px;color:{tcol}">{ttxt}</span></div>')
         else:
             gl_ = min(max(gpos, 8.0), 92.0)
             tl_ = min(max(tpos, 8.0), 92.0)
             labels = (f'<div class="kpi-tl"><span style="left:{gl_:.1f}%;color:{gcol}">{gtxt}</span>'
                       f'<span style="left:{tl_:.1f}%;color:{tcol}">{ttxt}</span></div>')
+    if not has_top:
+        # 등급 기준이 없으면 G(목표) 라벨만 눈금(또는 막대 끝) 왼쪽에
+        gcol = grade_color("G")
+        labels = (f'<div class="kpi-tl"><span style="left:{min(gpos, 100.0):.1f}%;'
+                  f'transform:translateX(-100%);color:{gcol}">G({_nn(goal, unit)})</span></div>')
     parts = []
     if cur > goal:
         parts.append(f'<b class="up">+{_n(cur - goal, unit)} 초과</b>')
+    elif cur < goal:
+        parts.append(f'<b class="dn">{_n(goal - cur, unit)} 미달</b>')
     if note:
         parts.append(note)
     extra = f'<div class="kpi-ex">{" · ".join(parts)}</div>' if parts else ""
-    if has_top:
-        left = f'{name or tag} <b>{_n(cur, unit)}</b>'
-    else:
-        left = f'{tag} {_n(goal, unit)} 중 <b>{_n(cur, unit)}</b>'
+    left = f'{name or tag} <b>{_n(cur, unit)}</b>'
     return (f'<div class="kpi-goal"><span>{left}</span>'
             f'<span class="gr" title="{pct_title}">{chip}<b style="color:{col}">{pct:.0f}%</b></span></div>'
             f'<div class="kpi-gp">{bar}{ticks}</div>{labels}{extra}')
@@ -876,7 +885,7 @@ def group_cards(G, mode, P=None, D=None, who="팀"):
         otop, otl = grade_top(D, who, "출점수", goal_year)
         goal_part = goal_html(G["opened_year"], goal_year, "점", "올해 목표", og, onote, otop, otl, "출점수")
     elif goal_mon is not None:
-        goal_part = goal_html(G["new_in_period"], goal_mon, "점", "월 목표")
+        goal_part = goal_html(G["new_in_period"], goal_mon, "점", "월 목표", name="출점수")
     open_bot = goal_part + open_bot
     # 영업이익 / 흑자점의 작은 글자
     if G["op_n"] == 0:
@@ -904,7 +913,7 @@ def group_cards(G, mode, P=None, D=None, who="팀"):
             top, tl = grade_top(D, who, metric, g)
             return goal_html(cur, g, unit, tag, gr, gnote, top, tl, metric)
         g = find_goal(D, who, metric, "월")
-        return goal_html(cur, g, unit, tag) if g is not None else ""
+        return goal_html(cur, g, unit, tag, name=metric) if g is not None else ""
 
     items = [
         dict(label="출점수 / 매익율", value=fnum(G["opened"]), unit="점", sub=open_sub, accent=COLOR_NAVY,
