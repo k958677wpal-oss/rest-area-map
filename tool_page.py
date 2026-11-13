@@ -344,7 +344,6 @@ TOOL_CSS = """
 .kpi .kpi-tl.r { text-align: right; }
 .kpi .kpi-tl.r span { position: static; transform: none; margin-left: 10px; display: inline-block; }
 .kpi .kpi-pair { display: flex; align-items: flex-end; gap: 16px; }
-.kpi .kpi-pair .kpi-v { margin: 0; }
 .kpi .kpi-pair .kpi-sep { width: 1px; align-self: stretch; background: #dde3ef; margin: 4px 0; }
 .kpi .kpi-g2 { margin-bottom: 8px; }
 .kpi .kpi-g2 .trk { position: relative; height: 8px; border-radius: 99px;
@@ -760,19 +759,22 @@ def goal_html(cur, goal, unit, tag="목표", grade=None, note="", top=None, top_
         gcol, tcol = grade_color("G"), grade_color(top_label)
         gtxt = f"G({_nn(goal, unit)})"
         ttxt = f"{top_label}({_nn(top, unit)})"
-        if tpos - gpos < 20.0:
-            # 두 눈금이 가까우면: G 라벨은 눈금의 왼쪽에, 상위 등급 라벨은 눈금의 오른쪽에 붙여 겹침을 피함
-            # (상위 눈금이 막대 오른쪽 끝 근처이면 그 라벨도 눈금의 왼쪽에 붙임)
-            tr = "translateX(-100%)" if tpos > 84.0 else "translateX(0)"
-            labels = (f'<div class="kpi-tl"><span style="left:{gpos:.1f}%;transform:translateX(-100%);'
-                      f'padding-right:3px;color:{gcol}">{gtxt}</span>'
-                      f'<span style="left:{min(tpos, 100.0):.1f}%;transform:{tr};'
-                      f'padding-left:3px;color:{tcol}">{ttxt}</span></div>')
-        else:
-            gl_ = min(max(gpos, 8.0), 92.0)
-            tl_ = min(max(tpos, 8.0), 92.0)
-            labels = (f'<div class="kpi-tl"><span style="left:{gl_:.1f}%;color:{gcol}">{gtxt}</span>'
-                      f'<span style="left:{tl_:.1f}%;color:{tcol}">{ttxt}</span></div>')
+        # 라벨은 항상 눈금 아래 가운데. 두 눈금이 가까워 겹칠 것 같으면 서로 반대쪽으로 같은 만큼만 벌림
+        gl_ = min(max(gpos, 9.0), 91.0)
+        tl_ = min(max(tpos, 9.0), 91.0)
+        need = 20.0
+        if tl_ - gl_ < need:
+            push = (need - (tl_ - gl_)) / 2.0
+            gl_ -= push
+            tl_ += push
+            if tl_ > 91.0:
+                gl_ -= tl_ - 91.0
+                tl_ = 91.0
+            if gl_ < 9.0:
+                tl_ += 9.0 - gl_
+                gl_ = 9.0
+        labels = (f'<div class="kpi-tl"><span style="left:{gl_:.1f}%;color:{gcol}">{gtxt}</span>'
+                  f'<span style="left:{tl_:.1f}%;color:{tcol}">{ttxt}</span></div>')
     if not has_top:
         # 등급 기준이 없으면 G(목표) 라벨만 눈금(또는 막대 끝) 왼쪽에
         gcol = grade_color("G")
