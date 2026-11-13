@@ -187,6 +187,7 @@ def load_perf(_get_gc):
 
     # '목표' 탭(선택): 대상 | 지표 | 기간(연간/월) | 목표값  -> 없으면 그냥 건너뜀
     goals = {}
+    grades = {}
     goal_v = read_tab(TAB_GOAL)
     for rec in _records(goal_v or []):
         who = rec.get("대상", "").replace(" ", "")
@@ -195,6 +196,13 @@ def load_perf(_get_gc):
         val = _num(rec.get("목표값", ""))
         if who and metric and val is not None:
             goals[(who, metric, period)] = val
+            gv = {}
+            for lab in GRADE_COLS:       # 등급 기준 열 (선택): E+ | E | V+ | V | G+ | N+ | N | U+
+                x = _num(rec.get(lab, ""))
+                if x is not None:
+                    gv[lab] = x
+            if gv:
+                grades[(who, metric, period)] = gv
 
     # '담당자' 탭(선택): 담당자 | 순서 | 사용여부 -> 없으면 가나다순
     mgr_order, mgr_hidden = {}, set()
@@ -210,7 +218,7 @@ def load_perf(_get_gc):
 
     months = sorted({ym for per in monthly.values() for ym in per})
     return {"error": None, "masters": masters, "master_by_name": master_by_name,
-            "monthly": monthly, "targets": targets, "months": months, "goals": goals,
+            "monthly": monthly, "targets": targets, "months": months, "goals": goals, "grades": grades,
             "mgr_order": mgr_order, "mgr_hidden": mgr_hidden}
 
 
@@ -321,10 +329,15 @@ TOOL_CSS = """
 .kpi .kpi-d.up { color: #0b9a6a; }
 .kpi .kpi-d.dn { color: #d0143c; }
 .kpi .kpi-d.d0 { color: #9aa5bd; font-weight: 500; }
-.kpi .kpi-goal { display: flex; justify-content: space-between; align-items: baseline; font-size: 12.5px; color: #55648a; font-weight: 600; margin-bottom: 4px; }
+.kpi .kpi-goal { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 2px 6px; font-size: 12.5px; color: #55648a; font-weight: 600; margin-bottom: 4px; }
 .kpi .kpi-goal b { font-weight: 800; }
-.kpi .kpi-gp { height: 6px; background: #e6ebf4; border-radius: 99px; overflow: hidden; margin-bottom: 8px; }
-.kpi .kpi-gp i { display: block; height: 100%; border-radius: 99px; }
+.kpi .kpi-goal .gr { display: inline-flex; align-items: center; gap: 6px; }
+.kpi .gchip { display: inline-block; min-width: 24px; text-align: center; font-size: 12px; font-weight: 800; color: #fff; border-radius: 99px; padding: 1px 8px; line-height: 1.4; }
+.kpi .kpi-gp { position: relative; display: flex; height: 7px; background: #e6ebf4; border-radius: 99px; overflow: hidden; margin-bottom: 6px; }
+.kpi .kpi-gp i { display: block; flex: none; height: 100%; }
+.kpi .kpi-gp u { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: #ffffff; text-decoration: none; }
+.kpi .kpi-ex { font-size: 11.5px; font-weight: 600; color: #7d8aa8; margin-bottom: 4px; line-height: 1.35; }
+.kpi .kpi-ex.up { color: #0b9a6a; font-weight: 800; }
 .kpi .kpi-g2 { margin-bottom: 8px; }
 .kpi .kpi-g2 .trk { position: relative; height: 8px; border-radius: 99px;
     background: linear-gradient(90deg, #fbdde2 0 66.67%, #ffe8c2 66.67% 83.33%, #cfeee1 83.33% 100%); }
@@ -666,15 +679,61 @@ def delta_html(cur, prev, kind):
     return f'<div class="kpi-d {cls}">전월 대비 <b>{ar} {txt}</b></div>'
 
 
-def goal_html(cur, goal, unit, tag="목표"):
-    """목표가 있을 때만 쓰는 '목표 12점 중 5점 · 42%' + 진행 막대"""
+def _n(v, unit=""):
+    """목표 줄용 숫자: 천원은 정수, 나머지는 소수가 있을 때만 1자리 (예: 9.5점)"""
+    if v is None:
+        return "-"
+    if unit == "천원" or abs(v - round(v)) < 1e-9:
+        s = f"{v:,.0f}"
+    else:
+        s = f"{v:,.1f}"
+    return s + unit
+
+
+# 등급 사다리 (낮음 -> 높음). '+등급' = 이 사다리에서 한 칸 위
+GRADE_LADDER = ["U", "U+", "N", "N+", "G", "G+", "V", "V+", "E", "E+"]
+GRADE_COLS = ["E+", "E", "V+", "V", "G+", "N+", "N", "U+"]        # 시트에서 읽는 등급 기준 열 (G = 목표값, U = 그 아래)
+DAILY_GRADE_PCT = {"E+": 115.0, "E": 110.0, "V+": 107.5, "V": 105.0, "G+": 102.5,
+                   "N+": 97.5, "N": 95.0, "U+": 90.0}              # 일매출: 목표값 대비 % 기본 기준
+
+
+def grade_color(g):
+    if g in ("E+", "E", "V+", "V"):
+        return COLOR_GOOD
+    if g in ("G+", "G"):
+        return "#2f6fd0"
+    if g in ("N+", "N"):
+        return COLOR_WARN
+    return COLOR_BAD
+
+
+def goal_html(cur, goal, unit, tag="목표", grade=None, note=""):
+    """목표가 있을 때만 쓰는 '목표 12점 중 5점 · 42%' + 진행 막대.
+    목표를 넘으면 막대 안에 목표 눈금(흰 선)을 두고 초과분을 초록으로, 아래에 '+N 초과' 표시. grade 가 있으면 등급 칩"""
     if goal is None or goal <= 0 or cur is None:
         return ""
     pct = cur / goal * 100.0
     col = COLOR_GOOD if pct >= 100 else COLOR_NAVY
-    return (f'<div class="kpi-goal"><span>{tag} {goal:,.0f}{unit} 중 <b>{cur:,.0f}{unit}</b></span>'
-            f'<b style="color:{col}">{pct:.0f}%</b></div>'
-            f'<div class="kpi-gp"><i style="width:{max(0.0, min(pct, 100.0)):.0f}%;background:{col}"></i></div>')
+    chip = ""
+    if grade:
+        chip = f'<span class="gchip" style="background:{grade_color(grade)}" title="누계 기준 현재 등급">{grade}</span>'
+    if cur > goal:
+        bw = goal / cur * 100.0
+        bar = (f'<i style="width:{bw:.1f}%;background:{COLOR_NAVY}"></i>'
+               f'<i style="width:{100.0 - bw:.1f}%;background:{COLOR_GOOD}"></i>'
+               f'<u style="left:{bw:.1f}%"></u>')
+        extra = f'<div class="kpi-ex up">+{_n(cur - goal, unit)} 초과</div>'
+    else:
+        bar = f'<i style="width:{max(0.0, min(pct, 100.0)):.1f}%;background:{COLOR_NAVY}"></i>'
+        extra = ""
+    note_html = f'<div class="kpi-ex">{note}</div>' if note else ""
+    return (f'<div class="kpi-goal"><span>{tag} {_n(goal, unit)} 중 <b>{_n(cur, unit)}</b></span>'
+            f'<span class="gr">{chip}<b style="color:{col}">{pct:.0f}%</b></span></div>'
+            f'<div class="kpi-gp">{bar}</div>{extra}{note_html}')
+
+
+def _who_key(who):
+    return who.replace(" ", "")
 
 
 def find_goal(D, who, metric, period):
@@ -685,7 +744,49 @@ def find_goal(D, who, metric, period):
             if (k, metric, period) in goals:
                 return goals[(k, metric, period)]
         return None
-    return goals.get((who.replace(" ", ""), metric, period))
+    return goals.get((_who_key(who), metric, period))
+
+
+def find_grades(D, who, metric, period):
+    """시트 '목표' 탭의 등급 기준 열 값 (dict: 등급 -> 기준값). 없으면 빈 dict"""
+    grades = D.get("grades", {}) if D else {}
+    if who == "팀":
+        for k in TEAM_KEYS:
+            if (k, metric, period) in grades:
+                return grades[(k, metric, period)]
+        return {}
+    return grades.get((_who_key(who), metric, period), {})
+
+
+def grade_info(D, who, metric, cur, goal, opened_year=None):
+    """(현재 등급, 안내 문구). 등급 기준이 하나도 없으면 (None, '').
+    개인의 달성점/흑자점은 올해 출점수가 출점 목표 이상이면 한 칸 위(+등급)로 올림"""
+    if cur is None or goal is None or goal <= 0:
+        return None, ""
+    th = dict(find_grades(D, who, metric, "연간"))
+    if metric == "일매출":
+        for lab, pc in DAILY_GRADE_PCT.items():
+            if lab not in th:
+                th[lab] = goal * pc / 100.0
+    if not th:
+        return None, ""
+    th["G"] = goal
+    label = "U"
+    for lab in reversed(GRADE_LADDER):
+        if lab in th and cur >= th[lab] - 1e-9:
+            label = lab
+            break
+    note = ""
+    is_team = _who_key(who) in TEAM_KEYS or who == "팀"
+    if (not is_team) and metric in ("달성점", "흑자점") and opened_year is not None:
+        og = find_goal(D, who, "출점수", "연간")
+        if og is not None:
+            if opened_year >= og - 1e-9:
+                label = GRADE_LADDER[min(GRADE_LADDER.index(label) + 1, len(GRADE_LADDER) - 1)]
+                note = "출점 목표 달성으로 +등급 적용"
+            else:
+                note = f"출점 목표 달성 시 +등급 ({_n(opened_year)}/{_n(og)}점)"
+    return label, note
 
 
 def group_cards(G, mode, P=None, D=None, who="팀"):
@@ -701,7 +802,8 @@ def group_cards(G, mode, P=None, D=None, who="팀"):
     goal_mon = find_goal(D, who, "출점수", "월") if (D and not cumulative) else None
     goal_part = ""
     if goal_year is not None:
-        goal_part = goal_html(G["opened_year"], goal_year, "점", "올해 목표")
+        og, onote = grade_info(D, who, "출점수", G["opened_year"], goal_year)
+        goal_part = goal_html(G["opened_year"], goal_year, "점", "올해 목표", og, onote)
     elif goal_mon is not None:
         goal_part = goal_html(G["new_in_period"], goal_mon, "점", "월 목표")
     open_bot = goal_part + open_bot
@@ -728,8 +830,10 @@ def group_cards(G, mode, P=None, D=None, who="팀"):
         if cum_only and not cumulative:
             return ""
         g = find_goal(D, who, metric, "연간")
-        if g is None:
-            g = find_goal(D, who, metric, "월")
+        if g is not None:
+            gr, gnote = grade_info(D, who, metric, cur, g, G["opened_year"])
+            return goal_html(cur, g, unit, "목표", gr, gnote)
+        g = find_goal(D, who, metric, "월")
         return goal_html(cur, g, unit, "목표") if g is not None else ""
 
     items = [
@@ -738,7 +842,7 @@ def group_cards(G, mode, P=None, D=None, who="팀"):
         dict(label="매익율", value=fnum(G["margin"], 1), unit="%", accent=COLOR_PURPLE, icon="pct",
              delta=dl(G["margin"], pv("margin"), "pp")),
         dict(label="일매출", value=fnum(G["daily"]), unit="천원", accent=COLOR_BLUE, icon="coin",
-             delta=gl("일매출", G["daily"], "천원") + dl(G["daily"], pv("daily"), "amt")),
+             delta=gl("일매출", G["daily"], "천원", True) + dl(G["daily"], pv("daily"), "amt")),
         dict(label="예상매출 달성률", value=fnum(G["rate"], 1), unit="%",
              sub=f"{G['rate_n']}점 중 {G['achieved']}점 달성 · 구성비 {pct_text(G['achieved'], G['rate_n'])}",
              neg=(G["rate"] is not None and G["rate"] < ACHIEVE_PCT),
