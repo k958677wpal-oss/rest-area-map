@@ -1856,8 +1856,9 @@ def wk_prev(code):
 
 
 def wk_short_label(label):
+    # "2026년 11월 4주차 (11/16~11/22)" -> "2026년 11월 4주차"  (연/월을 남겨야 연도 넘어갈 때도 정돈되어 보임)
     s = str(label)
-    return s.split("월 ", 1)[1] if "월 " in s else s
+    return s.split(" (", 1)[0] if " (" in s else s
 
 
 def _weeks_between(first_week, cur_code):
@@ -2008,29 +2009,29 @@ def weekly_latest_items_before(records, uid, week_code):
     (= 이번 주로 그대로 이어져야 할 활성 항목)"""
     cand = [r for r in records if r.get("유형") == "추진물건" and r.get("사번", "").strip() == uid]
     cur_key = wk_parse(week_code) or (9999, 99, 99)
-    weeks = sorted({r.get("주차코드", "") for r in cand
+    weeks = sorted({r.get("주차코드", "").strip() for r in cand
                     if wk_parse(r.get("주차코드", "")) and wk_parse(r.get("주차코드", "")) < cur_key},
                    key=lambda c: wk_parse(c))
     if not weeks:
         return []
     last_week = weeks[-1]
-    return [r for r in cand if r.get("주차코드", "") == last_week]
+    return [r for r in cand if r.get("주차코드", "").strip() == last_week]
 
 
 def weekly_items_of_week(records, uid, week_code):
     return [r for r in records if r.get("유형") == "추진물건" and r.get("사번", "").strip() == uid
-            and r.get("주차코드", "") == week_code]
+            and r.get("주차코드", "").strip() == week_code]
 
 
 def weekly_note_of_week(records, uid, week_code):
     rows = [r for r in records if r.get("유형") == "특이사항" and r.get("사번", "").strip() == uid
-            and r.get("주차코드", "") == week_code]
+            and r.get("주차코드", "").strip() == week_code]
     return rows[-1]["특이사항"] if rows else ""
 
 
 def weekly_schedule_of_week(records, uid, week_code):
     rows = [r for r in records if r.get("유형") == "일정" and r.get("사번", "").strip() == uid
-            and r.get("주차코드", "") == week_code]
+            and r.get("주차코드", "").strip() == week_code]
     if not rows:
         return {}
     try:
@@ -2041,7 +2042,7 @@ def weekly_schedule_of_week(records, uid, week_code):
 
 def weekly_submitted_at(records, uid, week_code):
     rows = [r for r in records if r.get("유형") == "제출완료" and r.get("사번", "").strip() == uid
-            and r.get("주차코드", "") == week_code]
+            and r.get("주차코드", "").strip() == week_code]
     return rows[-1]["작성시각"] if rows else ""
 
 
@@ -2067,13 +2068,17 @@ def load_rest_names(_get_gc):
     return names
 
 
-def _render_weekly_mine(get_gc, records, uid, uname, cur_code, cur_label):
-    st.markdown(f"**작성 주차: {cur_label}**")
-    submitted_at = weekly_submitted_at(records, uid, cur_code)
+def _weekly_status_banner(submitted_at):
     if submitted_at:
         st.success(f"✅ 이번 주 보고를 제출했습니다 ({submitted_at}). 다시 제출하면 시각이 갱신됩니다.")
     else:
         st.warning("이번 주 보고를 아직 제출하지 않았습니다.")
+
+
+def _render_weekly_mine(get_gc, records, uid, uname, cur_code, cur_label):
+    st.markdown(f"**작성 주차: {cur_label}**")
+    submitted_at = weekly_submitted_at(records, uid, cur_code)
+    _weekly_status_banner(submitted_at)
 
     draft_key = f"wk_draft_{cur_code}_{uid}"
     if draft_key not in st.session_state:
@@ -2140,7 +2145,9 @@ def _render_weekly_mine(get_gc, records, uid, uname, cur_code, cur_label):
                     st.caption("↩️ 지난주와 동일")
 
     st.markdown("---")
-    if st.button("✅ 이번 주 보고 제출하기", type="primary", key=f"wk_submit_{cur_code}_{uid}"):
+    submit_clicked = st.button("✅ 이번 주 보고 제출하기", type="primary", key=f"wk_submit_{cur_code}_{uid}")
+    submit_feedback = st.empty()
+    if submit_clicked:
         for it in draft:
             if it["content"].strip():
                 weekly_upsert_item(get_gc, cur_code, cur_label, uid, uname, it["id"], it["status"],
@@ -2151,8 +2158,18 @@ def _render_weekly_mine(get_gc, records, uid, uname, cur_code, cur_label):
         if any(v.strip() for v in sched.values()):
             weekly_upsert_schedule(get_gc, cur_code, cur_label, uid, uname, sched)
         now = weekly_mark_submitted(get_gc, cur_code, cur_label, uid, uname)
-        st.success(f"제출되었습니다. ({now})")
+        st.session_state[f"wk_just_submitted_{cur_code}_{uid}"] = now
+        submit_feedback.success(f"✅ 제출되었습니다! ({now})")
+        st.toast(f"이번 주 보고 제출 완료! ({now})", icon="✅")
         st.rerun()
+    else:
+        just_at = st.session_state.pop(f"wk_just_submitted_{cur_code}_{uid}", None)
+        if just_at:
+            submit_feedback.success(f"✅ 제출되었습니다! ({just_at})")
+        else:
+            # 버튼을 누르지 않은 평소 상태에도 바로 옆에서 제출 여부를 바로 확인할 수 있게 동일 배너를 한 번 더 보여줍니다.
+            with submit_feedback.container():
+                _weekly_status_banner(submitted_at)
 
     st.markdown("---")
     st.markdown("##### 📍 휴게소 방문 보고")
@@ -2211,9 +2228,14 @@ def _weekly_print_html(week_label, section1, section2, notes):
 
 
 def _render_weekly_team(get_gc, login_members, records, cur_code, cur_label):
-    # 담당자 목록: 로그인 시트(현재 실제 팀원) 기준. 혹시 로그인 시트를 못 읽어오면
-    # 보고 데이터에 적힌 이름들로 대신 채웁니다.
-    all_candidates = login_members or sorted({r.get("이름", "").strip() for r in records if r.get("이름", "").strip()})
+    # 담당자 목록: 로그인 시트(현재 실제 팀원) 기준이 기본이지만, 테스트 계정 등
+    # 로그인 시트에 아직 없는 이름이 실제로 보고를 제출한 경우에도 누락되지 않도록
+    # 실제 보고 데이터에 등장한 이름들을 뒤에 합쳐 둡니다. (제출했는데 목록에 안 보이는 문제 방지)
+    record_names = sorted({r.get("이름", "").strip() for r in records if r.get("이름", "").strip()})
+    if login_members:
+        all_candidates = list(login_members) + [n for n in record_names if n not in login_members]
+    else:
+        all_candidates = record_names
     default_sel = st.session_state.get("wk_team_managers", all_candidates)
     default_sel = [m for m in default_sel if m in all_candidates] or all_candidates
     managers = st.multiselect("👥 표시할 담당자 선택 (팀원 변경 시 여기서 바로 조정)", all_candidates,
@@ -2222,14 +2244,14 @@ def _render_weekly_team(get_gc, login_members, records, cur_code, cur_label):
         st.info("담당자를 1명 이상 선택해 주세요.")
         return
 
-    weeks = sorted({r.get("주차코드", "") for r in records if wk_parse(r.get("주차코드", ""))},
+    weeks = sorted({r.get("주차코드", "").strip() for r in records if wk_parse(r.get("주차코드", ""))},
                    key=lambda c: wk_parse(c), reverse=True)
     if cur_code not in weeks:
         weeks = [cur_code] + weeks
 
     label_of = {}
     for r in records:
-        c = r.get("주차코드", "")
+        c = r.get("주차코드", "").strip()
         if c and c not in label_of:
             label_of[c] = r.get("주차표시", c)
     label_of.setdefault(cur_code, cur_label)
@@ -2239,7 +2261,7 @@ def _render_weekly_team(get_gc, login_members, records, cur_code, cur_label):
     prev_code = wk_prev(sel)
     prev_sched_by_name = {}
     for r in records:
-        if r.get("유형") == "일정" and r.get("주차코드") == prev_code:
+        if r.get("유형") == "일정" and r.get("주차코드", "").strip() == prev_code:
             try:
                 prev_sched_by_name[r.get("이름", "").strip()] = json.loads(r.get("추진물건", "") or "{}")
             except Exception:
@@ -2250,13 +2272,13 @@ def _render_weekly_team(get_gc, login_members, records, cur_code, cur_label):
         cols = st.columns(min(4, len(managers)))
         for i, mgr in enumerate(managers):
             at = next((r["작성시각"] for r in records if r.get("유형") == "제출완료"
-                       and r.get("이름", "").strip() == mgr and r.get("주차코드") == sel), "")
+                       and r.get("이름", "").strip() == mgr and r.get("주차코드", "").strip() == sel), "")
             with cols[i % len(cols)]:
                 st.markdown(f"🟢 **{mgr}**  \n{at}" if at else f"🔴 **{mgr}**  \n미제출")
 
     st.divider()
     st.markdown("##### 1) 오픈확정 · 계약완료 물건")
-    section1 = [r for r in records if r.get("유형") == "추진물건" and r.get("주차코드") == sel
+    section1 = [r for r in records if r.get("유형") == "추진물건" and r.get("주차코드", "").strip() == sel
                 and r.get("상태") in ("오픈확정", "계약완료") and (not managers or r.get("이름", "").strip() in managers)]
     if section1:
         rows1 = [{"상태": r["상태"], "이름": r["이름"], "추진물건": r["추진물건"],
@@ -2266,7 +2288,7 @@ def _render_weekly_team(get_gc, login_members, records, cur_code, cur_label):
         st.caption("해당 사항 없음")
 
     st.markdown("##### 2) 추진 물건")
-    section2 = [r for r in records if r.get("유형") == "추진물건" and r.get("주차코드") == sel
+    section2 = [r for r in records if r.get("유형") == "추진물건" and r.get("주차코드", "").strip() == sel
                 and r.get("상태") == "추진물건" and (not managers or r.get("이름", "").strip() in managers)]
     if section2:
         rows2 = [{"이름": r["이름"], "추진물건": r["추진물건"], "최초등록주차": r.get("최초등록주차", ""),
@@ -2280,7 +2302,7 @@ def _render_weekly_team(get_gc, login_members, records, cur_code, cur_label):
         st.caption("해당 사항 없음")
 
     st.markdown("##### 3) 특이사항")
-    notes = [r for r in records if r.get("유형") == "특이사항" and r.get("주차코드") == sel
+    notes = [r for r in records if r.get("유형") == "특이사항" and r.get("주차코드", "").strip() == sel
              and (not managers or r.get("이름", "").strip() in managers) and r.get("특이사항", "").strip()]
     if notes:
         for r in notes:
@@ -2291,7 +2313,7 @@ def _render_weekly_team(get_gc, login_members, records, cur_code, cur_label):
     if managers:
         st.markdown("##### 🗓️ 담당자별 주간 일정")
         for mgr in managers:
-            sch = next((r for r in records if r.get("유형") == "일정" and r.get("주차코드") == sel
+            sch = next((r for r in records if r.get("유형") == "일정" and r.get("주차코드", "").strip() == sel
                        and r.get("이름", "").strip() == mgr), None)
             with st.expander(f"👤 {mgr}"):
                 if not sch:
@@ -2326,13 +2348,17 @@ def _render_weekly_team(get_gc, login_members, records, cur_code, cur_label):
 def render_weekly(get_gc, D, uid, uname, is_admin):
     cur_code, cur_label = wk_info()
     records = load_weekly_all(get_gc)
-    login_members = load_login_members(get_gc)
 
-    t_mine, t_team = st.tabs([":material/edit: 내 보고 작성", ":material/groups: 팀 현황"])
-    with t_mine:
+    if is_admin:
+        login_members = load_login_members(get_gc)
+        t_mine, t_team = st.tabs([":material/edit: 내 보고 작성", ":material/groups: 팀 현황"])
+        with t_mine:
+            _render_weekly_mine(get_gc, records, uid, uname, cur_code, cur_label)
+        with t_team:
+            _render_weekly_team(get_gc, login_members, records, cur_code, cur_label)
+    else:
+        # 팀 현황은 관리자만 볼 수 있도록 제한 (일반 사용자는 탭 자체가 보이지 않음)
         _render_weekly_mine(get_gc, records, uid, uname, cur_code, cur_label)
-    with t_team:
-        _render_weekly_team(get_gc, login_members, records, cur_code, cur_label)
 
 
 # ───────────────────────── 진입점 ─────────────────────────
