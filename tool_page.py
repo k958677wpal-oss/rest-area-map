@@ -315,7 +315,7 @@ TOOL_CSS = """
 .kpi { --ac: #2c4a8a; background: linear-gradient(160deg, #ffffff 55%, #f3f6fc 100%); border: 1px solid #dde3ef;
        border-left: 5px solid var(--ac); border-radius: 14px; padding: 14px 16px 12px;
        box-shadow: 0 3px 10px rgba(31,58,115,.08); min-width: 0; position: relative; }
-.kpi .kpi-spark { position: absolute; top: 12px; right: 14px; opacity: .92; }
+.kpi .kpi-spark { position: absolute; top: 30px; right: 14px; opacity: .92; }
 .kpi .kpi-l { display: flex; align-items: center; gap: 7px; font-size: 14px; color: #55648a; font-weight: 700; }
 .kpi .kpi-l svg { flex: none; }
 .kpi .kpi-v { font-size: 27px; font-weight: 800; color: #1f3a73; margin-top: 6px; letter-spacing: -0.5px; white-space: nowrap; line-height: 1.2; }
@@ -1585,13 +1585,20 @@ def _rank_items(D, names, yms, metric):
     return out
 
 
-def _rank_split(items, k=5):
-    """값 큰 순서대로 정렬 후 상위 k / 하위 k (겹치지 않게, 점포가 적으면 절반씩만)"""
-    items = sorted(items, key=lambda x: -x[1])
-    kk = min(k, len(items) // 2)
-    if kk == 0:
-        return [], []
-    return items[:kk], items[-kk:][::-1]
+def _rank_split(items, metric, k=5):
+    """단순 순위가 아니라 '실제로 좋은지/나쁜지' 기준으로 나눔.
+    영업이익(op_avg): TOP = 흑자(0 이상)만, Worst = 적자(0 미만)만
+    달성률(rate): TOP = 80% 이상만, Worst = 80% 미만만
+    -> 전원이 흑자/달성이면 Worst 가 0개일 수 있고, 그게 정상"""
+    if metric == "rate":
+        good_pool = [it for it in items if it[1] >= ACHIEVE_PCT]
+        bad_pool = [it for it in items if it[1] < ACHIEVE_PCT]
+    else:
+        good_pool = [it for it in items if it[1] >= 0]
+        bad_pool = [it for it in items if it[1] < 0]
+    good = sorted(good_pool, key=lambda x: -x[1])[:k]
+    bad = sorted(bad_pool, key=lambda x: x[1])[:k]
+    return good, bad
 
 
 _RANK_DOT = {COLOR_GOOD: "🟢", COLOR_WARN: "🟠", COLOR_BAD: "🔴"}
@@ -1616,28 +1623,28 @@ def _rank_metric_block(title, icon, note, good, bad, unit, color_fn, dec, state_
                 f'<div class="rk-n">{note}</div>', unsafe_allow_html=True)
     c1, c2 = st.columns(2)
     with c1:
-        st.markdown(f'<div class="rk-h good">TOP {max(len(good), 1)}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="rk-h good">TOP {len(good)}</div>', unsafe_allow_html=True)
         _rank_rows(good, unit, color_fn, dec, state_key, f"{prefix}_g")
     with c2:
-        st.markdown('<div class="rk-h bad">주의 필요</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="rk-h bad">Worst {len(bad)}</div>', unsafe_allow_html=True)
         _rank_rows(bad, unit, color_fn, dec, state_key, f"{prefix}_b")
 
 
 def render_ranking(D, names, yms, period_text, state_key, qkey="team"):
-    """영업이익 월평균 / 예상매출 달성률 TOP5 · 주의 5 (팀 전체·담당자별 공통).
+    """영업이익 월평균 / 예상매출 달성률 TOP5 · Worst5 (팀 전체·담당자별 공통).
     두 지표 카드는 처음 레이아웃처럼 한 줄에 나란히 두고, 점포명 버튼을 누르면 바로 아래에 그 점포의
     상세가 펼쳐짐(세션 상태만 바꾸는 방식이라 로그인 화면으로 튕기지 않음)"""
-    og, ob = _rank_split(_rank_items(D, names, yms, "op_avg"))
-    rg, rb = _rank_split(_rank_items(D, names, yms, "rate"))
+    og, ob = _rank_split(_rank_items(D, names, yms, "op_avg"), "op_avg")
+    rg, rb = _rank_split(_rank_items(D, names, yms, "rate"), "rate")
     m1, m2 = st.columns(2)
     with m1:
         with st.container(key=f"rkcard_{qkey}_op"):
-            _rank_metric_block("월평균 영업이익", "coin", "영업이익이 입력된 달만으로 계산한 한 달 평균",
+            _rank_metric_block("월평균 영업이익", "coin", "영업이익이 입력된 달만으로 계산한 한 달 평균 · TOP=흑자점, Worst=적자점",
                                 og, ob, "천원", lambda v: COLOR_GOOD if v >= 0 else COLOR_BAD, 0,
                                 state_key, f"rk_{qkey}_op")
     with m2:
         with st.container(key=f"rkcard_{qkey}_rate"):
-            _rank_metric_block("예상매출 달성률", "target", "당월 신규 오픈점은 제외",
+            _rank_metric_block("예상매출 달성률", "target", "당월 신규 오픈점은 제외 · TOP=80%↑, Worst=80%↓",
                                 rg, rb, "%", rate_color, 1, state_key, f"rk_{qkey}_rate")
 
     sel = st.session_state.get(state_key)
