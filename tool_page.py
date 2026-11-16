@@ -449,6 +449,9 @@ div[class*="st-key-rkcard_"] { background: #ffffff; border: 1px solid #d5dcea; b
 /* 카드 안 TOP5 / 주의 필요 두 칸 사이 간격만 좀 좁게 */
 div[class*="st-key-rkcard_"] [data-testid="stHorizontalBlock"] { gap: 14px !important; }
 div[class*="st-key-rkcard_"] [data-testid="stColumn"] { min-width: 0 !important; }
+/* 앱 전체 기본 세로 간격(0.7rem)이 랭킹 행 사이에도 그대로 적용돼서 버튼들이 전보다 훨씬 헐렁해 보였던 부분 보정:
+   랭킹 카드 안쪽 세로 블록만 간격을 2px로 확 좁혀서 원래의 촘촘한 목록 느낌으로 되돌림 */
+div[class*="st-key-rkcard_"] [data-testid="stVerticalBlock"] { gap: 2px !important; }
 /* 랭킹으로 접기 버튼: 점포 목록으로 버튼과 같은 네이비 알약 스타일 */
 div[class*="st-key-rkclose_"] button { height: 40px; min-height: 40px; border: none !important; border-radius: 10px !important;
     background: #2c4a8a !important; padding: 0 18px; box-shadow: 0 3px 10px rgba(31,58,115,.25); }
@@ -464,8 +467,8 @@ div[class*="st-key-rkclose_"] button:hover { background: #1e3a6f !important; }
 .rk-empty { font-size: 12.5px; color: #aab4ca; padding: 6px 0; }
 .rk-detail { margin-top: 14px; padding-top: 14px; border-top: 1px dashed #d5dcea; }
 /* 랭킹 점포명 버튼: 일반 st.button을 아주 얇은 '행'처럼 보이게 꾸밈 */
-div[class*="st-key-rk_"] { margin-bottom: 2px; }
-div[class*="st-key-rk_"] button { min-height: 32px; height: 32px; width: auto !important; border: none !important;
+div[class*="st-key-rk_"] { margin-bottom: 0; }
+div[class*="st-key-rk_"] button { min-height: 27px; height: 27px; width: auto !important; border: none !important;
     background: transparent !important; padding: 0 6px; border-radius: 6px; justify-content: flex-start !important; }
 div[class*="st-key-rk_"] button p { font-size: 13.5px !important; font-weight: 600 !important; color: #2c4a8a !important;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin: 0; text-align: left; }
