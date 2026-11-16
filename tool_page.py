@@ -10,6 +10,7 @@ import re
 import math
 import json
 import uuid
+import hashlib
 from html import escape
 from datetime import datetime, timezone, timedelta
 import datetime as _dt
@@ -1788,6 +1789,30 @@ ITEM_STATUS = ["추진물건", "오픈확정", "계약완료"]
 SCHEDULE_DAYS = ["월", "화", "수", "목", "금"]
 SCHEDULE_HALVES = ["오전", "오후"]
 SCHEDULE_SLOTS = [f"{d}{h}" for d in SCHEDULE_DAYS for h in SCHEDULE_HALVES]
+# 로그인 가능한 사람 목록(= 현재 실제 팀원) : '점포마스터' 탭의 담당자는 그 점포를 오픈할 당시 담당자라서
+# 팀원이 바뀌어도 갱신되지 않습니다. 그래서 팀 현황에 보여줄 담당자 목록은 로그인 시트에서 따로 읽습니다.
+LOGIN_SHEET_KEY = "1zD20Om2mHH7M9ppcialvqB1SxA9IyVq2aCLM9IWoo8c"
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def load_login_members(_get_gc):
+    try:
+        gc = _get_gc()
+        doc = gc.open_by_key(LOGIN_SHEET_KEY)
+        values = doc.worksheet("사용자 명단").get_all_values()
+    except Exception:
+        return []
+    if not values:
+        return []
+    header = [str(h).strip() for h in values[0]]
+    if "이름" not in header:
+        return []
+    i = header.index("이름")
+    names = []
+    for row in values[1:]:
+        if i < len(row) and str(row[i]).strip() and str(row[i]).strip() not in names:
+            names.append(str(row[i]).strip())
+    return names
 
 
 def wk_info(target_date=None):
@@ -1861,12 +1886,30 @@ def _weekly_ws(get_gc, create=True):
     return ws
 
 
+def _infer_weekly_type(r):
+    """'유형' 칸이 비어 있으면(= 휴게소 데이터허브의 예전 방식으로 입력된 행) 내용으로 유형을 추정해 채워줍니다."""
+    if r.get("유형"):
+        return r
+    if str(r.get("방문휴게소", "")).strip():
+        r["유형"] = "방문"
+    elif str(r.get("추진물건", "")).strip():
+        r["유형"] = "추진물건"
+        r["상태"] = r.get("상태") or "추진물건"
+        r["최초등록주차"] = r.get("최초등록주차") or r.get("주차코드", "")
+        r["아이템ID"] = r.get("아이템ID") or hashlib.md5(
+            f"{r.get('사번','')}|{r.get('주차코드','')}|{r.get('추진물건','')}".encode("utf-8")
+        ).hexdigest()[:10]
+    elif str(r.get("특이사항", "")).strip():
+        r["유형"] = "특이사항"
+    return r
+
+
 @st.cache_data(ttl=60, show_spinner=False)
 def load_weekly_all(_get_gc):
     ws = _weekly_ws(_get_gc, create=True)
     if ws is None:
         return []
-    return _records(ws.get_all_values())
+    return [_infer_weekly_type(r) for r in _records(ws.get_all_values())]
 
 
 def weekly_clear_cache():
@@ -2167,7 +2210,18 @@ def _weekly_print_html(week_label, section1, section2, notes):
     """
 
 
-def _render_weekly_team(get_gc, managers, records, cur_code, cur_label):
+def _render_weekly_team(get_gc, login_members, records, cur_code, cur_label):
+    # 담당자 목록: 로그인 시트(현재 실제 팀원) 기준. 혹시 로그인 시트를 못 읽어오면
+    # 보고 데이터에 적힌 이름들로 대신 채웁니다.
+    all_candidates = login_members or sorted({r.get("이름", "").strip() for r in records if r.get("이름", "").strip()})
+    default_sel = st.session_state.get("wk_team_managers", all_candidates)
+    default_sel = [m for m in default_sel if m in all_candidates] or all_candidates
+    managers = st.multiselect("👥 표시할 담당자 선택 (팀원 변경 시 여기서 바로 조정)", all_candidates,
+                              default=default_sel, key="wk_team_managers")
+    if not managers:
+        st.info("담당자를 1명 이상 선택해 주세요.")
+        return
+
     weeks = sorted({r.get("주차코드", "") for r in records if wk_parse(r.get("주차코드", ""))},
                    key=lambda c: wk_parse(c), reverse=True)
     if cur_code not in weeks:
@@ -2272,13 +2326,13 @@ def _render_weekly_team(get_gc, managers, records, cur_code, cur_label):
 def render_weekly(get_gc, D, uid, uname, is_admin):
     cur_code, cur_label = wk_info()
     records = load_weekly_all(get_gc)
-    managers = ordered_managers(D) if D else []
+    login_members = load_login_members(get_gc)
 
     t_mine, t_team = st.tabs([":material/edit: 내 보고 작성", ":material/groups: 팀 현황"])
     with t_mine:
         _render_weekly_mine(get_gc, records, uid, uname, cur_code, cur_label)
     with t_team:
-        _render_weekly_team(get_gc, managers, records, cur_code, cur_label)
+        _render_weekly_team(get_gc, login_members, records, cur_code, cur_label)
 
 
 # ───────────────────────── 진입점 ─────────────────────────
