@@ -445,6 +445,9 @@ div[class*="st-key-backbtn_"] button:hover { background: #1e3a6f !important; }
 /* 영업이익 / 달성률 TOP5·주의 랭킹 카드 (버튼 기반: 점포명 클릭 시 세션 상태만 바꿔서 같은 탭에서 바로 펼침) */
 div[class*="st-key-rkcard_"] { background: #ffffff; border: 1px solid #d5dcea; border-radius: 14px;
     padding: 16px 20px 6px; margin: 8px 0 14px; }
+/* TOP5 / 주의 필요 두 칸이 카드 전체 너비로 벌어지지 않도록, 그 줄만 폭을 좁혀서 둘을 가깝게 붙임 */
+div[class*="st-key-rkcard_"] [data-testid="stHorizontalBlock"] { max-width: 600px; gap: 14px !important; }
+div[class*="st-key-rkcard_"] [data-testid="stColumn"] { min-width: 0 !important; }
 .rk-t { display: flex; align-items: center; gap: 8px; font-size: 17px; font-weight: 800; color: #1f3a73; }
 .rk-n { font-size: 12.5px; color: #8591ab; margin: 4px 0 10px; }
 .rk-h { font-size: 12.5px; font-weight: 800; margin-bottom: 6px; padding-bottom: 6px; border-bottom: 1px solid #edf0f6; }
@@ -455,8 +458,8 @@ div[class*="st-key-rkcard_"] { background: #ffffff; border: 1px solid #d5dcea; b
 .rk-detail { margin-top: 14px; padding-top: 14px; border-top: 1px dashed #d5dcea; }
 /* 랭킹 점포명 버튼: 일반 st.button을 아주 얇은 '행'처럼 보이게 꾸밈 */
 div[class*="st-key-rk_"] { margin-bottom: 2px; }
-div[class*="st-key-rk_"] button { min-height: 32px; height: 32px; border: none !important; background: transparent !important;
-    padding: 0 6px; border-radius: 6px; justify-content: flex-start !important; }
+div[class*="st-key-rk_"] button { min-height: 32px; height: 32px; width: auto !important; border: none !important;
+    background: transparent !important; padding: 0 6px; border-radius: 6px; justify-content: flex-start !important; }
 div[class*="st-key-rk_"] button p { font-size: 13.5px !important; font-weight: 600 !important; color: #2c4a8a !important;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin: 0; text-align: left; }
 div[class*="st-key-rk_"] button:hover { background: #eef2fa !important; }
@@ -1560,7 +1563,7 @@ def _rank_rows(items, unit, color_fn, dec, state_key, prefix):
         dot = _RANK_DOT.get(color_fn(v), "⚪")
         label = f"{dot} {n}  ·  {fnum(v, dec)}{unit}"
         with st.container(key=f"{prefix}_{i}"):
-            if st.button(label, key=f"{prefix}_btn_{i}", use_container_width=True):
+            if st.button(label, key=f"{prefix}_btn_{i}"):
                 st.session_state[state_key] = n
                 st.rerun()
 
