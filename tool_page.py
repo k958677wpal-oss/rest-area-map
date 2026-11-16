@@ -9,7 +9,6 @@ SD 허브(팀 관리툴) 화면 - app.py 의 '관리툴' 모드에서 불러 씁
 import re
 import math
 from html import escape
-from urllib.parse import quote
 import streamlit as st
 import pandas as pd
 
@@ -443,25 +442,25 @@ div[class*="st-key-backbtn_"] button:hover { background: #1e3a6f !important; }
 .sm-v { width: 140px; flex: none; text-align: right; font-size: 17px; font-weight: 800; color: #1f2d4d; line-height: 1.2; white-space: nowrap; }
 .sm-v small { display: block; font-size: 12px; font-weight: 500; color: #6b7a99; min-height: 13px; }
 .sm-v.top { color: #0b9a6a; }
-/* 영업이익 / 달성률 TOP5·주의 랭킹 카드 */
-.rk-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin: 8px 0 14px; }
-@media (max-width: 900px) { .rk-grid { grid-template-columns: minmax(0, 1fr); } }
-.rk-card { background: #ffffff; border: 1px solid #d5dcea; border-radius: 14px; padding: 16px 20px; min-width: 0; }
+/* 영업이익 / 달성률 TOP5·주의 랭킹 카드 (버튼 기반: 점포명 클릭 시 세션 상태만 바꿔서 같은 탭에서 바로 펼침) */
+div[class*="st-key-rkcard_"] { background: #ffffff; border: 1px solid #d5dcea; border-radius: 14px;
+    padding: 16px 20px 6px; margin: 8px 0 14px; }
 .rk-t { display: flex; align-items: center; gap: 8px; font-size: 17px; font-weight: 800; color: #1f3a73; }
-.rk-n { font-size: 12.5px; color: #8591ab; margin: 4px 0 14px; }
-.rk-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
-.rk-h { font-size: 12.5px; font-weight: 800; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid #edf0f6; }
+.rk-n { font-size: 12.5px; color: #8591ab; margin: 4px 0 10px; }
+.rk-h { font-size: 12.5px; font-weight: 800; margin-bottom: 6px; padding-bottom: 6px; border-bottom: 1px solid #edf0f6; }
 .rk-h.good { color: #0b9a6a; }
 .rk-h.bad { color: #d0143c; }
-.rk-row { display: flex; align-items: center; max-width: 220px; height: 30px; text-decoration: none; border-radius: 6px;
-    padding: 0 4px; margin: 0 -4px; }
-a.rk-row:hover { background: #eef2fa; }
-a.rk-row .rk-nm { color: #2c4a8a; text-decoration: underline; text-decoration-color: #c7d2ea; }
-.rk-nm { font-size: 13.5px; font-weight: 600; color: #3a4a6b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    min-width: 0; flex: 1 1 auto; }
-.rk-v { font-size: 13.5px; font-weight: 800; white-space: nowrap; flex: none; margin-left: 10px; }
+.rk-sep { height: 1px; background: #edf0f6; margin: 14px 0 10px; }
 .rk-empty { font-size: 12.5px; color: #aab4ca; padding: 6px 0; }
 .rk-detail { margin-top: 14px; padding-top: 14px; border-top: 1px dashed #d5dcea; }
+/* 랭킹 점포명 버튼: 일반 st.button을 아주 얇은 '행'처럼 보이게 꾸밈 */
+div[class*="st-key-rk_"] { margin-bottom: 2px; }
+div[class*="st-key-rk_"] button { min-height: 32px; height: 32px; border: none !important; background: transparent !important;
+    padding: 0 6px; border-radius: 6px; justify-content: flex-start !important; }
+div[class*="st-key-rk_"] button p { font-size: 13.5px !important; font-weight: 600 !important; color: #2c4a8a !important;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin: 0; text-align: left; }
+div[class*="st-key-rk_"] button:hover { background: #eef2fa !important; }
+div[class*="st-key-rk_"] button:hover p { text-decoration: underline; text-decoration-color: #c7d2ea; }
 div[class*="st-key-mgrbtn_"] button:disabled { opacity: .45; }
 div[class*="st-key-mgrbtn_"] button:disabled:hover { background: #eef2fa !important; }
 div[class*="st-key-mgrbtn_"] button:disabled:hover p { color: #2c4a8a !important; }
@@ -1549,58 +1548,57 @@ def _rank_split(items, k=5):
     return items[:kk], items[-kk:][::-1]
 
 
-def _rank_list_html(items, unit, color_fn, dec, qparam):
+_RANK_DOT = {COLOR_GOOD: "🟢", COLOR_WARN: "🟠", COLOR_BAD: "🔴"}
+
+
+def _rank_rows(items, unit, color_fn, dec, state_key, prefix):
+    """랭킹 한 칸(TOP 또는 주의) 안의 점포 버튼들. 누르면 바로 아래 상세가 펼쳐짐(페이지 이동 없음)"""
     if not items:
-        return '<div class="rk-empty">표시할 점포가 없습니다</div>'
-    rows = []
-    for n, v in items:
-        href = f'?{qparam}={quote(n)}'
-        rows.append(f'<a class="rk-row" href="{href}" title="클릭하면 이 점포의 상세 현황을 볼 수 있어요">'
-                     f'<span class="rk-nm">{escape(n)}</span>'
-                     f'<span class="rk-v" style="color:{color_fn(v)}">{fnum(v, dec)}{unit}</span></a>')
-    return "".join(rows)
+        st.markdown('<div class="rk-empty">표시할 점포가 없습니다</div>', unsafe_allow_html=True)
+        return
+    for i, (n, v) in enumerate(items):
+        dot = _RANK_DOT.get(color_fn(v), "⚪")
+        label = f"{dot} {n}  ·  {fnum(v, dec)}{unit}"
+        with st.container(key=f"{prefix}_{i}"):
+            if st.button(label, key=f"{prefix}_btn_{i}", use_container_width=True):
+                st.session_state[state_key] = n
+                st.rerun()
 
 
-def _rank_card(title, icon, note, good, bad, unit, color_fn, dec, qparam):
-    return (f'<div class="rk-card"><div class="rk-t">{mini_icon(icon, COLOR_NAVY, 20)}{title}</div>'
-            f'<div class="rk-n">{note}</div><div class="rk-cols">'
-            f'<div class="rk-col"><div class="rk-h good">TOP {max(len(good), 1)}</div>'
-            f'{_rank_list_html(good, unit, color_fn, dec, qparam)}</div>'
-            f'<div class="rk-col"><div class="rk-h bad">주의 필요</div>'
-            f'{_rank_list_html(bad, unit, color_fn, dec, qparam)}</div></div></div>')
+def _rank_metric_block(title, icon, note, good, bad, unit, color_fn, dec, state_key, prefix):
+    st.markdown(f'<div class="rk-t">{mini_icon(icon, COLOR_NAVY, 20)}{title}</div>'
+                f'<div class="rk-n">{note}</div>', unsafe_allow_html=True)
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown(f'<div class="rk-h good">TOP {max(len(good), 1)}</div>', unsafe_allow_html=True)
+        _rank_rows(good, unit, color_fn, dec, state_key, f"{prefix}_g")
+    with c2:
+        st.markdown('<div class="rk-h bad">주의 필요</div>', unsafe_allow_html=True)
+        _rank_rows(bad, unit, color_fn, dec, state_key, f"{prefix}_b")
 
 
-def ranking_html(D, names, yms, qkey="team"):
+def render_ranking(D, names, yms, period_text, state_key, qkey="team"):
     """영업이익 월평균 / 예상매출 달성률 TOP5 · 주의 5 (팀 전체·담당자별 공통).
-    점포명을 누르면 ?{qkey}_rank=점포명 주소로 바뀌면서 바로 아래에 그 점포의 상세가 열림(같은 탭 안에서, 새로고침 없이)"""
+    점포명 버튼을 누르면 바로 아래에 그 점포의 상세가 펼쳐짐(세션 상태만 바꾸는 방식이라 로그인 화면으로 튕기지 않음)"""
     og, ob = _rank_split(_rank_items(D, names, yms, "op_avg"))
     rg, rb = _rank_split(_rank_items(D, names, yms, "rate"))
-    qparam = f"{qkey}_rank"
-    c1 = _rank_card("월평균 영업이익", "coin", "영업이익이 입력된 달만으로 계산한 한 달 평균",
-                     og, ob, "천원", lambda v: COLOR_GOOD if v >= 0 else COLOR_BAD, 0, qparam)
-    c2 = _rank_card("예상매출 달성률", "target", "당월 신규 오픈점은 제외 · 점포명을 누르면 상세가 열립니다",
-                     rg, rb, "%", rate_color, 1, qparam)
-    return f'<div class="rk-grid">{c1}{c2}</div>'
+    with st.container(key=f"rkcard_{qkey}"):
+        _rank_metric_block("월평균 영업이익", "coin", "영업이익이 입력된 달만으로 계산한 한 달 평균",
+                            og, ob, "천원", lambda v: COLOR_GOOD if v >= 0 else COLOR_BAD, 0,
+                            state_key, f"rk_{qkey}_op")
+        st.markdown('<div class="rk-sep"></div>', unsafe_allow_html=True)
+        _rank_metric_block("예상매출 달성률", "target", "당월 신규 오픈점은 제외",
+                            rg, rb, "%", rate_color, 1, state_key, f"rk_{qkey}_rate")
 
-
-def rank_detail_panel(D, names, yms, period_text, state_key, qkey):
-    """랭킹 카드에서 점포명을 눌렀을 때 바로 아래 펼쳐지는 상세 (해당 랭킹의 모수 안에 있는 점포만 허용)"""
-    qparam = f"{qkey}_rank"
-    picked = st.query_params.get(qparam)
-    if picked:
-        st.query_params.clear()
-        if picked in names:
-            st.session_state[state_key] = picked
     sel = st.session_state.get(state_key)
-    if not sel or sel not in names:
-        return
-    with st.container():
-        st.markdown('<div class="rk-detail"></div>', unsafe_allow_html=True)
+    if sel and sel in names:
+        with st.container():
+            st.markdown('<div class="rk-detail"></div>', unsafe_allow_html=True)
 
-        def _close():
-            st.session_state[state_key] = None
-        icon_button("랭킹으로 접기 ▲", ":material/expand_less:", key=f"{state_key}_close", on_click=_close)
-        render_store_detail(D, sel, yms, period_text)
+            def _close():
+                st.session_state[state_key] = None
+            icon_button("랭킹으로 접기 ▲", ":material/expand_less:", key=f"{state_key}_close", on_click=_close)
+            render_store_detail(D, sel, yms, period_text)
 
 
 def view_performance(D, yms, mode, period_text):
@@ -1615,8 +1613,7 @@ def view_performance(D, yms, mode, period_text):
     st.markdown(sec_heading("trophy", f"팀 전체 · {period_text}"), unsafe_allow_html=True)
     st.markdown(group_cards(calc_group(D, all_names, yms), mode, prev_of(all_names), D, "팀"),
                 unsafe_allow_html=True)
-    st.markdown(ranking_html(D, all_names, yms), unsafe_allow_html=True)
-    rank_detail_panel(D, all_names, yms, period_text, "tool_rank_open_team", "team")
+    render_ranking(D, all_names, yms, period_text, "tool_rank_open_team", "team")
 
     managers = ordered_managers(D)
     if not managers:
@@ -1665,10 +1662,9 @@ def view_performance(D, yms, mode, period_text):
             # 이름 줄 + 카드를 한 덩어리로 그려서 간격을 내 CSS(mgr-row 의 margin-bottom)만으로 정함
             st.markdown(f'<div class="mgr-row"><div class="mgr-name">{escape(mgr)}</div>'
                         f'<div class="mgr-chips">{chips}</div></div>'
-                        + group_cards(calc_group(D, names, yms), mode, prev_of(names), D, mgr)
-                        + ranking_html(D, names, yms, qkey=f"mgr{mi}"),
+                        + group_cards(calc_group(D, names, yms), mode, prev_of(names), D, mgr),
                         unsafe_allow_html=True)
-            rank_detail_panel(D, names, yms, period_text, f"tool_rank_open_mgr_{mi}", f"mgr{mi}")
+            render_ranking(D, names, yms, period_text, f"tool_rank_open_mgr_{mi}", f"mgr{mi}")
             if show_open:
                 render_store_cards(D, names, yms, period_text, ctx=f"a{mi}")
 
