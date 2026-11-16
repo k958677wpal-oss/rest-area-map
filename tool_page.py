@@ -314,7 +314,8 @@ TOOL_CSS = """
 .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin: 4px 0 10px; }
 .kpi { --ac: #2c4a8a; background: linear-gradient(160deg, #ffffff 55%, #f3f6fc 100%); border: 1px solid #dde3ef;
        border-left: 5px solid var(--ac); border-radius: 14px; padding: 14px 16px 12px;
-       box-shadow: 0 3px 10px rgba(31,58,115,.08); min-width: 0; }
+       box-shadow: 0 3px 10px rgba(31,58,115,.08); min-width: 0; position: relative; }
+.kpi .kpi-spark { position: absolute; top: 12px; right: 14px; opacity: .92; }
 .kpi .kpi-l { display: flex; align-items: center; gap: 7px; font-size: 14px; color: #55648a; font-weight: 700; }
 .kpi .kpi-l svg { flex: none; }
 .kpi .kpi-v { font-size: 27px; font-weight: 800; color: #1f3a73; margin-top: 6px; letter-spacing: -0.5px; white-space: nowrap; line-height: 1.2; }
@@ -684,8 +685,10 @@ def kpi_html(items):
                     f'<span class="kpi-sep"></span><div class="kpi-v">{v2}{u2}</div></div>')
         else:
             vals = f'<div class="kpi-v{cls}">{it["value"]}{u}</div>'
+        spark = f'<div class="kpi-spark" title="월별 출점 흐름(0점인 달은 점으로만 표시)">{it["spark"]}</div>' \
+            if it.get("spark") else ""
         out.append(
-            f'<div class="kpi{nb}" style="--ac:{ac}"><div class="kpi-l">{ic}{it["label"]}</div>'
+            f'<div class="kpi{nb}" style="--ac:{ac}">{spark}<div class="kpi-l">{ic}{it["label"]}</div>'
             f'{vals}{sub}{bot}</div>'
         )
     out.append("</div>")
@@ -900,8 +903,41 @@ def grade_info(D, who, metric, cur, goal, opened_year=None):
     return label, note
 
 
-def group_cards(G, mode, P=None, D=None, who="팀"):
-    """P: 전월 계산 결과(월별 보기에서만 전달), D/who: 목표 조회용"""
+def _open_flow_svg(D, names, yms, w=150, h=42):
+    """월별 신규 출점수 미니 막대그래프. 출점이 없는 달은 막대 대신 작은 회색 점만 찍어서
+    '몇 개월째 출점이 없는지' 공백이 바로 눈에 보이게 함. yms 가 2개월 이상일 때만 의미가 있음"""
+    if len(yms) < 2:
+        return ""
+    counts = []
+    for ym in yms:
+        c = sum(1 for n in names if D["master_by_name"].get(n, {}).get("open_ym") == ym)
+        counts.append((ym, c))
+    mx = max(c for _, c in counts)
+    if mx == 0:
+        return ""
+    n = len(counts)
+    bw = w / n
+    parts = []
+    for i, (ym, c) in enumerate(counts):
+        cx = i * bw + bw / 2
+        bw2 = min(bw * 0.62, 14)
+        x = cx - bw2 / 2
+        lbl = ym_label(ym)
+        if c > 0:
+            bh = max(3.0, c / mx * (h - 9))
+            y = h - bh
+            parts.append(f'<rect x="{x:.1f}" y="{y:.1f}" width="{bw2:.1f}" height="{bh:.1f}" rx="1.5" '
+                         f'fill="{COLOR_NAVY}"><title>{lbl} · {c}점</title></rect>')
+        else:
+            parts.append(f'<circle cx="{cx:.1f}" cy="{h - 2:.1f}" r="1.6" fill="#c7cedd">'
+                          f'<title>{lbl} · 출점 없음</title></circle>')
+    return (f'<svg width="{w}" height="{h}" viewBox="0 0 {w} {h}" style="display:block">'
+            + "".join(parts) + "</svg>")
+
+
+def group_cards(G, mode, P=None, D=None, who="팀", flow_svg=""):
+    """P: 전월 계산 결과(월별 보기에서만 전달), D/who: 목표 조회용
+    flow_svg: 출점수 카드 우측 상단에 넣을 월별 출점 흐름 미니 그래프(선택, _open_flow_svg 로 생성)"""
     cumulative = (mode == "누계")
     use_d = P is not None
     p_ok = use_d and P["data_n"] > 0
@@ -950,7 +986,8 @@ def group_cards(G, mode, P=None, D=None, who="팀"):
     items = [
         dict(label="출점수 / 매익율", value=fnum(G["opened"]), unit="점", sub=open_sub, accent=COLOR_NAVY,
              icon="store", value2=fnum(G["margin"], 1), unit2="%",
-             delta=open_bot + dl(G["margin"], pv("margin"), "pp", "매익율")),
+             delta=open_bot + dl(G["margin"], pv("margin"), "pp", "매익율"),
+             spark=flow_svg or None),
         dict(label="일매출", value=fnum(G["daily"]), unit="천원", accent=COLOR_BLUE, icon="coin",
              delta=gl("일매출", G["daily"], "천원", True, "일매출 목표") + dl(G["daily"], pv("daily"), "amt", "일매출")),
         dict(label="예상매출 달성률", value=fnum(G["rate"], 1), unit="%",
@@ -1625,7 +1662,8 @@ def view_performance(D, yms, mode, period_text):
         return None
 
     st.markdown(sec_heading("trophy", f"팀 전체 · {period_text}"), unsafe_allow_html=True)
-    st.markdown(group_cards(calc_group(D, all_names, yms), mode, prev_of(all_names), D, "팀"),
+    st.markdown(group_cards(calc_group(D, all_names, yms), mode, prev_of(all_names), D, "팀",
+                             _open_flow_svg(D, all_names, yms)),
                 unsafe_allow_html=True)
     render_ranking(D, all_names, yms, period_text, "tool_rank_open_team", "team")
 
@@ -1676,7 +1714,8 @@ def view_performance(D, yms, mode, period_text):
             # 이름 줄 + 카드를 한 덩어리로 그려서 간격을 내 CSS(mgr-row 의 margin-bottom)만으로 정함
             st.markdown(f'<div class="mgr-row"><div class="mgr-name">{escape(mgr)}</div>'
                         f'<div class="mgr-chips">{chips}</div></div>'
-                        + group_cards(calc_group(D, names, yms), mode, prev_of(names), D, mgr),
+                        + group_cards(calc_group(D, names, yms), mode, prev_of(names), D, mgr,
+                                       _open_flow_svg(D, names, yms)),
                         unsafe_allow_html=True)
             render_ranking(D, names, yms, period_text, f"tool_rank_open_mgr_{mi}", f"mgr{mi}")
             if show_open:
