@@ -442,6 +442,20 @@ div[class*="st-key-backbtn_"] button:hover p { color: #ffffff !important; }
 .sm-v { width: 140px; flex: none; text-align: right; font-size: 17px; font-weight: 800; color: #1f2d4d; line-height: 1.2; white-space: nowrap; }
 .sm-v small { display: block; font-size: 12px; font-weight: 500; color: #6b7a99; min-height: 13px; }
 .sm-v.top { color: #0b9a6a; }
+/* 영업이익 / 달성률 TOP5·주의 랭킹 카드 */
+.rk-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin: 8px 0 14px; }
+@media (max-width: 900px) { .rk-grid { grid-template-columns: minmax(0, 1fr); } }
+.rk-card { background: #ffffff; border: 1px solid #d5dcea; border-radius: 14px; padding: 16px 20px; min-width: 0; }
+.rk-t { display: flex; align-items: center; gap: 8px; font-size: 17px; font-weight: 800; color: #1f3a73; }
+.rk-n { font-size: 12.5px; color: #8591ab; margin: 4px 0 14px; }
+.rk-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.rk-h { font-size: 12.5px; font-weight: 800; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid #edf0f6; }
+.rk-h.good { color: #0b9a6a; }
+.rk-h.bad { color: #d0143c; }
+.rk-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; height: 30px; }
+.rk-nm { font-size: 13.5px; font-weight: 600; color: #3a4a6b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.rk-v { font-size: 13.5px; font-weight: 800; white-space: nowrap; flex: none; }
+.rk-empty { font-size: 12.5px; color: #aab4ca; padding: 6px 0; }
 div[class*="st-key-mgrbtn_"] button:disabled { opacity: .45; }
 div[class*="st-key-mgrbtn_"] button:disabled:hover { background: #eef2fa !important; }
 div[class*="st-key-mgrbtn_"] button:disabled:hover p { color: #2c4a8a !important; }
@@ -496,7 +510,9 @@ div[data-testid="stVerticalBlock"] { gap: 0.7rem; }
 .store-head .sh-row { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
 .store-head .sh-name { font-size: 26px; font-weight: 800; color: #1f3a73; line-height: 1.3; }
 .store-head .sh-meta { font-size: 15px; font-weight: 700; color: #3a4a6b; margin-top: 8px; }
-.store-head .sh-addr { font-size: 14px; color: #5a6a8a; margin-top: 10px; padding-top: 10px; border-top: 1px dashed #d5dcea; }
+.store-head .sh-addr { font-size: 14px; color: #2c4a8a; margin-top: 10px; padding-top: 10px; border-top: 1px dashed #d5dcea;
+    display: inline-flex; align-items: center; gap: 2px; text-decoration: none; font-weight: 600; }
+.store-head .sh-addr:hover { color: #1e88e5; text-decoration: underline; }
 .chart-grid { margin-bottom: 26px; }
 .chart-grid .chart-card.empty { align-self: start; }
 .sc-name { font-size: 20px; font-weight: 800; color: #1f3a73; line-height: 1.3; word-break: keep-all; }
@@ -1103,8 +1119,12 @@ def render_store_detail(D, name, yms, period_text):
     if m.get("type"):
         tags.append(f'<span class="sc-tag">{escape(m["type"])}</span>')
     info = [escape(x) for x in (m.get("manager"), (m.get("open_date") and f"오픈 {m['open_date']}"), m.get("region")) if x]
-    addr = (f'<div class="sh-addr">{mini_icon("pin", COLOR_BAD, 16)} {escape(m["address"])}</div>'
-            if m.get("address") else "")
+    if m.get("address"):
+        map_url = f'https://map.kakao.com/?q={escape(m["address"])}'
+        addr = (f'<a class="sh-addr" href="{map_url}" target="_blank" rel="noopener" '
+                f'title="카카오맵에서 보기">{mini_icon("pin", COLOR_BAD, 16)} {escape(m["address"])}</a>')
+    else:
+        addr = ""
     st.markdown(
         '<div class="store-head"><div class="sh-row">'
         f'<div class="sh-name">{escape(name)}</div>{"".join(tags)}</div>'
@@ -1491,6 +1511,66 @@ def summary_html(D, managers, yms, all_names):
     return f'<div class="sm-grid">{c1}{c2}{c3}{c4}</div>'
 
 
+def _rank_items(D, names, yms, metric):
+    """metric: 'op_avg'(월평균 영업이익) / 'rate'(예상매출 달성률).
+    달성률은 선택 기간의 마지막 달에 새로 오픈한 점포(실적이 아직 한 달도 안 쌓인 곳)는 빼고 비교"""
+    last = yms[-1] if yms else ""
+    out = []
+    for n in names:
+        if metric == "rate":
+            open_ym = D["master_by_name"].get(n, {}).get("open_ym", "")
+            if open_ym and open_ym == last:
+                continue
+            c = calc_store(D, n, yms)
+            if c["rate"] is not None:
+                out.append((n, c["rate"]))
+        else:
+            per = D["monthly"].get(n, {})
+            ops = [per[ym]["op"] for ym in yms if ym in per and per[ym]["op"] is not None]
+            if ops:
+                out.append((n, sum(ops) / len(ops)))
+    return out
+
+
+def _rank_split(items, k=5):
+    """값 큰 순서대로 정렬 후 상위 k / 하위 k (겹치지 않게, 점포가 적으면 절반씩만)"""
+    items = sorted(items, key=lambda x: -x[1])
+    kk = min(k, len(items) // 2)
+    if kk == 0:
+        return [], []
+    return items[:kk], items[-kk:][::-1]
+
+
+def _rank_list_html(items, unit, color_fn, dec=0):
+    if not items:
+        return '<div class="rk-empty">표시할 점포가 없습니다</div>'
+    rows = []
+    for n, v in items:
+        rows.append(f'<div class="rk-row"><span class="rk-nm">{escape(n)}</span>'
+                     f'<span class="rk-v" style="color:{color_fn(v)}">{fnum(v, dec)}{unit}</span></div>')
+    return "".join(rows)
+
+
+def _rank_card(title, icon, note, good, bad, unit, color_fn, dec=0):
+    return (f'<div class="rk-card"><div class="rk-t">{mini_icon(icon, COLOR_NAVY, 20)}{title}</div>'
+            f'<div class="rk-n">{note}</div><div class="rk-cols">'
+            f'<div class="rk-col"><div class="rk-h good">TOP {max(len(good), 1)}</div>'
+            f'{_rank_list_html(good, unit, color_fn, dec)}</div>'
+            f'<div class="rk-col"><div class="rk-h bad">주의 필요</div>'
+            f'{_rank_list_html(bad, unit, color_fn, dec)}</div></div></div>')
+
+
+def ranking_html(D, names, yms):
+    """영업이익 월평균 / 예상매출 달성률 TOP5 · 주의 5 (팀 전체·담당자별 공통)"""
+    og, ob = _rank_split(_rank_items(D, names, yms, "op_avg"))
+    rg, rb = _rank_split(_rank_items(D, names, yms, "rate"))
+    c1 = _rank_card("월평균 영업이익", "coin", "영업이익이 입력된 달만으로 계산한 한 달 평균",
+                     og, ob, "천원", lambda v: COLOR_GOOD if v >= 0 else COLOR_BAD, 0)
+    c2 = _rank_card("예상매출 달성률", "target", "당월 신규 오픈점은 제외",
+                     rg, rb, "%", rate_color, 1)
+    return f'<div class="rk-grid">{c1}{c2}</div>'
+
+
 def view_performance(D, yms, mode, period_text):
     all_names = [m["name"] for m in D["masters"]]
 
@@ -1503,6 +1583,7 @@ def view_performance(D, yms, mode, period_text):
     st.markdown(sec_heading("trophy", f"팀 전체 · {period_text}"), unsafe_allow_html=True)
     st.markdown(group_cards(calc_group(D, all_names, yms), mode, prev_of(all_names), D, "팀"),
                 unsafe_allow_html=True)
+    st.markdown(ranking_html(D, all_names, yms), unsafe_allow_html=True)
 
     managers = ordered_managers(D)
     if not managers:
@@ -1551,7 +1632,8 @@ def view_performance(D, yms, mode, period_text):
             # 이름 줄 + 카드를 한 덩어리로 그려서 간격을 내 CSS(mgr-row 의 margin-bottom)만으로 정함
             st.markdown(f'<div class="mgr-row"><div class="mgr-name">{escape(mgr)}</div>'
                         f'<div class="mgr-chips">{chips}</div></div>'
-                        + group_cards(calc_group(D, names, yms), mode, prev_of(names), D, mgr),
+                        + group_cards(calc_group(D, names, yms), mode, prev_of(names), D, mgr)
+                        + ranking_html(D, names, yms),
                         unsafe_allow_html=True)
             if show_open:
                 render_store_cards(D, names, yms, period_text, ctx=f"a{mi}")
