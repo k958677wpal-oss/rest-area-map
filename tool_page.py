@@ -8,9 +8,15 @@ SD 허브(팀 관리툴) 화면 - app.py 의 '관리툴' 모드에서 불러 씁
 """
 import re
 import math
+import json
+import uuid
 from html import escape
+from datetime import datetime, timezone, timedelta
+import datetime as _dt
 import streamlit as st
 import pandas as pd
+import gspread
+import streamlit.components.v1 as components
 
 PERF_SHEET_NAME = "특수팀_실적관리"
 TAB_STORE = "점포마스터"
@@ -1768,8 +1774,515 @@ def view_stores(D, yms, period_text):
     render_store_cards(D, names, yms, period_text, ctx="b", sort_by=sort_by)
 
 
+# ───────────────────────── 주간 활동 보고 ─────────────────────────
+# 저장 위치: 구글시트 '휴게소_통합_데이터' 의 '주간_활동보고' 탭 (휴게소 데이터허브와 완전히 같은 시트/탭).
+# 그래서 여기서 '휴게소 방문'을 적으면 별도 연동 코드 없이 그 즉시 휴게소 데이터허브 지도 핀의 방문 이력에도 나타납니다.
+# 기존(휴게소 데이터허브) 글쓰기 함수가 쓰던 9개 칸(주차코드~작성시각)은 그대로 두고, 뒤에 5개 칸만 새로 더했습니다.
+# -> 휴게소 데이터허브 쪽 코드를 하나도 안 건드려도 계속 똑같이 동작합니다.
+KST = timezone(timedelta(hours=9))
+WEEKLY_DOC_NAME = "휴게소_통합_데이터"
+WEEKLY_TAB = "주간_활동보고"
+WEEKLY_HEADERS = ["주차코드", "주차표시", "사번", "이름", "방문휴게소", "활동내용", "추진물건", "특이사항", "작성시각",
+                  "아이템ID", "유형", "상태", "최초등록주차", "수정시각"]
+ITEM_STATUS = ["추진물건", "오픈확정", "계약완료"]
+SCHEDULE_DAYS = ["월", "화", "수", "목", "금"]
+SCHEDULE_HALVES = ["오전", "오후"]
+SCHEDULE_SLOTS = [f"{d}{h}" for d in SCHEDULE_DAYS for h in SCHEDULE_HALVES]
+
+
+def wk_info(target_date=None):
+    """주어진 날짜(기본: 오늘)가 속한 주의 (주차코드, 주차표시). 월요일 시작, '그 달 1일이 든 주 = 1주차'"""
+    if target_date is None:
+        target_date = datetime.now(KST).date()
+    monday = target_date - _dt.timedelta(days=target_date.weekday())
+    sunday = monday + _dt.timedelta(days=6)
+    year, month = monday.year, monday.month
+    first_day = _dt.date(year, month, 1)
+    first_monday = first_day - _dt.timedelta(days=first_day.weekday())
+    week_num = ((monday - first_monday).days // 7) + 1
+    code = f"{year}-{month:02d}-{week_num}"
+    label = f"{year}년 {month}월 {week_num}주차 ({monday.strftime('%m/%d')}~{sunday.strftime('%m/%d')})"
+    return code, label
+
+
+def wk_parse(code):
+    try:
+        y, m, w = str(code).strip().split("-")
+        return int(y), int(m), int(w)
+    except Exception:
+        return None
+
+
+def wk_monday(code):
+    p = wk_parse(code)
+    if not p:
+        return None
+    y, m, w = p
+    first_day = _dt.date(y, m, 1)
+    first_monday = first_day - _dt.timedelta(days=first_day.weekday())
+    return first_monday + _dt.timedelta(weeks=w - 1)
+
+
+def wk_prev(code):
+    mon = wk_monday(code)
+    if mon is None:
+        return ""
+    return wk_info(mon - _dt.timedelta(days=7))[0]
+
+
+def wk_short_label(label):
+    s = str(label)
+    return s.split("월 ", 1)[1] if "월 " in s else s
+
+
+def _weeks_between(first_week, cur_code):
+    """first_week 에 처음 등록된 물건이 cur_code 주차까지 몇 주째 이어지는지 (최소 1주)"""
+    m1, m2 = wk_monday(first_week), wk_monday(cur_code)
+    if not m1 or not m2:
+        return 1
+    return max(0, (m2 - m1).days // 7) + 1
+
+
+def _weekly_ws(get_gc, create=True):
+    gc = get_gc()
+    doc = gc.open(WEEKLY_DOC_NAME)
+    try:
+        ws = doc.worksheet(WEEKLY_TAB)
+    except gspread.exceptions.WorksheetNotFound:
+        if not create:
+            return None
+        ws = doc.add_worksheet(title=WEEKLY_TAB, rows=3000, cols=len(WEEKLY_HEADERS))
+        ws.append_row(WEEKLY_HEADERS)
+        return ws
+    header = ws.row_values(1)
+    missing = [h for h in WEEKLY_HEADERS if h not in header]
+    if missing:
+        ws.update("A1", [header + missing])      # 기존 칸은 그대로, 새 칸만 뒤에 추가
+    return ws
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def load_weekly_all(_get_gc):
+    ws = _weekly_ws(_get_gc, create=True)
+    if ws is None:
+        return []
+    return _records(ws.get_all_values())
+
+
+def weekly_clear_cache():
+    load_weekly_all.clear()
+
+
+def _weekly_now():
+    return datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _weekly_row(header, **kw):
+    base = {h: "" for h in header}
+    base.update(kw)
+    return [base.get(h, "") for h in header]
+
+
+def weekly_append_visit(get_gc, week_code, week_label, uid, uname, visit_name, activity, note):
+    ws = _weekly_ws(get_gc)
+    header = ws.row_values(1)
+    now = _weekly_now()
+    ws.append_row(_weekly_row(header, 주차코드=week_code, 주차표시=week_label, 사번=uid, 이름=uname,
+                              방문휴게소=visit_name, 활동내용=activity, 특이사항=note,
+                              작성시각=now, 유형="방문", 수정시각=now))
+    weekly_clear_cache()
+
+
+def _weekly_upsert(get_gc, match_fn, row_vals_map):
+    """match_fn(header, row) -> bool 인 첫 행을 찾아 덮어쓰고, 없으면 새 행을 추가"""
+    ws = _weekly_ws(get_gc)
+    values = ws.get_all_values()
+    header = values[0] if values else WEEKLY_HEADERS
+    row = _weekly_row(header, **row_vals_map)
+    for rn in range(2, len(values) + 1):
+        if match_fn(header, values[rn - 1]):
+            ws.update(f"A{rn}", [row])
+            weekly_clear_cache()
+            return
+    ws.append_row(row)
+    weekly_clear_cache()
+
+
+def _cell(header, row, name):
+    if name not in header:
+        return ""
+    i = header.index(name)
+    return row[i].strip() if 0 <= i < len(row) else ""
+
+
+def weekly_upsert_item(get_gc, week_code, week_label, uid, uname, item_id, status, content, first_week):
+    now = _weekly_now()
+
+    def match(header, row):
+        return (_cell(header, row, "주차코드") == week_code and _cell(header, row, "아이템ID") == item_id and item_id)
+
+    _weekly_upsert(get_gc, match, dict(
+        주차코드=week_code, 주차표시=week_label, 사번=uid, 이름=uname, 추진물건=content,
+        작성시각=now, 아이템ID=item_id, 유형="추진물건", 상태=status, 최초등록주차=first_week, 수정시각=now,
+    ))
+
+
+def weekly_append_note(get_gc, week_code, week_label, uid, uname, note_text):
+    ws = _weekly_ws(get_gc)
+    header = ws.row_values(1)
+    now = _weekly_now()
+    ws.append_row(_weekly_row(header, 주차코드=week_code, 주차표시=week_label, 사번=uid, 이름=uname,
+                              특이사항=note_text, 작성시각=now, 유형="특이사항", 수정시각=now))
+    weekly_clear_cache()
+
+
+def weekly_upsert_schedule(get_gc, week_code, week_label, uid, uname, sched):
+    now = _weekly_now()
+    content = json.dumps(sched, ensure_ascii=False)
+
+    def match(header, row):
+        return (_cell(header, row, "주차코드") == week_code and _cell(header, row, "사번") == uid
+                and _cell(header, row, "유형") == "일정")
+
+    _weekly_upsert(get_gc, match, dict(주차코드=week_code, 주차표시=week_label, 사번=uid, 이름=uname,
+                                       추진물건=content, 작성시각=now, 유형="일정", 수정시각=now))
+
+
+def weekly_mark_submitted(get_gc, week_code, week_label, uid, uname):
+    now = _weekly_now()
+
+    def match(header, row):
+        return (_cell(header, row, "주차코드") == week_code and _cell(header, row, "사번") == uid
+                and _cell(header, row, "유형") == "제출완료")
+
+    _weekly_upsert(get_gc, match, dict(주차코드=week_code, 주차표시=week_label, 사번=uid, 이름=uname,
+                                       작성시각=now, 유형="제출완료", 수정시각=now))
+    return now
+
+
+def weekly_latest_items_before(records, uid, week_code):
+    """해당 사번의 '추진물건' 중, week_code 보다 이전 주차에서 가장 최근 주차에 들어있던 항목들
+    (= 이번 주로 그대로 이어져야 할 활성 항목)"""
+    cand = [r for r in records if r.get("유형") == "추진물건" and r.get("사번", "").strip() == uid]
+    cur_key = wk_parse(week_code) or (9999, 99, 99)
+    weeks = sorted({r.get("주차코드", "") for r in cand
+                    if wk_parse(r.get("주차코드", "")) and wk_parse(r.get("주차코드", "")) < cur_key},
+                   key=lambda c: wk_parse(c))
+    if not weeks:
+        return []
+    last_week = weeks[-1]
+    return [r for r in cand if r.get("주차코드", "") == last_week]
+
+
+def weekly_items_of_week(records, uid, week_code):
+    return [r for r in records if r.get("유형") == "추진물건" and r.get("사번", "").strip() == uid
+            and r.get("주차코드", "") == week_code]
+
+
+def weekly_note_of_week(records, uid, week_code):
+    rows = [r for r in records if r.get("유형") == "특이사항" and r.get("사번", "").strip() == uid
+            and r.get("주차코드", "") == week_code]
+    return rows[-1]["특이사항"] if rows else ""
+
+
+def weekly_schedule_of_week(records, uid, week_code):
+    rows = [r for r in records if r.get("유형") == "일정" and r.get("사번", "").strip() == uid
+            and r.get("주차코드", "") == week_code]
+    if not rows:
+        return {}
+    try:
+        return json.loads(rows[-1].get("추진물건", "") or "{}")
+    except Exception:
+        return {}
+
+
+def weekly_submitted_at(records, uid, week_code):
+    rows = [r for r in records if r.get("유형") == "제출완료" and r.get("사번", "").strip() == uid
+            and r.get("주차코드", "") == week_code]
+    return rows[-1]["작성시각"] if rows else ""
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def load_rest_names(_get_gc):
+    """휴게소 데이터허브의 메인 시트(시트1)에서 휴게소명 목록만 읽어옴 (방문 보고 드롭다운용)"""
+    try:
+        gc = _get_gc()
+        doc = gc.open(WEEKLY_DOC_NAME)
+        values = doc.sheet1.get_all_values()
+    except Exception:
+        return []
+    if not values:
+        return []
+    header = [str(h).strip() for h in values[0]]
+    if "휴게소명" not in header:
+        return []
+    i = header.index("휴게소명")
+    names = []
+    for row in values[1:]:
+        if i < len(row) and str(row[i]).strip():
+            names.append(str(row[i]).strip())
+    return names
+
+
+def _render_weekly_mine(get_gc, records, uid, uname, cur_code, cur_label):
+    st.markdown(f"**작성 주차: {cur_label}**")
+    submitted_at = weekly_submitted_at(records, uid, cur_code)
+    if submitted_at:
+        st.success(f"✅ 이번 주 보고를 제출했습니다 ({submitted_at}). 다시 제출하면 시각이 갱신됩니다.")
+    else:
+        st.warning("이번 주 보고를 아직 제출하지 않았습니다.")
+
+    draft_key = f"wk_draft_{cur_code}_{uid}"
+    if draft_key not in st.session_state:
+        seed = weekly_items_of_week(records, uid, cur_code) or weekly_latest_items_before(records, uid, cur_code)
+        st.session_state[draft_key] = [
+            {"id": r.get("아이템ID") or uuid.uuid4().hex[:10],
+             "status": r.get("상태") if r.get("상태") in ITEM_STATUS else "추진물건",
+             "content": r.get("추진물건", ""),
+             "first_week": r.get("최초등록주차") or r.get("주차코드") or cur_code}
+            for r in seed
+        ]
+
+    st.markdown("##### 📦 추진 물건")
+    st.caption("지난주 목록이 그대로 이어집니다. 상태/내용을 고쳐 쓰거나, 끝난 물건은 삭제 버튼으로 지워 주세요.")
+    draft = st.session_state[draft_key]
+    remove_idx = None
+    for i, it in enumerate(draft):
+        weeks_pending = _weeks_between(it["first_week"], cur_code)
+        c1, c2, c3 = st.columns([1.3, 5, 1])
+        with c1:
+            it["status"] = st.selectbox(
+                "상태", ITEM_STATUS,
+                index=ITEM_STATUS.index(it["status"]) if it["status"] in ITEM_STATUS else 0,
+                key=f"{draft_key}_status_{it['id']}", label_visibility="collapsed")
+        with c2:
+            it["content"] = st.text_input(
+                "내용", value=it["content"], key=f"{draft_key}_content_{it['id']}",
+                placeholder="예: OO휴게소 브랜드 교체 협의", label_visibility="collapsed")
+        with c3:
+            st.caption(f"{weeks_pending}주째" if weeks_pending > 1 else "신규")
+            if st.button("삭제", key=f"{draft_key}_del_{it['id']}"):
+                remove_idx = i
+    if remove_idx is not None:
+        draft.pop(remove_idx)
+        st.rerun()
+    if st.button("➕ 추진 물건 추가", key=f"{draft_key}_add"):
+        draft.append({"id": uuid.uuid4().hex[:10], "status": "추진물건", "content": "", "first_week": cur_code})
+        st.rerun()
+
+    st.markdown("---")
+    st.markdown("##### 🗒️ 특이사항")
+    note_key = f"wk_note_{cur_code}_{uid}"
+    if note_key not in st.session_state:
+        st.session_state[note_key] = weekly_note_of_week(records, uid, cur_code)
+    st.text_area("특이사항", key=note_key, placeholder="공유할 이슈·참고사항을 자유롭게 적어주세요.",
+                 label_visibility="collapsed", height=100)
+
+    st.markdown("---")
+    st.markdown("##### 🗓️ 이번 주 일정 (월~금 오전/오후)")
+    sched_key = f"wk_sched_{cur_code}_{uid}"
+    if sched_key not in st.session_state:
+        st.session_state[sched_key] = weekly_schedule_of_week(records, uid, cur_code)
+    sched = st.session_state[sched_key]
+    prev_sched = weekly_schedule_of_week(records, uid, wk_prev(cur_code))
+    for d in SCHEDULE_DAYS:
+        c1, c2 = st.columns(2)
+        for half, col in zip(SCHEDULE_HALVES, (c1, c2)):
+            slot = f"{d}{half}"
+            with col:
+                val = st.text_input(f"{d}요일 {half}", value=sched.get(slot, ""), key=f"{sched_key}_{slot}",
+                                    placeholder=f"{d} {half} 일정")
+                sched[slot] = val
+                if val and prev_sched.get(slot, "").strip() == val.strip():
+                    st.caption("↩️ 지난주와 동일")
+
+    st.markdown("---")
+    if st.button("✅ 이번 주 보고 제출하기", type="primary", key=f"wk_submit_{cur_code}_{uid}"):
+        for it in draft:
+            if it["content"].strip():
+                weekly_upsert_item(get_gc, cur_code, cur_label, uid, uname, it["id"], it["status"],
+                                   it["content"].strip(), it["first_week"])
+        note_val = st.session_state.get(note_key, "").strip()
+        if note_val:
+            weekly_append_note(get_gc, cur_code, cur_label, uid, uname, note_val)
+        if any(v.strip() for v in sched.values()):
+            weekly_upsert_schedule(get_gc, cur_code, cur_label, uid, uname, sched)
+        now = weekly_mark_submitted(get_gc, cur_code, cur_label, uid, uname)
+        st.success(f"제출되었습니다. ({now})")
+        st.rerun()
+
+    st.markdown("---")
+    st.markdown("##### 📍 휴게소 방문 보고")
+    st.caption("방문할 때마다 바로 제출해 주세요. 같은 시트에 저장되므로, 휴게소 데이터허브 지도의 방문 이력에도 그대로 나타납니다.")
+    rest_names = load_rest_names(get_gc)
+    with st.form(f"wk_visit_form_{uid}", clear_on_submit=True):
+        v_name = st.selectbox("방문 휴게소", [""] + rest_names)
+        v_act = st.text_area("활동 내용")
+        v_note = st.text_area("특이사항(방문 관련)")
+        v_sent = st.form_submit_button("방문 보고 제출")
+    if v_sent:
+        if not v_name:
+            st.warning("방문 휴게소를 선택해 주세요.")
+        elif not v_act.strip():
+            st.warning("활동 내용을 입력해 주세요.")
+        else:
+            weekly_append_visit(get_gc, cur_code, cur_label, uid, uname, v_name, v_act.strip(), v_note.strip())
+            st.success(f"'{v_name}' 방문 보고가 제출되었습니다.")
+            st.rerun()
+
+
+def _weekly_print_html(week_label, section1, section2, notes):
+    """회의자료용 인쇄 HTML. 브라우저로 열어 Ctrl+P → 'PDF로 저장'하면 그대로 정리된 PDF가 됩니다.
+    (한글 폰트를 직접 심어야 하는 PDF 라이브러리 대신, 브라우저의 한글 글꼴을 그대로 쓰는 방식이라 더 안전합니다)"""
+    def rows_html(items, cols):
+        if not items:
+            return f'<tr><td colspan="{len(cols)}" style="text-align:center;color:#999;">해당 사항 없음</td></tr>'
+        out = []
+        for it in items:
+            out.append("<tr>" + "".join(f"<td>{escape(str(it.get(c, '')))}</td>" for c in cols) + "</tr>")
+        return "".join(out)
+
+    s1_cols = ["상태", "이름", "추진물건", "최초등록주차"]
+    s2_cols = ["이름", "추진물건", "최초등록주차"]
+    note_rows = "".join(f"<li><b>{escape(n['이름'])}</b>: {escape(n['특이사항'])}</li>" for n in notes) or "<li>해당 사항 없음</li>"
+    return f"""
+    <html><head><meta charset="utf-8"><style>
+    body {{ font-family: 'Malgun Gothic','맑은 고딕',sans-serif; color:#1f2d4d; padding: 20px; }}
+    h1 {{ font-size: 20px; color:#1f3a73; border-bottom: 3px solid #1f3a73; padding-bottom:8px; }}
+    h2 {{ font-size:15px; color:#2c4a8a; margin-top:22px; }}
+    table {{ width:100%; border-collapse: collapse; font-size:13px; }}
+    th {{ background:#eef2fa; padding:6px 8px; text-align:left; border-bottom:2px solid #c9d4ea; }}
+    td {{ padding:6px 8px; border-bottom:1px solid #edf0f6; }}
+    ul {{ font-size:13px; line-height:1.6; }}
+    @media print {{ body {{ padding:0; }} }}
+    </style></head><body>
+    <h1>특수개발팀 주간 현황 · {escape(week_label)}</h1>
+    <h2>1) 계약완료 · 오픈확정 물건</h2>
+    <table><tr>{"".join(f"<th>{c}</th>" for c in s1_cols)}</tr>{rows_html(section1, s1_cols)}</table>
+    <h2>2) 추진 물건</h2>
+    <table><tr>{"".join(f"<th>{c}</th>" for c in s2_cols)}</tr>{rows_html(section2, s2_cols)}</table>
+    <h2>3) 특이사항</h2>
+    <ul>{note_rows}</ul>
+    </body></html>
+    """
+
+
+def _render_weekly_team(get_gc, managers, records, cur_code, cur_label):
+    weeks = sorted({r.get("주차코드", "") for r in records if wk_parse(r.get("주차코드", ""))},
+                   key=lambda c: wk_parse(c), reverse=True)
+    if cur_code not in weeks:
+        weeks = [cur_code] + weeks
+
+    label_of = {}
+    for r in records:
+        c = r.get("주차코드", "")
+        if c and c not in label_of:
+            label_of[c] = r.get("주차표시", c)
+    label_of.setdefault(cur_code, cur_label)
+
+    sel = st.selectbox("조회 주차", weeks, format_func=lambda c: wk_short_label(label_of.get(c, c)), key="wk_team_week")
+    st.caption(f"📅 {label_of.get(sel, sel)}")
+    prev_code = wk_prev(sel)
+    prev_sched_by_name = {}
+    for r in records:
+        if r.get("유형") == "일정" and r.get("주차코드") == prev_code:
+            try:
+                prev_sched_by_name[r.get("이름", "").strip()] = json.loads(r.get("추진물건", "") or "{}")
+            except Exception:
+                pass
+
+    st.markdown("##### ✅ 제출 현황")
+    if managers:
+        cols = st.columns(min(4, len(managers)))
+        for i, mgr in enumerate(managers):
+            at = next((r["작성시각"] for r in records if r.get("유형") == "제출완료"
+                       and r.get("이름", "").strip() == mgr and r.get("주차코드") == sel), "")
+            with cols[i % len(cols)]:
+                st.markdown(f"🟢 **{mgr}**  \n{at}" if at else f"🔴 **{mgr}**  \n미제출")
+
+    st.divider()
+    st.markdown("##### 1) 오픈확정 · 계약완료 물건")
+    section1 = [r for r in records if r.get("유형") == "추진물건" and r.get("주차코드") == sel
+                and r.get("상태") in ("오픈확정", "계약완료") and (not managers or r.get("이름", "").strip() in managers)]
+    if section1:
+        rows1 = [{"상태": r["상태"], "이름": r["이름"], "추진물건": r["추진물건"],
+                  "최초등록주차": r.get("최초등록주차", "")} for r in section1]
+        st.dataframe(pd.DataFrame(rows1), use_container_width=True, hide_index=True)
+    else:
+        st.caption("해당 사항 없음")
+
+    st.markdown("##### 2) 추진 물건")
+    section2 = [r for r in records if r.get("유형") == "추진물건" and r.get("주차코드") == sel
+                and r.get("상태") == "추진물건" and (not managers or r.get("이름", "").strip() in managers)]
+    if section2:
+        rows2 = [{"이름": r["이름"], "추진물건": r["추진물건"], "최초등록주차": r.get("최초등록주차", ""),
+                  "진행주수": _weeks_between(r.get("최초등록주차") or sel, sel)} for r in section2]
+        rows2.sort(key=lambda x: -x["진행주수"])
+        st.dataframe(pd.DataFrame(rows2), use_container_width=True, hide_index=True)
+        stale = [r for r in rows2 if r["진행주수"] >= 4]
+        if stale:
+            st.warning("⚠️ 4주 이상 그대로인 물건: " + ", ".join(f"{r['이름']}·{r['추진물건']}" for r in stale))
+    else:
+        st.caption("해당 사항 없음")
+
+    st.markdown("##### 3) 특이사항")
+    notes = [r for r in records if r.get("유형") == "특이사항" and r.get("주차코드") == sel
+             and (not managers or r.get("이름", "").strip() in managers) and r.get("특이사항", "").strip()]
+    if notes:
+        for r in notes:
+            st.markdown(f"- **{r['이름']}**: {r['특이사항']}")
+    else:
+        st.caption("해당 사항 없음")
+
+    if managers:
+        st.markdown("##### 🗓️ 담당자별 주간 일정")
+        for mgr in managers:
+            sch = next((r for r in records if r.get("유형") == "일정" and r.get("주차코드") == sel
+                       and r.get("이름", "").strip() == mgr), None)
+            with st.expander(f"👤 {mgr}"):
+                if not sch:
+                    st.caption("일정 미작성")
+                    continue
+                try:
+                    sdict = json.loads(sch.get("추진물건", "") or "{}")
+                except Exception:
+                    sdict = {}
+                prev_s = prev_sched_by_name.get(mgr, {})
+                for d in SCHEDULE_DAYS:
+                    c1, c2 = st.columns(2)
+                    for half, col in zip(SCHEDULE_HALVES, (c1, c2)):
+                        slot = f"{d}{half}"
+                        v = sdict.get(slot, "")
+                        with col:
+                            if not v:
+                                st.caption(f"{d} {half}: -")
+                            elif prev_s.get(slot, "").strip() == v.strip():
+                                st.markdown(f"{d} {half}: {v} 🔁(지난주와 동일)")
+                            else:
+                                st.markdown(f"{d} {half}: {v}")
+
+    st.divider()
+    st.markdown("##### 🖨️ 회의자료용 인쇄 보기")
+    st.caption("아래를 열고 Ctrl+P(인쇄) → 'PDF로 저장'을 하면 정리된 회의자료 PDF로 바로 저장됩니다.")
+    with st.expander("인쇄용 보기 열기"):
+        html = _weekly_print_html(label_of.get(sel, sel), section1, section2, notes)
+        components.html(html, height=700, scrolling=True)
+
+
+def render_weekly(get_gc, D, uid, uname, is_admin):
+    cur_code, cur_label = wk_info()
+    records = load_weekly_all(get_gc)
+    managers = ordered_managers(D) if D else []
+
+    t_mine, t_team = st.tabs([":material/edit: 내 보고 작성", ":material/groups: 팀 현황"])
+    with t_mine:
+        _render_weekly_mine(get_gc, records, uid, uname, cur_code, cur_label)
+    with t_team:
+        _render_weekly_team(get_gc, managers, records, cur_code, cur_label)
+
+
 # ───────────────────────── 진입점 ─────────────────────────
-def render_tool(get_gc):
+def render_tool(get_gc, user_id="", user_name="", is_admin=False):
     st.markdown(TOOL_CSS, unsafe_allow_html=True)
 
     D = load_perf(get_gc)
@@ -1799,5 +2312,4 @@ def render_tool(get_gc):
     with tab_store:
         view_stores(D, yms, period_text)
     with tab_weekly:
-        st.info("주간 활동 보고는 지금은 '휴게소 데이터 허브'의 '주간 활동 보고' 탭을 그대로 사용합니다. "
-                "실적 현황·점포 현황을 마친 뒤 이어서 만들겠습니다.")
+        render_weekly(get_gc, D, user_id, user_name, is_admin)
