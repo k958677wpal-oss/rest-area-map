@@ -9,6 +9,7 @@ SD 허브(팀 관리툴) 화면 - app.py 의 '관리툴' 모드에서 불러 씁
 import re
 import math
 from html import escape
+from urllib.parse import quote
 import streamlit as st
 import pandas as pd
 
@@ -415,11 +416,11 @@ button[role="tab"][aria-selected="true"] span, [data-testid="stTab"][aria-select
 div[class*="st-key-mgrbox_"] [data-testid="stHorizontalBlock"] { align-items: stretch; gap: 1rem; }
 .sc-top { min-height: 100px; }
 /* 점포 상세의 '← 점포 목록으로' 버튼: 오픈점 보기 버튼과 같은 알약 디자인 */
-div[class*="st-key-backbtn_"] button { height: 40px; min-height: 40px; border: none !important; border-radius: 10px !important;
-    background: #eef2fa !important; padding: 0 20px; }
-div[class*="st-key-backbtn_"] button p { font-weight: 700 !important; font-size: 15px !important; color: #2c4a8a; white-space: nowrap; margin: 0; }
-div[class*="st-key-backbtn_"] button:hover { background: #2c4a8a !important; }
-div[class*="st-key-backbtn_"] button:hover p { color: #ffffff !important; }
+div[class*="st-key-backbtn_"] button { height: 44px; min-height: 44px; border: none !important; border-radius: 10px !important;
+    background: #2c4a8a !important; padding: 0 22px; box-shadow: 0 3px 10px rgba(31,58,115,.25); }
+div[class*="st-key-backbtn_"] button p { font-weight: 800 !important; font-size: 16px !important; color: #ffffff !important; white-space: nowrap; margin: 0; }
+div[class*="st-key-backbtn_"] button svg, div[class*="st-key-backbtn_"] button [data-testid="stIconMaterial"] { color: #ffffff !important; }
+div[class*="st-key-backbtn_"] button:hover { background: #1e3a6f !important; }
 /* 요약 화면: 지표별 비교 그래프 카드 2x2 */
 .sm-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin: 8px 0 14px; }
 @media (max-width: 900px) { .sm-grid { grid-template-columns: minmax(0, 1fr); } }
@@ -452,10 +453,15 @@ div[class*="st-key-backbtn_"] button:hover p { color: #ffffff !important; }
 .rk-h { font-size: 12.5px; font-weight: 800; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid #edf0f6; }
 .rk-h.good { color: #0b9a6a; }
 .rk-h.bad { color: #d0143c; }
-.rk-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; height: 30px; }
-.rk-nm { font-size: 13.5px; font-weight: 600; color: #3a4a6b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.rk-v { font-size: 13.5px; font-weight: 800; white-space: nowrap; flex: none; }
+.rk-row { display: flex; align-items: center; max-width: 220px; height: 30px; text-decoration: none; border-radius: 6px;
+    padding: 0 4px; margin: 0 -4px; }
+a.rk-row:hover { background: #eef2fa; }
+a.rk-row .rk-nm { color: #2c4a8a; text-decoration: underline; text-decoration-color: #c7d2ea; }
+.rk-nm { font-size: 13.5px; font-weight: 600; color: #3a4a6b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    min-width: 0; flex: 1 1 auto; }
+.rk-v { font-size: 13.5px; font-weight: 800; white-space: nowrap; flex: none; margin-left: 10px; }
 .rk-empty { font-size: 12.5px; color: #aab4ca; padding: 6px 0; }
+.rk-detail { margin-top: 14px; padding-top: 14px; border-top: 1px dashed #d5dcea; }
 div[class*="st-key-mgrbtn_"] button:disabled { opacity: .45; }
 div[class*="st-key-mgrbtn_"] button:disabled:hover { background: #eef2fa !important; }
 div[class*="st-key-mgrbtn_"] button:disabled:hover p { color: #2c4a8a !important; }
@@ -1390,6 +1396,8 @@ def render_store_cards(D, names, yms, period_text, ctx, sort_by="오픈일 빠�
         with st.container(key=f"backbtn_{ctx}"):
             icon_button("점포 목록으로", ":material/arrow_back:", key=f"tool_back_{ctx}", on_click=_back)
         render_store_detail(D, sel, yms, period_text)
+        with st.container(key=f"backbtn_{ctx}_b"):
+            icon_button("점포 목록으로", ":material/arrow_back:", key=f"tool_back_{ctx}_b", on_click=_back)
         return
 
     if not names:
@@ -1541,34 +1549,58 @@ def _rank_split(items, k=5):
     return items[:kk], items[-kk:][::-1]
 
 
-def _rank_list_html(items, unit, color_fn, dec=0):
+def _rank_list_html(items, unit, color_fn, dec, qparam):
     if not items:
         return '<div class="rk-empty">표시할 점포가 없습니다</div>'
     rows = []
     for n, v in items:
-        rows.append(f'<div class="rk-row"><span class="rk-nm">{escape(n)}</span>'
-                     f'<span class="rk-v" style="color:{color_fn(v)}">{fnum(v, dec)}{unit}</span></div>')
+        href = f'?{qparam}={quote(n)}'
+        rows.append(f'<a class="rk-row" href="{href}" title="클릭하면 이 점포의 상세 현황을 볼 수 있어요">'
+                     f'<span class="rk-nm">{escape(n)}</span>'
+                     f'<span class="rk-v" style="color:{color_fn(v)}">{fnum(v, dec)}{unit}</span></a>')
     return "".join(rows)
 
 
-def _rank_card(title, icon, note, good, bad, unit, color_fn, dec=0):
+def _rank_card(title, icon, note, good, bad, unit, color_fn, dec, qparam):
     return (f'<div class="rk-card"><div class="rk-t">{mini_icon(icon, COLOR_NAVY, 20)}{title}</div>'
             f'<div class="rk-n">{note}</div><div class="rk-cols">'
             f'<div class="rk-col"><div class="rk-h good">TOP {max(len(good), 1)}</div>'
-            f'{_rank_list_html(good, unit, color_fn, dec)}</div>'
+            f'{_rank_list_html(good, unit, color_fn, dec, qparam)}</div>'
             f'<div class="rk-col"><div class="rk-h bad">주의 필요</div>'
-            f'{_rank_list_html(bad, unit, color_fn, dec)}</div></div></div>')
+            f'{_rank_list_html(bad, unit, color_fn, dec, qparam)}</div></div></div>')
 
 
-def ranking_html(D, names, yms):
-    """영업이익 월평균 / 예상매출 달성률 TOP5 · 주의 5 (팀 전체·담당자별 공통)"""
+def ranking_html(D, names, yms, qkey="team"):
+    """영업이익 월평균 / 예상매출 달성률 TOP5 · 주의 5 (팀 전체·담당자별 공통).
+    점포명을 누르면 ?{qkey}_rank=점포명 주소로 바뀌면서 바로 아래에 그 점포의 상세가 열림(같은 탭 안에서, 새로고침 없이)"""
     og, ob = _rank_split(_rank_items(D, names, yms, "op_avg"))
     rg, rb = _rank_split(_rank_items(D, names, yms, "rate"))
+    qparam = f"{qkey}_rank"
     c1 = _rank_card("월평균 영업이익", "coin", "영업이익이 입력된 달만으로 계산한 한 달 평균",
-                     og, ob, "천원", lambda v: COLOR_GOOD if v >= 0 else COLOR_BAD, 0)
-    c2 = _rank_card("예상매출 달성률", "target", "당월 신규 오픈점은 제외",
-                     rg, rb, "%", rate_color, 1)
+                     og, ob, "천원", lambda v: COLOR_GOOD if v >= 0 else COLOR_BAD, 0, qparam)
+    c2 = _rank_card("예상매출 달성률", "target", "당월 신규 오픈점은 제외 · 점포명을 누르면 상세가 열립니다",
+                     rg, rb, "%", rate_color, 1, qparam)
     return f'<div class="rk-grid">{c1}{c2}</div>'
+
+
+def rank_detail_panel(D, names, yms, period_text, state_key, qkey):
+    """랭킹 카드에서 점포명을 눌렀을 때 바로 아래 펼쳐지는 상세 (해당 랭킹의 모수 안에 있는 점포만 허용)"""
+    qparam = f"{qkey}_rank"
+    picked = st.query_params.get(qparam)
+    if picked:
+        st.query_params.clear()
+        if picked in names:
+            st.session_state[state_key] = picked
+    sel = st.session_state.get(state_key)
+    if not sel or sel not in names:
+        return
+    with st.container():
+        st.markdown('<div class="rk-detail"></div>', unsafe_allow_html=True)
+
+        def _close():
+            st.session_state[state_key] = None
+        icon_button("랭킹으로 접기 ▲", ":material/expand_less:", key=f"{state_key}_close", on_click=_close)
+        render_store_detail(D, sel, yms, period_text)
 
 
 def view_performance(D, yms, mode, period_text):
@@ -1584,6 +1616,7 @@ def view_performance(D, yms, mode, period_text):
     st.markdown(group_cards(calc_group(D, all_names, yms), mode, prev_of(all_names), D, "팀"),
                 unsafe_allow_html=True)
     st.markdown(ranking_html(D, all_names, yms), unsafe_allow_html=True)
+    rank_detail_panel(D, all_names, yms, period_text, "tool_rank_open_team", "team")
 
     managers = ordered_managers(D)
     if not managers:
@@ -1598,7 +1631,7 @@ def view_performance(D, yms, mode, period_text):
 
     def _reset_detail():
         for k in list(st.session_state.keys()):
-            if str(k).startswith("tool_store_a"):
+            if str(k).startswith("tool_store_a") or str(k).startswith("tool_rank_open_mgr"):
                 st.session_state[k] = None
 
     def _toggle():
@@ -1633,8 +1666,9 @@ def view_performance(D, yms, mode, period_text):
             st.markdown(f'<div class="mgr-row"><div class="mgr-name">{escape(mgr)}</div>'
                         f'<div class="mgr-chips">{chips}</div></div>'
                         + group_cards(calc_group(D, names, yms), mode, prev_of(names), D, mgr)
-                        + ranking_html(D, names, yms),
+                        + ranking_html(D, names, yms, qkey=f"mgr{mi}"),
                         unsafe_allow_html=True)
+            rank_detail_panel(D, names, yms, period_text, f"tool_rank_open_mgr_{mi}", f"mgr{mi}")
             if show_open:
                 render_store_cards(D, names, yms, period_text, ctx=f"a{mi}")
 
