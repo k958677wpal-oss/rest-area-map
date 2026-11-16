@@ -444,10 +444,16 @@ div[class*="st-key-backbtn_"] button:hover { background: #1e3a6f !important; }
 .sm-v.top { color: #0b9a6a; }
 /* 영업이익 / 달성률 TOP5·주의 랭킹 카드 (버튼 기반: 점포명 클릭 시 세션 상태만 바꿔서 같은 탭에서 바로 펼침) */
 div[class*="st-key-rkcard_"] { background: #ffffff; border: 1px solid #d5dcea; border-radius: 14px;
-    padding: 16px 20px 6px; margin: 8px 0 14px; }
-/* TOP5 / 주의 필요 두 칸이 카드 전체 너비로 벌어지지 않도록, 그 줄만 폭을 좁혀서 둘을 가깝게 붙임 */
-div[class*="st-key-rkcard_"] [data-testid="stHorizontalBlock"] { max-width: 600px; gap: 14px !important; }
+    padding: 16px 20px 6px; margin: 8px 0 14px; height: 100%; }
+/* 카드 안 TOP5 / 주의 필요 두 칸 사이 간격만 좀 좁게 */
+div[class*="st-key-rkcard_"] [data-testid="stHorizontalBlock"] { gap: 14px !important; }
 div[class*="st-key-rkcard_"] [data-testid="stColumn"] { min-width: 0 !important; }
+/* 랭킹으로 접기 버튼: 점포 목록으로 버튼과 같은 네이비 알약 스타일 */
+div[class*="st-key-rkclose_"] button { height: 40px; min-height: 40px; border: none !important; border-radius: 10px !important;
+    background: #2c4a8a !important; padding: 0 18px; box-shadow: 0 3px 10px rgba(31,58,115,.25); }
+div[class*="st-key-rkclose_"] button p { font-weight: 800 !important; font-size: 15px !important; color: #ffffff !important; white-space: nowrap; margin: 0; }
+div[class*="st-key-rkclose_"] button svg, div[class*="st-key-rkclose_"] button [data-testid="stIconMaterial"] { color: #ffffff !important; }
+div[class*="st-key-rkclose_"] button:hover { background: #1e3a6f !important; }
 .rk-t { display: flex; align-items: center; gap: 8px; font-size: 17px; font-weight: 800; color: #1f3a73; }
 .rk-n { font-size: 12.5px; color: #8591ab; margin: 4px 0 10px; }
 .rk-h { font-size: 12.5px; font-weight: 800; margin-bottom: 6px; padding-bottom: 6px; border-bottom: 1px solid #edf0f6; }
@@ -1582,16 +1588,20 @@ def _rank_metric_block(title, icon, note, good, bad, unit, color_fn, dec, state_
 
 def render_ranking(D, names, yms, period_text, state_key, qkey="team"):
     """영업이익 월평균 / 예상매출 달성률 TOP5 · 주의 5 (팀 전체·담당자별 공통).
-    점포명 버튼을 누르면 바로 아래에 그 점포의 상세가 펼쳐짐(세션 상태만 바꾸는 방식이라 로그인 화면으로 튕기지 않음)"""
+    두 지표 카드는 처음 레이아웃처럼 한 줄에 나란히 두고, 점포명 버튼을 누르면 바로 아래에 그 점포의
+    상세가 펼쳐짐(세션 상태만 바꾸는 방식이라 로그인 화면으로 튕기지 않음)"""
     og, ob = _rank_split(_rank_items(D, names, yms, "op_avg"))
     rg, rb = _rank_split(_rank_items(D, names, yms, "rate"))
-    with st.container(key=f"rkcard_{qkey}"):
-        _rank_metric_block("월평균 영업이익", "coin", "영업이익이 입력된 달만으로 계산한 한 달 평균",
-                            og, ob, "천원", lambda v: COLOR_GOOD if v >= 0 else COLOR_BAD, 0,
-                            state_key, f"rk_{qkey}_op")
-        st.markdown('<div class="rk-sep"></div>', unsafe_allow_html=True)
-        _rank_metric_block("예상매출 달성률", "target", "당월 신규 오픈점은 제외",
-                            rg, rb, "%", rate_color, 1, state_key, f"rk_{qkey}_rate")
+    m1, m2 = st.columns(2)
+    with m1:
+        with st.container(key=f"rkcard_{qkey}_op"):
+            _rank_metric_block("월평균 영업이익", "coin", "영업이익이 입력된 달만으로 계산한 한 달 평균",
+                                og, ob, "천원", lambda v: COLOR_GOOD if v >= 0 else COLOR_BAD, 0,
+                                state_key, f"rk_{qkey}_op")
+    with m2:
+        with st.container(key=f"rkcard_{qkey}_rate"):
+            _rank_metric_block("예상매출 달성률", "target", "당월 신규 오픈점은 제외",
+                                rg, rb, "%", rate_color, 1, state_key, f"rk_{qkey}_rate")
 
     sel = st.session_state.get(state_key)
     if sel and sel in names:
@@ -1600,7 +1610,8 @@ def render_ranking(D, names, yms, period_text, state_key, qkey="team"):
 
             def _close():
                 st.session_state[state_key] = None
-            icon_button("랭킹으로 접기 ▲", ":material/expand_less:", key=f"{state_key}_close", on_click=_close)
+            with st.container(key=f"rkclose_{qkey}"):
+                icon_button("랭킹으로 접기 ▲", ":material/expand_less:", key=f"{state_key}_close", on_click=_close)
             render_store_detail(D, sel, yms, period_text)
 
 
