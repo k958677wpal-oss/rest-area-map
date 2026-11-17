@@ -10,6 +10,7 @@ import re
 import math
 import json
 import uuid
+import base64
 import hashlib
 from html import escape
 from datetime import datetime, timezone, timedelta
@@ -591,6 +592,21 @@ table.wk-tbl td.wk-empty { color: #aab4ca; padding: 16px; }
 .wk-badge.open { background: #e3f3ec; color: #0b9a6a; }
 .wk-badge.done { background: #e8edfb; color: #2c4a8a; }
 .wk-badge.prog { background: #fef1df; color: #b25e00; }
+/* 제출 현황 카드: 실적현황 카드(.kpi)와 같은 느낌이지만, '제출 현황' 제목 글자 크기 정도로 작게 */
+.subm-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 6px 0 16px; }
+.subm-card { --ac: #2c4a8a; background: #ffffff; border: 1px solid #dde3ef; border-left: 4px solid var(--ac);
+    border-radius: 10px; padding: 9px 12px 8px; box-shadow: 0 2px 7px rgba(31,58,115,.07); min-width: 0; }
+.subm-card .sb-l { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; color: #55648a; }
+.subm-card .sb-l svg { flex: none; }
+.subm-card .sb-v { font-size: 15px; font-weight: 800; margin-top: 3px; }
+.subm-card .sb-v.ok { color: #0b9a6a; }
+.subm-card .sb-v.no { color: #d0143c; }
+.subm-card .sb-s { font-size: 11px; color: #8591ab; margin-top: 2px; }
+/* 인쇄용 보기: '새 창에서 열기' 링크 (임베드된 미리보기 창에서 바로 인쇄하면 잘려서 나오는 문제를 막기 위함) */
+.wk-print-link { display: inline-flex; align-items: center; gap: 7px; height: 40px; padding: 0 18px; border-radius: 10px;
+    background: #2c4a8a; color: #ffffff !important; font-weight: 800; font-size: 14.5px; text-decoration: none !important;
+    box-shadow: 0 3px 10px rgba(31,58,115,.25); }
+.wk-print-link:hover { background: #1e3a6f; }
 </style>
 """
 
@@ -2473,6 +2489,25 @@ def _status_badge_html(status):
     return f'<span class="wk-badge {cls}">{escape(label)}</span>'
 
 
+def _submit_status_html(items):
+    """제출 현황 카드. 실적현황 카드(kpi_html)와 같은 색/아이콘 언어를 쓰지만, 글자 크기는 '제출 현황' 제목 정도로 작게.
+    items: dict(name, at)  - at 이 있으면 제출완료, 없으면 미제출"""
+    out = ['<div class="subm-grid">']
+    for it in items:
+        ok = bool(it.get("at"))
+        ac = COLOR_GOOD if ok else COLOR_BAD
+        ic = mini_icon("check" if ok else "person", ac, 16)
+        v_cls = "ok" if ok else "no"
+        v_text = "제출완료" if ok else "미제출"
+        sub = escape(it["at"]) if ok else "아직 제출하지 않았습니다"
+        out.append(
+            f'<div class="subm-card" style="--ac:{ac}"><div class="sb-l">{ic}{escape(it["name"])}</div>'
+            f'<div class="sb-v {v_cls}">{v_text}</div><div class="sb-s">{sub}</div></div>'
+        )
+    out.append("</div>")
+    return "".join(out)
+
+
 def _wk_table_html(rows, cols, status_col=None, wrap_cols=()):
     """팀 현황용 표를 가운데 정렬 + 색깔 헤더 HTML로 그립니다(실적현황 쪽 표와 디자인 통일).
     st.dataframe(캔버스 렌더링)는 CSS가 안 먹어서 가운데 정렬이 안 됐던 것을, 이 함수는 보통의 HTML
@@ -2524,62 +2559,104 @@ def _wk_schedule_table_html(days, halves, managers, sched_by_mgr, prev_sched_by_
     return "".join(out)
 
 
-def _weekly_print_html(week_label, section1, section2, notes):
-    """회의자료용 인쇄 HTML. 브라우저로 열어 Ctrl+P → 'PDF로 저장'하면 그대로 정리된 PDF가 됩니다.
-    (한글 폰트를 직접 심어야 하는 PDF 라이브러리 대신, 브라우저의 한글 글꼴을 그대로 쓰는 방식이라 더 안전합니다)"""
-    def rows_html(items, cols):
-        if not items:
-            return f'<tr><td colspan="{len(cols)}" style="text-align:center;color:#999;">해당 사항 없음</td></tr>'
-        out = []
-        for it in items:
-            out.append("<tr>" + "".join(
-                f'<td class="pg">{escape(str(it.get(c, "")))}</td>' if c == "진행경과"
-                else f"<td>{escape(str(it.get(c, '')))}</td>" for c in cols) + "</tr>")
-        return "".join(out)
+def _rows_html(items, cols):
+    """표 본문(tbody 안에 들어갈 <tr>들). 한 줄이 페이지 중간에서 잘리지 않도록 tr 에 'rpt-row' 클래스를 둡니다."""
+    if not items:
+        return f'<tr class="rpt-row"><td colspan="{len(cols)}" style="text-align:center;color:#999;">해당 사항 없음</td></tr>'
+    out = []
+    for it in items:
+        out.append('<tr class="rpt-row">' + "".join(
+            f'<td class="pg">{escape(str(it.get(c, "")))}</td>' if c == "진행경과"
+            else f"<td>{escape(str(it.get(c, '')))}</td>" for c in cols) + "</tr>")
+    return "".join(out)
 
-    s1_cols = ["상태", "이름", "오픈예상월", "물건명", "부문", "지역", "운영형태", "상권대분류", "세부상권",
-               "예상매출(천원)", "예상손익(천원)", "추진주체", "최초등록주차", "진행경과"]
-    s2_cols = ["상태", "이름", "오픈예상월", "물건명", "부문", "지역", "운영형태", "상권대분류", "세부상권",
-               "예상매출(천원)", "예상손익(천원)", "추진주체", "최초등록주차", "진행주수", "진행경과"]
 
-    # 월별 오픈 예정 요약: 오픈확정·계약완료 물건(section1)을 오픈예상월별로 묶어서 맨 위에 보여줌
+def _month_names_html(items):
+    if not items:
+        return '<div style="color:#aab4ca">-</div>'
+    return "".join(f'<div>{escape(it.get("이름", ""))}·{escape(it.get("물건명", ""))}</div>' for it in items)
+
+
+def _month_grid_html(section1):
+    """'월별 오픈 예정 현황'을 image4 참고처럼 월을 가로 칸으로 두고, 칸마다 점포수(큰 숫자)와
+    점포 목록(담당자·물건명)을 세로로 나열하는 색깔 격자표로 그립니다."""
     by_month = {}
     for it in section1:
         key = it.get("오픈예상월") or "월 미정"
         by_month.setdefault(key, []).append(it)
     month_keys = sorted(by_month.keys(), key=_month_sort_key)
+    if not month_keys:
+        return '<div style="text-align:center;color:#999;padding:16px 0;">해당 사항 없음</div>'
+    heads = "".join(f"<th>{escape(mk)}</th>" for mk in month_keys)
+    counts = "".join(f'<td class="mg-cnt">{len(by_month[mk])}점</td>' for mk in month_keys)
+    names = "".join(f'<td class="mg-names">{_month_names_html(by_month[mk])}</td>' for mk in month_keys)
+    return f'<table class="mgrid"><tr>{heads}</tr><tr>{counts}</tr><tr>{names}</tr></table>'
 
-    def _month_row(mk):
-        names = ", ".join(f"{it.get('이름','')}·{it.get('물건명','')}" for it in by_month[mk])
-        return f"<tr><td>{escape(mk)}</td><td>{len(by_month[mk])}점</td><td style='text-align:left'>{escape(names)}</td></tr>"
 
-    month_rows = "".join(_month_row(mk) for mk in month_keys) or \
-        "<tr><td colspan='3' style='text-align:center;color:#999;'>해당 사항 없음</td></tr>"
+def _weekly_print_html(week_label, section1, section2, notes):
+    """회의자료용 인쇄 HTML(2페이지 구성). 브라우저 새 탭에서 열어 Ctrl+P → 'PDF로 저장'하면 정리된 PDF가 됩니다.
+    (한글 폰트를 직접 심어야 하는 PDF 라이브러리 대신, 브라우저의 한글 글꼴을 그대로 쓰는 방식이라 더 안전합니다)
+    - 1페이지: 월별 오픈 예정 현황(격자표) + 계약완료·오픈확정 물건 표
+    - 2페이지: 추진 물건 표 + 특이사항
+    표 한 줄이 페이지 경계에서 잘리지 않도록 '페이지 나눔 보호' 규칙을 같이 넣었습니다(아래 CSS @media print 부분).
+    ※ 실제 인쇄 결과까지 직접 확인하지 못했습니다. 표가 아주 길면(줄이 매우 많으면) 그래도 중간에서
+    페이지가 나뉠 수 있는데, 그 경우에도 표 '한 줄' 단위로는 끊기지 않도록만 보장합니다."""
+    s1_cols = ["상태", "이름", "오픈예상월", "물건명", "부문", "지역", "운영형태", "상권대분류", "세부상권",
+               "예상매출(천원)", "예상손익(천원)", "추진주체", "최초등록주차", "진행경과"]
+    s2_cols = ["상태", "이름", "오픈예상월", "물건명", "부문", "지역", "운영형태", "상권대분류", "세부상권",
+               "예상매출(천원)", "예상손익(천원)", "추진주체", "최초등록주차", "진행주수", "진행경과"]
 
+    month_grid = _month_grid_html(section1)
     note_rows = "".join(f"<li><b>{escape(n['이름'])}</b>: {escape(n['특이사항'])}</li>" for n in notes) or "<li>해당 사항 없음</li>"
+    s1_head = "".join(f"<th>{escape(c)}</th>" for c in s1_cols)
+    s2_head = "".join(f"<th>{escape(c)}</th>" for c in s2_cols)
+
     return f"""
     <html><head><meta charset="utf-8"><style>
-    body {{ font-family: 'Malgun Gothic','맑은 고딕',sans-serif; color:#1f2d4d; padding: 20px; }}
-    h1 {{ font-size: 20px; color:#1f3a73; border-bottom: 3px solid #1f3a73; padding-bottom:8px; }}
-    h2 {{ font-size:15px; color:#2c4a8a; margin-top:22px; }}
-    table {{ width:100%; border-collapse: collapse; font-size:13px; }}
-    th {{ background: linear-gradient(90deg, #eef3fc, #f8faff); color:#1f3a73; font-weight:800;
-         padding:7px 8px; text-align:center; border-bottom:2px solid #c9d4ea; }}
-    td {{ padding:6px 8px; border-bottom:1px solid #edf0f6; text-align:center; }}
-    td.pg {{ text-align:left; }}
-    tr:nth-child(even) td {{ background:#fafbfd; }}
-    ul {{ font-size:13px; line-height:1.6; }}
-    @media print {{ body {{ padding:0; }} }}
+    @page {{ size: A4 landscape; margin: 10mm 9mm; }}
+    * {{ box-sizing: border-box; }}
+    body {{ font-family: 'Malgun Gothic','맑은 고딕',sans-serif; color:#1f2d4d; padding: 16px 18px; }}
+    h1 {{ font-size: 19px; color:#1f3a73; border-bottom: 3px solid #1f3a73; padding-bottom:7px; margin:0 0 6px; }}
+    h2 {{ font-size:14.5px; color:#2c4a8a; margin:16px 0 6px; }}
+    table.rpt {{ width:100%; border-collapse: collapse; font-size:11px; }}
+    table.rpt thead th {{ background: linear-gradient(90deg, #eef3fc, #f8faff); color:#1f3a73; font-weight:800;
+         padding:6px 6px; text-align:center; border-bottom:2px solid #c9d4ea; }}
+    table.rpt td {{ padding:5px 6px; border-bottom:1px solid #edf0f6; text-align:center; }}
+    table.rpt td.pg {{ text-align:left; }}
+    table.rpt tbody tr:nth-child(even) td {{ background:#fafbfd; }}
+    ul {{ font-size:13px; line-height:1.6; margin:4px 0; }}
+    .page2 {{ margin-top: 10px; }}
+    /* 월별 오픈 예정 현황: 월을 가로 칸으로 둔 색깔 격자표 */
+    table.mgrid {{ width:100%; border-collapse:collapse; margin:4px 0 2px; table-layout:fixed; }}
+    table.mgrid th {{ background: linear-gradient(90deg, #1f3a73, #3d64b0); color:#fff; font-size:12.5px;
+        font-weight:800; padding:7px 4px; text-align:center; }}
+    table.mgrid td.mg-cnt {{ background:#eef3fc; color:#1f3a73; font-size:19px; font-weight:800;
+        text-align:center; padding:8px 4px; border-bottom:1px solid #c9d4ea; }}
+    table.mgrid td.mg-names {{ vertical-align:top; text-align:center; font-size:10.5px; color:#2c4a8a;
+        font-weight:600; padding:6px 4px; border-left:1px solid #edf0f6; line-height:1.5; }}
+    table.mgrid td.mg-names div {{ padding:1px 0; }}
+    @media print {{
+      body {{ padding:0 4mm; }}
+      .page2 {{ page-break-before: always; break-before: page; margin-top:0; }}
+      table.rpt {{ page-break-inside: auto; }}
+      table.rpt thead {{ display: table-header-group; }}  /* 표가 페이지를 넘기면 다음 페이지에도 머리글이 다시 나옴 */
+      tr.rpt-row {{ page-break-inside: avoid; break-inside: avoid; }}
+      h2 {{ page-break-after: avoid; break-after: avoid; }}
+    }}
     </style></head><body>
     <h1>특수개발팀 주간 현황 · {escape(week_label)}</h1>
-    <h2>0) 월별 오픈 예정 현황</h2>
-    <table><tr><th>오픈예상월</th><th>점포수</th><th>점포(담당자·물건명)</th></tr>{month_rows}</table>
-    <h2>1) 계약완료 · 오픈확정 물건</h2>
-    <table><tr>{"".join(f"<th>{c}</th>" for c in s1_cols)}</tr>{rows_html(section1, s1_cols)}</table>
-    <h2>2) 추진 물건</h2>
-    <table><tr>{"".join(f"<th>{c}</th>" for c in s2_cols)}</tr>{rows_html(section2, s2_cols)}</table>
-    <h2>3) 특이사항</h2>
-    <ul>{note_rows}</ul>
+    <div class="page page1">
+      <h2>1) 월별 오픈 예정 현황</h2>
+      {month_grid}
+      <h2>2) 계약완료 · 오픈확정 물건</h2>
+      <table class="rpt"><thead><tr>{s1_head}</tr></thead><tbody>{_rows_html(section1, s1_cols)}</tbody></table>
+    </div>
+    <div class="page page2">
+      <h2>3) 추진 물건</h2>
+      <table class="rpt"><thead><tr>{s2_head}</tr></thead><tbody>{_rows_html(section2, s2_cols)}</tbody></table>
+      <h2>4) 특이사항</h2>
+      <ul>{note_rows}</ul>
+    </div>
     </body></html>
     """
 
@@ -2632,11 +2709,8 @@ def _render_weekly_team(get_gc, login_members, team_display_members, records, cu
         for mgr in managers:
             at = next((r["작성시각"] for r in records if r.get("유형") == "제출완료"
                        and r.get("이름", "").strip() == mgr and r.get("주차코드", "").strip() == sel), "")
-            items.append(dict(label=mgr, value="제출완료" if at else "미제출",
-                               sub=at if at else "아직 제출하지 않았습니다",
-                               accent=COLOR_GOOD if at else COLOR_BAD,
-                               icon="check" if at else "person"))
-        st.markdown(kpi_html(items), unsafe_allow_html=True)
+            items.append(dict(name=mgr, at=at))
+        st.markdown(_submit_status_html(items), unsafe_allow_html=True)
 
     st.divider()
     st.markdown("##### 1) 오픈확정 · 계약완료 물건")
@@ -2693,9 +2767,16 @@ def _render_weekly_team(get_gc, login_members, team_display_members, records, cu
 
     st.divider()
     st.markdown("##### :material/print: 회의자료용 인쇄 보기")
-    st.caption("아래를 열고 Ctrl+P(인쇄) → 'PDF로 저장'을 하면 정리된 회의자료 PDF로 바로 저장됩니다.")
-    with st.expander("인쇄용 보기 열기"):
-        html = _weekly_print_html(label_of.get(sel, sel), rows1, rows2, notes)
+    html = _weekly_print_html(label_of.get(sel, sel), rows1, rows2, notes)
+    b64 = base64.b64encode(html.encode("utf-8")).decode("ascii")
+    st.markdown(
+        f'<a class="wk-print-link" href="data:text/html;base64,{b64}" target="_blank">새 창에서 인쇄용 보기 열기 →</a>',
+        unsafe_allow_html=True,
+    )
+    st.caption("위 링크를 누르면 새 탭에 회의자료가 열립니다. 그 새 탭에서 Ctrl+P(인쇄) → 'PDF로 저장'을 하면 "
+               "1페이지(월별 오픈 현황 + 계약완료·오픈확정 물건) / 2페이지(추진 물건)로 나뉜 PDF가 됩니다. "
+               "(아래 미리보기 창은 내용 확인용이며, 여기서 바로 인쇄하면 잘려 나올 수 있어 인쇄는 위 링크를 이용해 주세요)")
+    with st.expander("미리보기(확인용)"):
         components.html(html, height=700, scrolling=True)
 
 
