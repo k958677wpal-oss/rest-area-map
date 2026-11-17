@@ -2434,7 +2434,8 @@ def _render_weekly_mine(get_gc, records, uid, uname, cur_code, cur_label):
 
 def _item_view(r):
     """시트 한 행(r)의 '추진물건' JSON을 풀어서, 팀 현황 표/인쇄용 보기에 쓸 완전한 한 줄 dict로 만듭니다.
-    칸 순서는 담당자 입력 표(ITEM_COLS)와 동일하게 오픈예상월 -> 물건명 -> ... -> 진행경과 순으로 맞춥니다."""
+    칸 순서는 담당자 입력 표(ITEM_COLS)와 동일하게 오픈예상월 -> 물건명 -> ... -> 최초등록주차 -> 진행경과 순으로 맞춥니다.
+    (진행경과는 자유 서술 칸이라 담당자 입력 표와 똑같이 맨 마지막 칸으로 둡니다)"""
     d = _parse_item_json(r.get("추진물건", ""))
     return {
         "상태": r.get("상태", ""),
@@ -2449,19 +2450,18 @@ def _item_view(r):
         "예상매출(천원)": _fmt_item_num(d.get("예상매출(천원)")),
         "예상손익(천원)": _fmt_item_num(d.get("예상손익(천원)")),
         "추진주체": d.get("추진주체", ""),
-        "진행경과": d.get("진행경과", ""),
         "최초등록주차": r.get("최초등록주차", ""),
+        "진행경과": d.get("진행경과", ""),
     }
 
 
 def _item_view_with_weeks(r, sel):
-    """_item_view 결과에 '진행주수'(경과주)를 추진주체 다음, 진행경과 앞에 끼워 넣은 버전 (추진 물건 표용)"""
+    """_item_view 결과에 '진행주수'(경과주)를 최초등록주차 다음, 진행경과 앞에 끼워 넣은 버전 (추진 물건 표용)"""
     view = _item_view(r)
     weeks = _weeks_between(r.get("최초등록주차") or sel, sel)
-    row = {k: v for k, v in view.items() if k not in ("진행경과", "최초등록주차")}
+    row = {k: v for k, v in view.items() if k != "진행경과"}
     row["진행주수"] = weeks
     row["진행경과"] = view["진행경과"]
-    row["최초등록주차"] = view["최초등록주차"]
     return row
 
 
@@ -2538,9 +2538,24 @@ def _weekly_print_html(week_label, section1, section2, notes):
         return "".join(out)
 
     s1_cols = ["상태", "이름", "오픈예상월", "물건명", "부문", "지역", "운영형태", "상권대분류", "세부상권",
-               "예상매출(천원)", "예상손익(천원)", "추진주체", "진행경과", "최초등록주차"]
+               "예상매출(천원)", "예상손익(천원)", "추진주체", "최초등록주차", "진행경과"]
     s2_cols = ["상태", "이름", "오픈예상월", "물건명", "부문", "지역", "운영형태", "상권대분류", "세부상권",
-               "예상매출(천원)", "예상손익(천원)", "추진주체", "진행주수", "진행경과", "최초등록주차"]
+               "예상매출(천원)", "예상손익(천원)", "추진주체", "최초등록주차", "진행주수", "진행경과"]
+
+    # 월별 오픈 예정 요약: 오픈확정·계약완료 물건(section1)을 오픈예상월별로 묶어서 맨 위에 보여줌
+    by_month = {}
+    for it in section1:
+        key = it.get("오픈예상월") or "월 미정"
+        by_month.setdefault(key, []).append(it)
+    month_keys = sorted(by_month.keys(), key=_month_sort_key)
+
+    def _month_row(mk):
+        names = ", ".join(f"{it.get('이름','')}·{it.get('물건명','')}" for it in by_month[mk])
+        return f"<tr><td>{escape(mk)}</td><td>{len(by_month[mk])}점</td><td style='text-align:left'>{escape(names)}</td></tr>"
+
+    month_rows = "".join(_month_row(mk) for mk in month_keys) or \
+        "<tr><td colspan='3' style='text-align:center;color:#999;'>해당 사항 없음</td></tr>"
+
     note_rows = "".join(f"<li><b>{escape(n['이름'])}</b>: {escape(n['특이사항'])}</li>" for n in notes) or "<li>해당 사항 없음</li>"
     return f"""
     <html><head><meta charset="utf-8"><style>
@@ -2557,6 +2572,8 @@ def _weekly_print_html(week_label, section1, section2, notes):
     @media print {{ body {{ padding:0; }} }}
     </style></head><body>
     <h1>특수개발팀 주간 현황 · {escape(week_label)}</h1>
+    <h2>0) 월별 오픈 예정 현황</h2>
+    <table><tr><th>오픈예상월</th><th>점포수</th><th>점포(담당자·물건명)</th></tr>{month_rows}</table>
     <h2>1) 계약완료 · 오픈확정 물건</h2>
     <table><tr>{"".join(f"<th>{c}</th>" for c in s1_cols)}</tr>{rows_html(section1, s1_cols)}</table>
     <h2>2) 추진 물건</h2>
@@ -2611,13 +2628,15 @@ def _render_weekly_team(get_gc, login_members, team_display_members, records, cu
 
     st.markdown("##### :material/check_circle: 제출 현황")
     if managers:
-        cols = st.columns(min(4, len(managers)))
-        for i, mgr in enumerate(managers):
+        items = []
+        for mgr in managers:
             at = next((r["작성시각"] for r in records if r.get("유형") == "제출완료"
                        and r.get("이름", "").strip() == mgr and r.get("주차코드", "").strip() == sel), "")
-            with cols[i % len(cols)]:
-                dot = ":green[:material/circle:]" if at else ":red[:material/circle:]"
-                st.markdown(f"{dot} **{mgr}**  \n{at}" if at else f"{dot} **{mgr}**  \n미제출")
+            items.append(dict(label=mgr, value="제출완료" if at else "미제출",
+                               sub=at if at else "아직 제출하지 않았습니다",
+                               accent=COLOR_GOOD if at else COLOR_BAD,
+                               icon="check" if at else "person"))
+        st.markdown(kpi_html(items), unsafe_allow_html=True)
 
     st.divider()
     st.markdown("##### 1) 오픈확정 · 계약완료 물건")
