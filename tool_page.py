@@ -2248,6 +2248,32 @@ def weekly_append_note(get_gc, week_code, week_label, uid, uname, note_text):
                                        특이사항=note_text, 작성시각=now, 유형="특이사항", 수정시각=now))
 
 
+def weekly_dedupe_notes(get_gc):
+    """업서트 방식을 적용하기 전에 쌓였던 '특이사항' 중복 행을 한 번만 정리합니다.
+    같은 (주차코드, 사번) 조합의 '특이사항' 행이 여러 개면, 가장 나중에(아래쪽에) 적힌 1개만 남기고
+    나머지는 지웁니다. 행을 지우면 번호가 밀리므로, 꼭 아래쪽(큰 행 번호)부터 지워야 안전합니다."""
+    ws = _weekly_team_ws(get_gc)
+    values = ws.get_all_values()
+    if not values:
+        return 0
+    header = values[0]
+    seen = {}
+    dup_rows = []
+    for rn in range(2, len(values) + 1):
+        row = values[rn - 1]
+        if _cell(header, row, "유형") != "특이사항":
+            continue
+        key = (_cell(header, row, "주차코드"), _cell(header, row, "사번"))
+        if key in seen:
+            dup_rows.append(seen[key])  # 이전에 봤던(더 위쪽) 같은 키의 행을 중복으로 지움 -> 가장 아래 것만 남음
+        seen[key] = rn
+    for rn in sorted(dup_rows, reverse=True):
+        ws.delete_rows(rn)
+    if dup_rows:
+        weekly_clear_cache()
+    return len(dup_rows)
+
+
 def weekly_upsert_schedule(get_gc, week_code, week_label, uid, uname, sched):
     now = _weekly_now()
     content = json.dumps(sched, ensure_ascii=False)
@@ -2602,10 +2628,18 @@ def _print_badge_html(status):
 PRINT_NOTE_MAXLEN = 70     # 인쇄용 '진행경과' 글자수 제한(이 길이를 넘으면 … 로 줄여서, 칸이 좁아져 글자가 깨지는 걸 막음)
 
 
+def _month_short(label):
+    """'2026년 11월' -> '26.11' (인쇄본 칸을 아끼기 위한 축약 표기). 못 읽으면 원문 그대로 돌려줌"""
+    m = re.match(r"^\s*(\d{4})년\s*(\d{1,2})월", str(label or ""))
+    if not m:
+        return label
+    return f"{int(m.group(1)) % 100:02d}.{int(m.group(2)):02d}"
+
+
 def _rows_html(items, cols):
     """표 본문(tbody 안에 들어갈 <tr>들). 한 줄이 페이지 중간에서 잘리지 않도록 tr 에 'rpt-row' 클래스를 둡니다.
     '상태' 칸은 화면(팀 현황) 표와 똑같이 색깔 알약 배지로, '신규' 칸은 빨간 NEW 배지로 그립니다.
-    '진행경과'는 칸을 넓혀도 담당자가 아주 길게 쓰면 또 깨질 수 있어, 인쇄에서만 글자수를 제한합니다."""
+    '오픈예상월'은 인쇄에서만 '26.11'처럼 축약하고, '진행경과'는 너무 길면 글자수를 제한합니다."""
     if not items:
         return f'<tr class="rpt-row"><td colspan="{len(cols)}" style="text-align:center;color:#999;">해당 사항 없음</td></tr>'
     out = []
@@ -2617,6 +2651,8 @@ def _rows_html(items, cols):
                 cells.append(f"<td>{_print_badge_html(v)}</td>")
             elif c == "신규":
                 cells.append(f'<td>{"<span class=\'rpt-badge new\'>NEW</span>" if v else ""}</td>')
+            elif c == "오픈예상월":
+                cells.append(f"<td>{escape(str(_month_short(v) or '-'))}</td>")
             elif c == "진행경과":
                 txt = str(v)
                 if len(txt) > PRINT_NOTE_MAXLEN:
@@ -2628,28 +2664,38 @@ def _rows_html(items, cols):
     return "".join(out)
 
 
-def _colgroup_html(cols, wide_col="진행경과", wide_pct=24):
-    """'진행경과' 칸에 더 넓은 비율을 미리 정해 주는 <colgroup>. 칸 수가 줄어도(공간 확보) 나머지 칸이
-    고르게 남은 공간을 나눠 가지므로, 표 전체가 찌그러지면서 글자가 깨지는 일을 줄여줍니다."""
-    if wide_col not in cols:
-        return ""
-    n = len(cols)
-    rest = 100.0 - wide_pct
-    each = rest / (n - 1) if n > 1 else rest
-    parts = [f'<col style="width:{wide_pct if c == wide_col else each:.2f}%">' for c in cols]
+# 인쇄 표 칸별 기본 폭(%). 글자가 원래 짧은 칸(부문/지역/오픈예상월 등)은 좁게 고정해 두고,
+# 남는 공간을 전부 '진행경과'로 몰아줘서 긴 글이 있어도 칸이 찌그러지지 않게 합니다.
+# 여기 없는 칸은 7%를 기본값으로 쓰고, '진행경과'는 나머지 전부를 가져갑니다.
+PRINT_COL_PCT = {"신규": 5, "상태": 6.5, "이름": 6, "오픈예상월": 5.5, "물건명": 10, "부문": 5.5, "지역": 5.5,
+                 "운영형태": 6.5, "상권대분류": 7.5, "예상매출(천원)": 7, "예상손익(천원)": 7,
+                 "추진주체": 7, "최초등록주차": 7, "진행주수": 5}
+
+
+def _colgroup_html(cols, pct_map=PRINT_COL_PCT, wide_col="진행경과"):
+    """칸마다 미리 정한 폭(%)으로 <colgroup>을 만듭니다. 나머지 공간은 전부 wide_col(진행경과)에 몰아줘서,
+    부문/지역처럼 원래 글자가 짧은 칸은 좁게, 진행경과는 넓게 고정되게 합니다."""
+    fixed = {c: pct_map.get(c, 7) for c in cols if c != wide_col}
+    used = sum(fixed.values())
+    if wide_col in cols:
+        fixed[wide_col] = max(100.0 - used, 15.0)
+    total = sum(fixed.values()) or 100.0
+    scale = 100.0 / total
+    parts = [f'<col style="width:{fixed[c] * scale:.2f}%">' for c in cols]
     return "<colgroup>" + "".join(parts) + "</colgroup>"
 
 
 def _month_names_html(items):
     if not items:
-        return '<div style="color:#aab4ca">-</div>'
+        return '<div class="mo-empty">예정 물건 없음</div>'
     return "".join(f'<div>{escape(it.get("이름", ""))}·{escape(it.get("물건명", ""))}</div>' for it in items)
 
 
-def _month_grid_html(section1):
-    """'월별 오픈 예정 현황'을 월을 가로 칸으로 두고, 칸마다 점포수(큰 숫자)와 점포 목록(담당자·물건명)을
-    세로로 나열하는 색깔 격자표로 그립니다. 달력처럼 '이번 달부터 4개월'을 항상 고정으로 보여주고(물건이
-    없는 달도 빈 칸으로 표시), 그보다 더 먼 미래에 물건이 있으면 그 달도 뒤에 이어서 보여줍니다."""
+def _month_cards_html(section1, opened_year=None, confirmed_n=None):
+    """'월별 오픈 예정 현황'을 카드 형태로 그립니다(실적현황 탭의 .kpi 카드와 같은 느낌의 색 바 + 그림자).
+    달력처럼 '이번 달부터 4개월'을 항상 고정 카드로 보여주고(물건이 없는 달도 빈 카드로 표시), 그보다
+    먼 미래에 물건이 있으면 카드를 이어서 더 붙입니다. 맨 끝에는(값이 있을 때만) '지금까지 누적 출점수'와
+    '앞으로 열릴 확정 물건 수(오픈확정·계약완료)'를 보여주는 강조 카드를 하나 더 붙입니다."""
     by_month = {}
     for it in section1:
         key = it.get("오픈예상월") or "월 미정"
@@ -2669,13 +2715,29 @@ def _month_grid_html(section1):
     month_keys = base_months + extra_months
     if "월 미정" in by_month:
         month_keys.append("월 미정")
-    heads = "".join(f"<th>{escape(mk)}</th>" for mk in month_keys)
-    counts = "".join(f'<td class="mg-cnt">{len(by_month.get(mk, []))}점</td>' for mk in month_keys)
-    names = "".join(f'<td class="mg-names">{_month_names_html(by_month.get(mk, []))}</td>' for mk in month_keys)
-    return f'<table class="mgrid"><tr>{heads}</tr><tr>{counts}</tr><tr>{names}</tr></table>'
+
+    cards = []
+    for mk in month_keys:
+        items = by_month.get(mk, [])
+        label = mk if mk == "월 미정" else _month_short(mk)
+        n = len(items)
+        empty_cls = " empty" if n == 0 else ""
+        cards.append(
+            f'<div class="mo-card{empty_cls}"><div class="mo-m">{escape(label)}</div>'
+            f'<div class="mo-n">{n}점</div><div class="mo-list">{_month_names_html(items)}</div></div>'
+        )
+    if opened_year is not None or confirmed_n is not None:
+        cards.append(
+            '<div class="mo-card sum">'
+            f'<div class="mo-m">현재까지</div><div class="mo-n">{opened_year if opened_year is not None else "-"}점</div>'
+            '<div class="mo-sub">누적 출점수</div><div class="mo-sep"></div>'
+            f'<div class="mo-n2">{confirmed_n if confirmed_n is not None else "-"}건</div>'
+            '<div class="mo-sub">오픈확정·계약완료</div></div>'
+        )
+    return f'<div class="mo-grid">{"".join(cards)}</div>'
 
 
-def _weekly_print_html(week_label, section1, section2, notes):
+def _weekly_print_html(week_label, section1, section2, notes, opened_year=None, confirmed_n=None):
     """회의자료용 인쇄 HTML(2페이지 구성). 브라우저 새 탭에서 열어 Ctrl+P → 'PDF로 저장'하면 정리된 PDF가 됩니다.
     (한글 폰트를 직접 심어야 하는 PDF 라이브러리 대신, 브라우저의 한글 글꼴을 그대로 쓰는 방식이라 더 안전합니다)
     - 1페이지: 월별 오픈 예정 현황(격자표) + 계약완료·오픈확정 물건 표
@@ -2692,7 +2754,7 @@ def _weekly_print_html(week_label, section1, section2, notes):
     s2_cols = ["신규", "상태", "이름", "오픈예상월", "물건명", "부문", "지역", "운영형태", "상권대분류",
                "예상매출(천원)", "예상손익(천원)", "최초등록주차", "진행주수", "진행경과"]
 
-    month_grid = _month_grid_html(section1)
+    month_grid = _month_cards_html(section1, opened_year=opened_year, confirmed_n=confirmed_n)
     note_rows = "".join(f"<li><b>{escape(n['이름'])}</b>: {escape(n['특이사항'])}</li>" for n in notes) or "<li>해당 사항 없음</li>"
     s1_head = "".join(f"<th>{escape(c)}</th>" for c in s1_cols)
     s2_head = "".join(f"<th>{escape(c)}</th>" for c in s2_cols)
@@ -2712,12 +2774,16 @@ def _weekly_print_html(week_label, section1, section2, notes):
     @media print {{ .no-print {{ display:none !important; }} }}
     h1 {{ font-size: 19px; color:#1f3a73; border-bottom: 3px solid #1f3a73; padding-bottom:7px; margin:0 0 6px; }}
     h2 {{ font-size:14.5px; color:#2c4a8a; margin:16px 0 6px; }}
+    /* 화면(팀 현황)의 .wk-tbl-wrap 과 같은 느낌의 테두리+그림자. 인쇄 HTML은 별도 문서라
+       화면 CSS를 못 읽으므로 여기서 동일한 모양을 직접 다시 정의합니다(이게 화면과 인쇄가 달라 보였던 핵심 차이). */
+    .rpt-wrap {{ border:1px solid #d7deee; border-radius:12px; overflow:hidden; box-shadow:0 2px 10px rgba(31,58,115,.08); margin-bottom:4px; }}
     table.rpt {{ width:100%; border-collapse: collapse; font-size:11px; table-layout: fixed; }}
     table.rpt thead th {{ background: linear-gradient(90deg, #eef3fc, #f8faff); color:#1f3a73; font-weight:800;
          padding:6px 6px; text-align:center; border-bottom:2px solid #c9d4ea; overflow-wrap:break-word; }}
     table.rpt td {{ padding:5px 6px; border-bottom:1px solid #edf0f6; text-align:center; overflow-wrap:break-word; }}
     table.rpt td.pg {{ text-align:left; word-break:break-word; line-height:1.4; }}
     table.rpt tbody tr:nth-child(even) td {{ background:#fafbfd; }}
+    table.rpt tbody tr:last-child td {{ border-bottom:none; }}
     .rpt-badge {{ display:inline-block; font-size:10.5px; font-weight:800; border-radius:999px; padding:2px 10px; white-space:nowrap; }}
     .rpt-badge.open {{ background:#e3f3ec; color:#0b9a6a; }}
     .rpt-badge.done {{ background:#e8edfb; color:#2c4a8a; }}
@@ -2725,15 +2791,24 @@ def _weekly_print_html(week_label, section1, section2, notes):
     .rpt-badge.new {{ background:#ffe3e3; color:#d0143c; }}
     ul {{ font-size:13px; line-height:1.6; margin:4px 0; }}
     .page2 {{ margin-top: 10px; }}
-    /* 월별 오픈 예정 현황: 월을 가로 칸으로 둔 색깔 격자표 */
-    table.mgrid {{ width:100%; border-collapse:collapse; margin:4px 0 2px; table-layout:fixed; }}
-    table.mgrid th {{ background: linear-gradient(90deg, #1f3a73, #3d64b0); color:#fff; font-size:12.5px;
-        font-weight:800; padding:7px 4px; text-align:center; }}
-    table.mgrid td.mg-cnt {{ background:#eef3fc; color:#1f3a73; font-size:19px; font-weight:800;
-        text-align:center; padding:8px 4px; border-bottom:1px solid #c9d4ea; }}
-    table.mgrid td.mg-names {{ vertical-align:top; text-align:center; font-size:10.5px; color:#2c4a8a;
-        font-weight:600; padding:6px 4px; border-left:1px solid #edf0f6; line-height:1.5; }}
-    table.mgrid td.mg-names div {{ padding:1px 0; }}
+    /* 월별 오픈 예정 현황: 월별 카드 + 맨 끝 누적 출점수 요약 카드 */
+    .mo-grid {{ display:flex; gap:8px; margin:4px 0 2px; flex-wrap:nowrap; }}
+    .mo-card {{ flex:1; min-width:0; border:1px solid #d7deee; border-radius:11px; padding:9px 7px;
+        text-align:center; box-shadow:0 2px 8px rgba(31,58,115,.06);
+        background: linear-gradient(180deg, #f6f9ff, #ffffff); }}
+    .mo-card.empty {{ background:#fafbfd; }}
+    .mo-card .mo-m {{ font-size:12px; font-weight:800; color:#fff; background: linear-gradient(90deg,#1f3a73,#3d64b0);
+        border-radius:7px; padding:3px 0; margin-bottom:6px; }}
+    .mo-card .mo-n {{ font-size:19px; font-weight:800; color:#1f3a73; }}
+    .mo-card .mo-list {{ font-size:10px; color:#2c4a8a; font-weight:600; line-height:1.5; margin-top:5px; min-height:14px; }}
+    .mo-card .mo-list div {{ padding:1px 0; }}
+    .mo-card .mo-empty {{ color:#aab4ca; font-weight:500; }}
+    .mo-card.sum {{ background: linear-gradient(180deg,#1f3a73,#2c4a8a); }}
+    .mo-card.sum .mo-m {{ background:rgba(255,255,255,.18); color:#fff; }}
+    .mo-card.sum .mo-n, .mo-card.sum .mo-n2 {{ color:#fff; }}
+    .mo-card.sum .mo-sub {{ font-size:10px; color:#cfdcf4; margin-top:1px; }}
+    .mo-card.sum .mo-sep {{ height:1px; background:rgba(255,255,255,.25); margin:7px 0; }}
+    .mo-card.sum .mo-n2 {{ font-size:16px; font-weight:800; }}
     @media print {{
       body {{ padding:0 4mm; }}
       .page2 {{ page-break-before: always; break-before: page; margin-top:0; }}
@@ -2750,11 +2825,11 @@ def _weekly_print_html(week_label, section1, section2, notes):
       <h2>1) 월별 오픈 예정 현황</h2>
       {month_grid}
       <h2>2) 계약완료 · 오픈확정 물건</h2>
-      <table class="rpt">{s1_colgroup}<thead><tr>{s1_head}</tr></thead><tbody>{_rows_html(section1, s1_cols)}</tbody></table>
+      <div class="rpt-wrap"><table class="rpt">{s1_colgroup}<thead><tr>{s1_head}</tr></thead><tbody>{_rows_html(section1, s1_cols)}</tbody></table></div>
     </div>
     <div class="page page2">
       <h2>3) 추진 물건</h2>
-      <table class="rpt">{s2_colgroup}<thead><tr>{s2_head}</tr></thead><tbody>{_rows_html(section2, s2_cols)}</tbody></table>
+      <div class="rpt-wrap"><table class="rpt">{s2_colgroup}<thead><tr>{s2_head}</tr></thead><tbody>{_rows_html(section2, s2_cols)}</tbody></table></div>
       <h2>4) 특이사항</h2>
       <ul>{note_rows}</ul>
     </div>
@@ -2762,7 +2837,7 @@ def _weekly_print_html(week_label, section1, section2, notes):
     """
 
 
-def _render_weekly_team(get_gc, login_members, team_display_members, records, cur_code, cur_label):
+def _render_weekly_team(get_gc, D, login_members, team_display_members, records, cur_code, cur_label):
     # 담당자 목록: 로그인 시트(현재 실제 팀원) 기준이 기본이지만, 테스트 계정 등
     # 로그인 시트에 아직 없는 이름이 실제로 보고를 제출한 경우에도 누락되지 않도록
     # 실제 보고 데이터에 등장한 이름들을 뒤에 합쳐 둡니다. (제출했는데 목록에 안 보이는 문제 방지)
@@ -2846,12 +2921,34 @@ def _render_weekly_team(get_gc, login_members, team_display_members, records, cu
     st.caption(":material/calendar_month: 담당자별 주간 일정은 옆의 '팀 활동계획' 탭에서 볼 수 있습니다.")
 
     st.divider()
+    with st.expander(":material/cleaning_services: (관리자) 특이사항 중복 행 정리"):
+        st.caption("업서트 방식을 적용하기 전에 같은 주차·같은 담당자로 여러 번 제출해서 쌓인 '특이사항' 중복 행을 "
+                   "한 번만 정리합니다. 같은 (주차, 담당자) 조합 중 가장 나중 것만 남기고 나머지를 지웁니다. "
+                   "앞으로 제출되는 특이사항은 이미 중복 없이 덮어쓰기 방식으로 저장되므로, 이 정리는 과거에 쌓인 것만 지웁니다.")
+        if st.button("중복 특이사항 정리 실행", icon=":material/cleaning_services:", key="wk_note_dedupe_btn"):
+            n = weekly_dedupe_notes(get_gc)
+            if n:
+                st.success(f":material/check_circle: 중복 {n}건을 정리했습니다.")
+            else:
+                st.info("정리할 중복이 없습니다.")
+            st.rerun()
+
+    # '월별 오픈 예정 현황' 카드의 맨 끝 요약 카드용 숫자: 실적현황 탭과 숫자가 어긋나지 않도록
+    # 별도로 입력받지 않고, 이미 있는 실적 데이터(D)와 이번 주 표에서 바로 계산합니다.
+    opened_year = None
+    if isinstance(D, dict) and D.get("masters"):
+        cur_year = str(datetime.now(KST).year)
+        opened_year = sum(1 for m in D["masters"] if str(m.get("open_ym", "")).startswith(cur_year))
+    confirmed_n = len(rows1) if rows1 else 0
+
+    st.divider()
     st.markdown("##### :material/print: 회의자료용 인쇄 보기")
     st.caption("아래를 열면 회의자료가 보이고, 그 안의 '인쇄하기 / PDF로 저장' 버튼을 누르면 "
                "1페이지(월별 오픈 현황 + 계약완료·오픈확정 물건) / 2페이지(추진 물건)로 나뉜 인쇄 대화상자가 열립니다. "
                "(브라우저 자체 인쇄 기능 대신 꼭 이 안의 버튼을 눌러주세요 - 그래야 디자인이 그대로 인쇄됩니다)")
     with st.expander("인쇄용 보기 열기"):
-        html = _weekly_print_html(label_of.get(sel, sel), rows1, rows2, notes)
+        html = _weekly_print_html(label_of.get(sel, sel), rows1, rows2, notes,
+                                   opened_year=opened_year, confirmed_n=confirmed_n)
         components.html(html, height=750, scrolling=True)
 
 
@@ -2916,7 +3013,7 @@ def render_weekly(get_gc, D, uid, uname, is_admin):
         with t_mine:
             _render_weekly_mine(get_gc, records, uid, uname, cur_code, cur_label)
         with t_team:
-            _render_weekly_team(get_gc, login_members, team_display_members, records, cur_code, cur_label)
+            _render_weekly_team(get_gc, D, login_members, team_display_members, records, cur_code, cur_label)
         with t_plan:
             _render_weekly_plan(login_members, team_display_members, records, cur_code, cur_label)
     else:
