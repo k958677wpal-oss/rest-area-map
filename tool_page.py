@@ -2090,6 +2090,25 @@ def wk_prev(code):
     return wk_info(mon - _dt.timedelta(days=7))[0]
 
 
+def wk_next(code):
+    mon = wk_monday(code)
+    if mon is None:
+        return ""
+    return wk_info(mon + _dt.timedelta(days=7))[0]
+
+
+def wk_label_from_code(code):
+    """실제 보고가 없는 주차(이전주/다음주 버튼으로만 이동한 주차)도 라벨을 만들어 보여주기 위한 보조 함수.
+    wk_info()와 같은 모양('2026년 11월 4주차 (11/16~11/22)')을 코드만으로 다시 계산합니다."""
+    p = wk_parse(code)
+    mon = wk_monday(code)
+    if not p or not mon:
+        return code
+    y, mth, w = p
+    sun = mon + _dt.timedelta(days=6)
+    return f"{y}년 {mth}월 {w}주차 ({mon.strftime('%m/%d')}~{sun.strftime('%m/%d')})"
+
+
 def wk_short_label(label):
     # "2026년 11월 4주차 (11/16~11/22)" -> "2026년 11월 4주차"  (연/월을 남겨야 연도 넘어갈 때도 정돈되어 보임)
     s = str(label)
@@ -2538,6 +2557,17 @@ def _item_view_with_weeks(r, sel):
     return row
 
 
+# 칸 머리글을 두 줄로 줄바꿈해서 가로 간격을 좁히기 위한 표기(예: '오픈예상월' -> '오픈' 줄바꿈 '예상월').
+# '예상매출(천원)'처럼 이미 자연스럽게 줄바꿈되는 칸은 그대로 두고, 줄바꿈 위치가 어색하게 끼일 수 있는
+# 칸만 여기서 직접 지정합니다.
+HEADER_2LINE = {"오픈예상월": "오픈<br>예상월", "운영형태": "운영<br>형태", "상권대분류": "상권<br>대분류",
+                "최초등록주차": "최초<br>등록주차", "진행주수": "경과<br>(주)"}
+
+
+def _th_label(c):
+    return HEADER_2LINE.get(c, escape(str(c)))
+
+
 _STATUS_BADGE = {"오픈확정": ("open", "오픈확정"), "계약완료": ("done", "계약완료"), "추진물건": ("prog", "추진물건")}
 
 
@@ -2571,7 +2601,7 @@ def _wk_table_html(rows, cols, status_col=None, wrap_cols=()):
     <table>로 그려서 가운데 정렬이 실제로 적용되게 합니다.
     status_col: 그 칸을 배지(둥근 알약) 모양으로 그립니다. wrap_cols: 글자가 길어지면 줄바꿈되도록(진행경과 등) 왼쪽 정렬로 넓게 그립니다."""
     out = ['<div class="wk-tbl-wrap"><table class="wk-tbl"><thead><tr>']
-    out += [f"<th>{escape(str(c))}</th>" for c in cols]
+    out += [f"<th>{_th_label(c)}</th>" for c in cols]
     out.append("</tr></thead><tbody>")
     if not rows:
         out.append(f'<tr><td class="wk-empty" colspan="{len(cols)}">해당 사항 없음</td></tr>')
@@ -2692,10 +2722,11 @@ def _month_names_html(items):
 
 
 def _month_cards_html(section1, opened_year=None, confirmed_n=None):
-    """'월별 오픈 예정 현황'을 카드 형태로 그립니다(실적현황 탭의 .kpi 카드와 같은 느낌의 색 바 + 그림자).
-    달력처럼 '이번 달부터 4개월'을 항상 고정 카드로 보여주고(물건이 없는 달도 빈 카드로 표시), 그보다
-    먼 미래에 물건이 있으면 카드를 이어서 더 붙입니다. 맨 끝에는(값이 있을 때만) '지금까지 누적 출점수'와
-    '앞으로 열릴 확정 물건 수(오픈확정·계약완료)'를 보여주는 강조 카드를 하나 더 붙입니다."""
+    """'월별 오픈 예정 현황'을 카드 형태로 그립니다. 카드마다 숫자 아래 작은 막대(그 달 점수를 서로 비교하는
+    미니 바 차트)를 넣어서 어느 달이 몰려 있는지 한눈에 보이게 하고, '이번 달' 카드는 테두리를 강조해서
+    구분합니다. 달력처럼 '이번 달부터 4개월'을 항상 고정 카드로 보여주고(물건이 없는 달도 빈 카드로 표시),
+    그보다 먼 미래에 물건이 있으면 카드를 이어서 더 붙입니다. 맨 끝에는(값이 있을 때만) '지금까지 누적
+    출점수'와 '앞으로 열릴 확정 물건 수(오픈확정·계약완료)'를 보여주는 진한 색 강조 카드를 하나 더 붙입니다."""
     by_month = {}
     for it in section1:
         key = it.get("오픈예상월") or "월 미정"
@@ -2716,23 +2747,30 @@ def _month_cards_html(section1, opened_year=None, confirmed_n=None):
     if "월 미정" in by_month:
         month_keys.append("월 미정")
 
+    max_n = max([len(by_month.get(mk, [])) for mk in month_keys] + [1])
     cards = []
-    for mk in month_keys:
+    for i, mk in enumerate(month_keys):
         items = by_month.get(mk, [])
         label = mk if mk == "월 미정" else _month_short(mk)
         n = len(items)
-        empty_cls = " empty" if n == 0 else ""
+        cls = ("empty" if n == 0 else "") + (" cur" if i == 0 and mk != "월 미정" else "")
+        tag = '<div class="mo-tag">이번달</div>' if i == 0 and mk != "월 미정" else ""
+        bar_h = max(8, round(n / max_n * 100)) if n > 0 else 0
         cards.append(
-            f'<div class="mo-card{empty_cls}"><div class="mo-m">{escape(label)}</div>'
-            f'<div class="mo-n">{n}점</div><div class="mo-list">{_month_names_html(items)}</div></div>'
+            f'<div class="mo-card {cls}">{tag}<div class="mo-m">{escape(label)}</div>'
+            f'<div class="mo-barwrap"><div class="mo-bar" style="height:{bar_h}%"></div></div>'
+            f'<div class="mo-n">{n}<small>점</small></div>'
+            f'<div class="mo-list">{_month_names_html(items)}</div></div>'
         )
     if opened_year is not None or confirmed_n is not None:
         cards.append(
             '<div class="mo-card sum">'
-            f'<div class="mo-m">현재까지</div><div class="mo-n">{opened_year if opened_year is not None else "-"}점</div>'
-            '<div class="mo-sub">누적 출점수</div><div class="mo-sep"></div>'
-            f'<div class="mo-n2">{confirmed_n if confirmed_n is not None else "-"}건</div>'
-            '<div class="mo-sub">오픈확정·계약완료</div></div>'
+            '<div class="mo-m">현재까지</div>'
+            f'<div class="mo-stat"><div class="mo-n">{opened_year if opened_year is not None else "-"}<small>점</small></div>'
+            '<div class="mo-sub">누적 출점수</div></div>'
+            '<div class="mo-sep"></div>'
+            f'<div class="mo-stat"><div class="mo-n">{confirmed_n if confirmed_n is not None else "-"}<small>건</small></div>'
+            '<div class="mo-sub">오픈확정·계약완료</div></div></div>'
         )
     return f'<div class="mo-grid">{"".join(cards)}</div>'
 
@@ -2756,8 +2794,8 @@ def _weekly_print_html(week_label, section1, section2, notes, opened_year=None, 
 
     month_grid = _month_cards_html(section1, opened_year=opened_year, confirmed_n=confirmed_n)
     note_rows = "".join(f"<li><b>{escape(n['이름'])}</b>: {escape(n['특이사항'])}</li>" for n in notes) or "<li>해당 사항 없음</li>"
-    s1_head = "".join(f"<th>{escape(c)}</th>" for c in s1_cols)
-    s2_head = "".join(f"<th>{escape(c)}</th>" for c in s2_cols)
+    s1_head = "".join(f"<th>{_th_label(c)}</th>" for c in s1_cols)
+    s2_head = "".join(f"<th>{_th_label(c)}</th>" for c in s2_cols)
     s1_colgroup = _colgroup_html(s1_cols)
     s2_colgroup = _colgroup_html(s2_cols)
 
@@ -2791,24 +2829,34 @@ def _weekly_print_html(week_label, section1, section2, notes, opened_year=None, 
     .rpt-badge.new {{ background:#ffe3e3; color:#d0143c; }}
     ul {{ font-size:13px; line-height:1.6; margin:4px 0; }}
     .page2 {{ margin-top: 10px; }}
-    /* 월별 오픈 예정 현황: 월별 카드 + 맨 끝 누적 출점수 요약 카드 */
-    .mo-grid {{ display:flex; gap:8px; margin:4px 0 2px; flex-wrap:nowrap; }}
-    .mo-card {{ flex:1; min-width:0; border:1px solid #d7deee; border-radius:11px; padding:9px 7px;
-        text-align:center; box-shadow:0 2px 8px rgba(31,58,115,.06);
-        background: linear-gradient(180deg, #f6f9ff, #ffffff); }}
-    .mo-card.empty {{ background:#fafbfd; }}
-    .mo-card .mo-m {{ font-size:12px; font-weight:800; color:#fff; background: linear-gradient(90deg,#1f3a73,#3d64b0);
-        border-radius:7px; padding:3px 0; margin-bottom:6px; }}
-    .mo-card .mo-n {{ font-size:19px; font-weight:800; color:#1f3a73; }}
-    .mo-card .mo-list {{ font-size:10px; color:#2c4a8a; font-weight:600; line-height:1.5; margin-top:5px; min-height:14px; }}
+    /* 월별 오픈 예정 현황: 월별 카드(숫자 아래 미니 막대로 서로 비교) + 맨 끝 누적 출점수 요약 카드 */
+    .mo-grid {{ display:flex; gap:9px; margin:10px 0 2px; align-items:stretch; }}
+    .mo-card {{ flex:1; min-width:0; border:1px solid #d7deee; border-radius:12px; padding:12px 7px 9px;
+        text-align:center; box-shadow:0 2px 8px rgba(31,58,115,.05); background:#ffffff;
+        position:relative; display:flex; flex-direction:column; }}
+    .mo-card.empty {{ background:#fafbfd; border-style:dashed; }}
+    .mo-card.cur {{ border:1.5px solid #2c4a8a; box-shadow:0 0 0 3px rgba(44,74,138,.10), 0 2px 8px rgba(31,58,115,.08); }}
+    .mo-card .mo-tag {{ position:absolute; top:-9px; left:50%; transform:translateX(-50%); font-size:9px;
+        font-weight:800; color:#fff; background:#d0143c; border-radius:999px; padding:2px 10px;
+        white-space:nowrap; box-shadow:0 2px 5px rgba(208,20,60,.35); }}
+    .mo-card .mo-m {{ font-size:12px; font-weight:800; color:#55648a; margin-bottom:6px; }}
+    .mo-card.cur .mo-m {{ color:#1f3a73; }}
+    .mo-card .mo-barwrap {{ height:28px; display:flex; align-items:flex-end; justify-content:center; margin-bottom:6px; }}
+    .mo-card .mo-bar {{ width:55%; max-width:30px; min-width:10px; border-radius:4px 4px 1px 1px;
+        background: linear-gradient(180deg,#3d64b0,#1f3a73); }}
+    .mo-card.empty .mo-bar {{ background:#dfe5f1; }}
+    .mo-card .mo-n {{ font-size:20px; font-weight:800; color:#1f3a73; margin-bottom:6px; }}
+    .mo-card .mo-n small {{ font-size:11px; font-weight:700; color:#8591ab; margin-left:2px; }}
+    .mo-card.empty .mo-n {{ color:#c3cadd; }}
+    .mo-card .mo-list {{ font-size:10px; color:#2c4a8a; font-weight:600; line-height:1.5; margin-top:auto; min-height:14px; }}
     .mo-card .mo-list div {{ padding:1px 0; }}
     .mo-card .mo-empty {{ color:#aab4ca; font-weight:500; }}
-    .mo-card.sum {{ background: linear-gradient(180deg,#1f3a73,#2c4a8a); }}
-    .mo-card.sum .mo-m {{ background:rgba(255,255,255,.18); color:#fff; }}
-    .mo-card.sum .mo-n, .mo-card.sum .mo-n2 {{ color:#fff; }}
-    .mo-card.sum .mo-sub {{ font-size:10px; color:#cfdcf4; margin-top:1px; }}
-    .mo-card.sum .mo-sep {{ height:1px; background:rgba(255,255,255,.25); margin:7px 0; }}
-    .mo-card.sum .mo-n2 {{ font-size:16px; font-weight:800; }}
+    .mo-card.sum {{ background: linear-gradient(165deg,#1f3a73,#2c4a8a); border:none; justify-content:center; }}
+    .mo-card.sum .mo-m {{ color:#cfdcf4; }}
+    .mo-card.sum .mo-stat {{ display:flex; flex-direction:column; align-items:center; margin:2px 0; }}
+    .mo-card.sum .mo-n {{ color:#fff; margin-bottom:1px; }}
+    .mo-card.sum .mo-sub {{ font-size:10px; color:#cfdcf4; margin-bottom:4px; }}
+    .mo-card.sum .mo-sep {{ width:70%; height:1px; background:rgba(255,255,255,.25); margin:4px auto; }}
     @media print {{
       body {{ padding:0 4mm; }}
       .page2 {{ page-break-before: always; break-before: page; margin-top:0; }}
@@ -2975,8 +3023,29 @@ def _render_weekly_plan(login_members, team_display_members, records, cur_code, 
             label_of[c] = r.get("주차표시", c)
     label_of.setdefault(cur_code, cur_label)
 
-    sel = st.selectbox("조회 주차", weeks, format_func=lambda c: wk_short_label(label_of.get(c, c)), key="wk_plan_week")
-    st.caption(f":material/event: {label_of.get(sel, sel)}")
+    # '이전 주 / 다음 주' 버튼은 (휴게소 데이터허브의 주차별 활동 대시보드와 같은 방식으로) 보고가 없는
+    # 주차로도 자유롭게 이동할 수 있어야 하므로, 버튼으로 옮겨간 주차가 실제 보고 목록(weeks)에 없으면
+    # 그 주차도 선택지에 임시로 끼워 넣어 줍니다(그래야 선택 칸이 '값이 목록에 없다'는 오류 없이 그대로 보여줌).
+    nav_key = "wk_plan_week"
+    if nav_key in st.session_state and st.session_state[nav_key] not in weeks:
+        weeks = sorted(set(weeks) | {st.session_state[nav_key]},
+                       key=lambda c: wk_parse(c) or (0, 0, 0), reverse=True)
+
+    st.caption("조회 주차")
+    c_prev, c_sel, c_next = st.columns([1, 4, 1])
+    with c_sel:
+        sel = st.selectbox("조회 주차", weeks,
+                            format_func=lambda c: wk_short_label(label_of.get(c) or wk_label_from_code(c)),
+                            key=nav_key, label_visibility="collapsed")
+    with c_prev:
+        if st.button("◀ 이전 주", key="wk_plan_prev", use_container_width=True):
+            st.session_state[nav_key] = wk_prev(sel)
+            st.rerun()
+    with c_next:
+        if st.button("다음 주 ▶", key="wk_plan_next", use_container_width=True):
+            st.session_state[nav_key] = wk_next(sel)
+            st.rerun()
+    st.caption(f":material/event: {label_of.get(sel) or wk_label_from_code(sel)}")
 
     prev_code = wk_prev(sel)
     prev_sched_by_name = {}
