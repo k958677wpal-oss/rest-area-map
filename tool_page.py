@@ -576,6 +576,21 @@ table.tbl td { padding: 7px 10px; text-align: right; border-bottom: 1px solid #e
 table.tbl th:first-child, table.tbl td:first-child { text-align: left; }
 table.tbl td.neg { color: #d0143c; }
 @media (max-width: 640px) { .kpi .kpi-v { font-size: 18px; } }
+/* 주간 활동 보고 - 팀 현황 표 (가운데 정렬 + 색깔 헤더로, 실적현황 쪽 표와 통일) */
+.wk-tbl-wrap { overflow-x: auto; margin: 6px 0 16px; border: 1px solid #d5dcea; border-radius: 12px; }
+table.wk-tbl { border-collapse: collapse; width: 100%; font-size: 13px; background: #fff; }
+table.wk-tbl th { background: linear-gradient(90deg, #eef3fc, #f8faff); color: #1f3a73; font-weight: 800;
+    padding: 9px 10px; text-align: center; white-space: nowrap; border-bottom: 2px solid #c9d4ea; }
+table.wk-tbl td { padding: 8px 10px; text-align: center; vertical-align: middle; border-bottom: 1px solid #edf0f6; color: #1f2d4d; }
+table.wk-tbl tr:last-child td { border-bottom: none; }
+table.wk-tbl tr:nth-child(even) td { background: #fafbfd; }
+table.wk-tbl td.wk-prog { max-width: 360px; white-space: normal; text-align: left; line-height: 1.5; }
+table.wk-tbl td.wk-day { font-weight: 700; color: #2c4a8a; background: #f3f6fc !important; }
+table.wk-tbl td.wk-empty { color: #aab4ca; padding: 16px; }
+.wk-badge { display: inline-block; font-size: 12px; font-weight: 800; border-radius: 999px; padding: 3px 11px; white-space: nowrap; }
+.wk-badge.open { background: #e3f3ec; color: #0b9a6a; }
+.wk-badge.done { background: #e8edfb; color: #2c4a8a; }
+.wk-badge.prog { background: #fef1df; color: #b25e00; }
 </style>
 """
 
@@ -1841,6 +1856,14 @@ def _future_month_labels(n=24):
     return labels
 
 
+def _month_sort_key(label):
+    """'2026년 11월' -> (2026, 11) 정렬키. 비어 있거나 못 읽으면 맨 뒤로 보냄"""
+    m = re.match(r"^\s*(\d{4})년\s*(\d{1,2})월", str(label or ""))
+    if not m:
+        return (9999, 99)
+    return (int(m.group(1)), int(m.group(2)))
+
+
 def _parse_item_json(raw):
     """'추진물건' 칸 내용을 구조화된 dict로. (도입 전) 예전 데이터는 한 줄 텍스트였으므로,
     JSON으로 못 읽으면 그 글자 전체를 '물건명'으로 봅니다 -> 기존 데이터도 그대로 보입니다."""
@@ -1953,7 +1976,7 @@ def _item_editor(editor_key, own_seed_key, other_seed_key, allowed_statuses, sta
             [{c: r.get(c, "") for c in ITEM_COLS} for r in keep_rows], fw_map, cur_code)
         moved_names = ", ".join(r["물건명"] for r in moved_rows if r["물건명"])
         if moved_names:
-            st.toast(f"'{moved_names}' 상태가 바뀌어 다른 탭으로 옮겼습니다.", icon="📦")
+            st.toast(f"'{moved_names}' 상태가 바뀌어 다른 탭으로 옮겼습니다.", icon=":material/package_2:")
         st.rerun()
 
     out = []
@@ -2276,7 +2299,7 @@ def load_rest_names(_get_gc):
 
 def _weekly_status_banner(submitted_at):
     if submitted_at:
-        st.success(f"✅ 이번 주 보고를 제출했습니다 ({submitted_at}). 다시 제출하면 시각이 갱신됩니다.")
+        st.success(f":material/check_circle: 이번 주 보고를 제출했습니다 ({submitted_at}). 다시 제출하면 시각이 갱신됩니다.")
     else:
         st.warning("이번 주 보고를 아직 제출하지 않았습니다.")
 
@@ -2306,15 +2329,15 @@ def _render_weekly_mine(get_gc, records, uid, uname, cur_code, cur_label):
         st.session_state[done_seed_key] = _build_seed_df(done_rows, fw_map, cur_code)
         st.session_state[prog_seed_key] = _build_seed_df(prog_rows, fw_map, cur_code)
 
-    st.markdown("##### 📝 주간업무보고")
+    st.markdown("##### :material/edit_note: 주간업무보고")
     st.caption("지난주 목록이 그대로 이어집니다. 표를 엑셀처럼 바로 고쳐 쓰고, 빈 줄(가장 아래)에 새 물건을 추가할 수 있습니다. "
-               "각 줄 맨 앞의 체크박스는 그 줄을 지울 때 선택하는 용도입니다(선택하면 위에 🗑 지우기 버튼이 나타납니다). "
+               "각 줄 맨 앞의 체크박스는 그 줄을 지울 때 선택하는 용도입니다(선택하면 위에 지우기 버튼이 나타납니다). "
                "상태를 '오픈확정'이나 '계약완료'로 바꾸면 그 물건이 자동으로 '계약완료·오픈확정 물건' 탭으로 옮겨집니다.")
     fw_map = st.session_state.get(fw_key, {})
     select_lists = load_select_lists(get_gc)
     month_opts = [""] + _future_month_labels()
 
-    t_done, t_prog = st.tabs(["🏆 계약완료·오픈확정 물건", "📦 추진 물건"])
+    t_done, t_prog = st.tabs([":material/emoji_events: 계약완료·오픈확정 물건", ":material/package_2: 추진 물건"])
     with t_done:
         done_rows = _item_editor(f"wk_ed_done_{cur_code}_{uid}", done_seed_key, prog_seed_key,
                                  ("오픈확정", "계약완료"), ["오픈확정", "계약완료"], "오픈확정",
@@ -2331,7 +2354,7 @@ def _render_weekly_mine(get_gc, records, uid, uname, cur_code, cur_label):
     st.session_state[fw_key] = fw_map
 
     st.markdown("---")
-    st.markdown("##### 🗒️ 특이사항")
+    st.markdown("##### :material/sticky_note_2: 특이사항")
     note_key = f"wk_note_{cur_code}_{uid}"
     if note_key not in st.session_state:
         st.session_state[note_key] = weekly_note_of_week(records, uid, cur_code)
@@ -2339,7 +2362,7 @@ def _render_weekly_mine(get_gc, records, uid, uname, cur_code, cur_label):
                  label_visibility="collapsed", height=100)
 
     st.markdown("---")
-    st.markdown("##### 🗓️ 이번 주 일정 (월~금 오전/오후)")
+    st.markdown("##### :material/calendar_month: 이번 주 일정 (월~금 오전/오후)")
     sched_key = f"wk_sched_{cur_code}_{uid}"
     if sched_key not in st.session_state:
         st.session_state[sched_key] = weekly_schedule_of_week(records, uid, cur_code)
@@ -2354,10 +2377,11 @@ def _render_weekly_mine(get_gc, records, uid, uname, cur_code, cur_label):
                                     placeholder=f"{d} {half} 일정")
                 sched[slot] = val
                 if val and prev_sched.get(slot, "").strip() == val.strip():
-                    st.caption("↩️ 지난주와 동일")
+                    st.caption(":material/history: 지난주와 동일")
 
     st.markdown("---")
-    submit_clicked = st.button("✅ 이번 주 보고 제출하기", type="primary", key=f"wk_submit_{cur_code}_{uid}")
+    submit_clicked = st.button("이번 주 보고 제출하기", type="primary", icon=":material/send:",
+                                key=f"wk_submit_{cur_code}_{uid}")
     submit_feedback = st.empty()
     if submit_clicked:
         for it in draft:
@@ -2376,20 +2400,20 @@ def _render_weekly_mine(get_gc, records, uid, uname, cur_code, cur_label):
             weekly_upsert_schedule(get_gc, cur_code, cur_label, uid, uname, sched)
         now = weekly_mark_submitted(get_gc, cur_code, cur_label, uid, uname)
         st.session_state[f"wk_just_submitted_{cur_code}_{uid}"] = now
-        submit_feedback.success(f"✅ 제출되었습니다! ({now})")
-        st.toast(f"이번 주 보고 제출 완료! ({now})", icon="✅")
+        submit_feedback.success(f":material/check_circle: 제출되었습니다! ({now})")
+        st.toast(f"이번 주 보고 제출 완료! ({now})", icon=":material/check_circle:")
         st.rerun()
     else:
         just_at = st.session_state.pop(f"wk_just_submitted_{cur_code}_{uid}", None)
         if just_at:
-            submit_feedback.success(f"✅ 제출되었습니다! ({just_at})")
+            submit_feedback.success(f":material/check_circle: 제출되었습니다! ({just_at})")
         else:
             # 버튼을 누르지 않은 평소 상태에도 바로 옆에서 제출 여부를 바로 확인할 수 있게 동일 배너를 한 번 더 보여줍니다.
             with submit_feedback.container():
                 _weekly_status_banner(submitted_at)
 
     st.markdown("---")
-    st.markdown("##### 📍 휴게소 방문 보고")
+    st.markdown("##### :material/location_on: 휴게소 방문 보고")
     st.caption("방문할 때마다 바로 제출해 주세요. 같은 시트에 저장되므로, 휴게소 데이터허브 지도의 방문 이력에도 그대로 나타납니다.")
     rest_names = load_rest_names(get_gc)
     with st.form(f"wk_visit_form_{uid}", clear_on_submit=True):
@@ -2409,13 +2433,14 @@ def _render_weekly_mine(get_gc, records, uid, uname, cur_code, cur_label):
 
 
 def _item_view(r):
-    """시트 한 행(r)의 '추진물건' JSON을 풀어서, 팀 현황 표/인쇄용 보기에 쓸 완전한 한 줄 dict로 만듭니다."""
+    """시트 한 행(r)의 '추진물건' JSON을 풀어서, 팀 현황 표/인쇄용 보기에 쓸 완전한 한 줄 dict로 만듭니다.
+    칸 순서는 담당자 입력 표(ITEM_COLS)와 동일하게 오픈예상월 -> 물건명 -> ... -> 진행경과 순으로 맞춥니다."""
     d = _parse_item_json(r.get("추진물건", ""))
     return {
         "상태": r.get("상태", ""),
         "이름": r.get("이름", ""),
-        "물건명": d.get("물건명", ""),
         "오픈예상월": d.get("오픈예상월", ""),
+        "물건명": d.get("물건명", ""),
         "부문": d.get("부문", ""),
         "지역": d.get("지역", ""),
         "운영형태": d.get("운영형태", ""),
@@ -2429,6 +2454,76 @@ def _item_view(r):
     }
 
 
+def _item_view_with_weeks(r, sel):
+    """_item_view 결과에 '진행주수'(경과주)를 추진주체 다음, 진행경과 앞에 끼워 넣은 버전 (추진 물건 표용)"""
+    view = _item_view(r)
+    weeks = _weeks_between(r.get("최초등록주차") or sel, sel)
+    row = {k: v for k, v in view.items() if k not in ("진행경과", "최초등록주차")}
+    row["진행주수"] = weeks
+    row["진행경과"] = view["진행경과"]
+    row["최초등록주차"] = view["최초등록주차"]
+    return row
+
+
+_STATUS_BADGE = {"오픈확정": ("open", "오픈확정"), "계약완료": ("done", "계약완료"), "추진물건": ("prog", "추진물건")}
+
+
+def _status_badge_html(status):
+    cls, label = _STATUS_BADGE.get(status, ("prog", status or "-"))
+    return f'<span class="wk-badge {cls}">{escape(label)}</span>'
+
+
+def _wk_table_html(rows, cols, status_col=None, wrap_cols=()):
+    """팀 현황용 표를 가운데 정렬 + 색깔 헤더 HTML로 그립니다(실적현황 쪽 표와 디자인 통일).
+    st.dataframe(캔버스 렌더링)는 CSS가 안 먹어서 가운데 정렬이 안 됐던 것을, 이 함수는 보통의 HTML
+    <table>로 그려서 가운데 정렬이 실제로 적용되게 합니다.
+    status_col: 그 칸을 배지(둥근 알약) 모양으로 그립니다. wrap_cols: 글자가 길어지면 줄바꿈되도록(진행경과 등) 왼쪽 정렬로 넓게 그립니다."""
+    out = ['<div class="wk-tbl-wrap"><table class="wk-tbl"><thead><tr>']
+    out += [f"<th>{escape(str(c))}</th>" for c in cols]
+    out.append("</tr></thead><tbody>")
+    if not rows:
+        out.append(f'<tr><td class="wk-empty" colspan="{len(cols)}">해당 사항 없음</td></tr>')
+    else:
+        for r in rows:
+            out.append("<tr>")
+            for c in cols:
+                v = r.get(c, "")
+                if c == status_col:
+                    out.append(f"<td>{_status_badge_html(v)}</td>")
+                elif c in wrap_cols:
+                    out.append(f'<td class="wk-prog">{escape(str(v)) if v else "-"}</td>')
+                else:
+                    out.append(f"<td>{escape(str(v)) if v not in (None, '') else '-'}</td>")
+            out.append("</tr>")
+    out.append("</tbody></table></div>")
+    return "".join(out)
+
+
+def _wk_schedule_table_html(days, halves, managers, sched_by_mgr, prev_sched_by_name):
+    """담당자별 주간 일정 표. 요일 칸은 오전/오후 두 줄을 rowspan으로 병합해서 '월요일'이 두 번 반복되지 않게 합니다."""
+    out = ['<div class="wk-tbl-wrap"><table class="wk-tbl"><thead><tr><th>요일</th><th>구분</th>']
+    out += [f"<th>{escape(m)}</th>" for m in managers]
+    out.append("</tr></thead><tbody>")
+    for d in days:
+        for hi, half in enumerate(halves):
+            slot = f"{d}{half}"
+            out.append("<tr>")
+            if hi == 0:
+                out.append(f'<td class="wk-day" rowspan="{len(halves)}">{escape(d)}요일</td>')
+            out.append(f"<td>{escape(half)}</td>")
+            for mgr in managers:
+                v = sched_by_mgr.get(mgr, {}).get(slot, "").strip()
+                prev_v = prev_sched_by_name.get(mgr, {}).get(slot, "").strip()
+                if v and prev_v == v:
+                    cell = f'{escape(v)} <span title="지난주와 동일">:material/history:</span>'
+                else:
+                    cell = escape(v) if v else "-"
+                out.append(f"<td>{cell}</td>")
+            out.append("</tr>")
+    out.append("</tbody></table></div>")
+    return "".join(out)
+
+
 def _weekly_print_html(week_label, section1, section2, notes):
     """회의자료용 인쇄 HTML. 브라우저로 열어 Ctrl+P → 'PDF로 저장'하면 그대로 정리된 PDF가 됩니다.
     (한글 폰트를 직접 심어야 하는 PDF 라이브러리 대신, 브라우저의 한글 글꼴을 그대로 쓰는 방식이라 더 안전합니다)"""
@@ -2437,12 +2532,15 @@ def _weekly_print_html(week_label, section1, section2, notes):
             return f'<tr><td colspan="{len(cols)}" style="text-align:center;color:#999;">해당 사항 없음</td></tr>'
         out = []
         for it in items:
-            out.append("<tr>" + "".join(f"<td>{escape(str(it.get(c, '')))}</td>" for c in cols) + "</tr>")
+            out.append("<tr>" + "".join(
+                f'<td class="pg">{escape(str(it.get(c, "")))}</td>' if c == "진행경과"
+                else f"<td>{escape(str(it.get(c, '')))}</td>" for c in cols) + "</tr>")
         return "".join(out)
 
-    s1_cols = ["상태", "이름", "물건명", "오픈예상월", "부문", "지역", "운영형태", "상권대분류", "세부상권",
+    s1_cols = ["상태", "이름", "오픈예상월", "물건명", "부문", "지역", "운영형태", "상권대분류", "세부상권",
                "예상매출(천원)", "예상손익(천원)", "추진주체", "진행경과", "최초등록주차"]
-    s2_cols = s1_cols[1:] + ["진행주수"]
+    s2_cols = ["상태", "이름", "오픈예상월", "물건명", "부문", "지역", "운영형태", "상권대분류", "세부상권",
+               "예상매출(천원)", "예상손익(천원)", "추진주체", "진행주수", "진행경과", "최초등록주차"]
     note_rows = "".join(f"<li><b>{escape(n['이름'])}</b>: {escape(n['특이사항'])}</li>" for n in notes) or "<li>해당 사항 없음</li>"
     return f"""
     <html><head><meta charset="utf-8"><style>
@@ -2450,8 +2548,11 @@ def _weekly_print_html(week_label, section1, section2, notes):
     h1 {{ font-size: 20px; color:#1f3a73; border-bottom: 3px solid #1f3a73; padding-bottom:8px; }}
     h2 {{ font-size:15px; color:#2c4a8a; margin-top:22px; }}
     table {{ width:100%; border-collapse: collapse; font-size:13px; }}
-    th {{ background:#eef2fa; padding:6px 8px; text-align:left; border-bottom:2px solid #c9d4ea; }}
-    td {{ padding:6px 8px; border-bottom:1px solid #edf0f6; }}
+    th {{ background: linear-gradient(90deg, #eef3fc, #f8faff); color:#1f3a73; font-weight:800;
+         padding:7px 8px; text-align:center; border-bottom:2px solid #c9d4ea; }}
+    td {{ padding:6px 8px; border-bottom:1px solid #edf0f6; text-align:center; }}
+    td.pg {{ text-align:left; }}
+    tr:nth-child(even) td {{ background:#fafbfd; }}
     ul {{ font-size:13px; line-height:1.6; }}
     @media print {{ body {{ padding:0; }} }}
     </style></head><body>
@@ -2479,7 +2580,7 @@ def _render_weekly_team(get_gc, login_members, team_display_members, records, cu
     display_default = [n for n in team_display_members if n in all_candidates] or all_candidates
     default_sel = st.session_state.get("wk_team_managers", display_default)
     default_sel = [m for m in default_sel if m in all_candidates] or all_candidates
-    managers = st.multiselect("👥 표시할 담당자 선택 (팀원 변경 시 여기서 바로 조정)", all_candidates,
+    managers = st.multiselect(":material/groups: 표시할 담당자 선택 (팀원 변경 시 여기서 바로 조정)", all_candidates,
                               default=default_sel, key="wk_team_managers")
     if not managers:
         st.info("담당자를 1명 이상 선택해 주세요.")
@@ -2498,7 +2599,7 @@ def _render_weekly_team(get_gc, login_members, team_display_members, records, cu
     label_of.setdefault(cur_code, cur_label)
 
     sel = st.selectbox("조회 주차", weeks, format_func=lambda c: wk_short_label(label_of.get(c, c)), key="wk_team_week")
-    st.caption(f"📅 {label_of.get(sel, sel)}")
+    st.caption(f":material/event: {label_of.get(sel, sel)}")
     prev_code = wk_prev(sel)
     prev_sched_by_name = {}
     for r in records:
@@ -2508,14 +2609,15 @@ def _render_weekly_team(get_gc, login_members, team_display_members, records, cu
             except Exception:
                 pass
 
-    st.markdown("##### ✅ 제출 현황")
+    st.markdown("##### :material/check_circle: 제출 현황")
     if managers:
         cols = st.columns(min(4, len(managers)))
         for i, mgr in enumerate(managers):
             at = next((r["작성시각"] for r in records if r.get("유형") == "제출완료"
                        and r.get("이름", "").strip() == mgr and r.get("주차코드", "").strip() == sel), "")
             with cols[i % len(cols)]:
-                st.markdown(f"🟢 **{mgr}**  \n{at}" if at else f"🔴 **{mgr}**  \n미제출")
+                dot = ":green[:material/circle:]" if at else ":red[:material/circle:]"
+                st.markdown(f"{dot} **{mgr}**  \n{at}" if at else f"{dot} **{mgr}**  \n미제출")
 
     st.divider()
     st.markdown("##### 1) 오픈확정 · 계약완료 물건")
@@ -2523,7 +2625,10 @@ def _render_weekly_team(get_gc, login_members, team_display_members, records, cu
                 and r.get("상태") in ("오픈확정", "계약완료") and (not managers or r.get("이름", "").strip() in managers)]
     if section1:
         rows1 = [_item_view(r) for r in section1]
-        st.dataframe(pd.DataFrame(rows1), use_container_width=True, hide_index=True)
+        rows1.sort(key=lambda x: _month_sort_key(x.get("오픈예상월")))
+        s1_cols = list(rows1[0].keys())
+        st.markdown(_wk_table_html(rows1, s1_cols, status_col="상태", wrap_cols=("진행경과",)),
+                    unsafe_allow_html=True)
     else:
         rows1 = []
         st.caption("해당 사항 없음")
@@ -2532,12 +2637,14 @@ def _render_weekly_team(get_gc, login_members, team_display_members, records, cu
     section2 = [r for r in records if r.get("유형") == "추진물건" and r.get("주차코드", "").strip() == sel
                 and r.get("상태") == "추진물건" and (not managers or r.get("이름", "").strip() in managers)]
     if section2:
-        rows2 = [dict(_item_view(r), 진행주수=_weeks_between(r.get("최초등록주차") or sel, sel)) for r in section2]
-        rows2.sort(key=lambda x: -x["진행주수"])
-        st.dataframe(pd.DataFrame(rows2), use_container_width=True, hide_index=True)
+        rows2 = [_item_view_with_weeks(r, sel) for r in section2]
+        rows2.sort(key=lambda x: (_month_sort_key(x.get("오픈예상월")), -x["진행주수"]))
+        s2_cols = list(rows2[0].keys())
+        st.markdown(_wk_table_html(rows2, s2_cols, status_col="상태", wrap_cols=("진행경과",)),
+                    unsafe_allow_html=True)
         stale = [r for r in rows2 if r["진행주수"] >= 4]
         if stale:
-            st.warning("⚠️ 4주 이상 그대로인 물건: " + ", ".join(f"{r['이름']}·{r['물건명']}" for r in stale))
+            st.warning(":material/warning: 4주 이상 그대로인 물건: " + ", ".join(f"{r['이름']}·{r['물건명']}" for r in stale))
     else:
         rows2 = []
         st.caption("해당 사항 없음")
@@ -2552,7 +2659,7 @@ def _render_weekly_team(get_gc, login_members, team_display_members, records, cu
         st.caption("해당 사항 없음")
 
     if managers:
-        st.markdown("##### 🗓️ 담당자별 주간 일정")
+        st.markdown("##### :material/calendar_month: 담당자별 주간 일정")
         sched_by_mgr = {}
         for mgr in managers:
             sch = next((r for r in records if r.get("유형") == "일정" and r.get("주차코드", "").strip() == sel
@@ -2561,24 +2668,12 @@ def _render_weekly_team(get_gc, login_members, team_display_members, records, cu
                 sched_by_mgr[mgr] = json.loads(sch.get("추진물건", "") or "{}") if sch else {}
             except Exception:
                 sched_by_mgr[mgr] = {}
-        rows = []
-        for d in SCHEDULE_DAYS:
-            for half in SCHEDULE_HALVES:
-                slot = f"{d}{half}"
-                row = {"요일": f"{d}요일", "구분": half}
-                for mgr in managers:
-                    v = sched_by_mgr.get(mgr, {}).get(slot, "").strip()
-                    prev_v = prev_sched_by_name.get(mgr, {}).get(slot, "").strip()
-                    if v and prev_v == v:
-                        row[mgr] = f"{v} 🔁"
-                    else:
-                        row[mgr] = v or "-"
-                rows.append(row)
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-        st.caption("🔁 = 지난주와 동일한 일정")
+        st.markdown(_wk_schedule_table_html(SCHEDULE_DAYS, SCHEDULE_HALVES, managers, sched_by_mgr, prev_sched_by_name),
+                    unsafe_allow_html=True)
+        st.caption(":material/history: = 지난주와 동일한 일정")
 
     st.divider()
-    st.markdown("##### 🖨️ 회의자료용 인쇄 보기")
+    st.markdown("##### :material/print: 회의자료용 인쇄 보기")
     st.caption("아래를 열고 Ctrl+P(인쇄) → 'PDF로 저장'을 하면 정리된 회의자료 PDF로 바로 저장됩니다.")
     with st.expander("인쇄용 보기 열기"):
         html = _weekly_print_html(label_of.get(sel, sel), rows1, rows2, notes)
