@@ -1060,7 +1060,7 @@ is_admin = current_uid in ADMIN_IDS
 if app_mode == "tool":
     try:
         from tool_page import render_tool
-        render_tool(init_connection)
+        render_tool(init_connection, current_uid, current_name, is_admin)
     except Exception as e:
         st.error(f"관리툴 오류: {e}")
     st.stop()
