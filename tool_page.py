@@ -591,6 +591,7 @@ table.wk-tbl td.wk-empty { color: #aab4ca; padding: 16px; }
 .wk-badge.open { background: #e3f3ec; color: #0b9a6a; }
 .wk-badge.done { background: #e8edfb; color: #2c4a8a; }
 .wk-badge.prog { background: #fef1df; color: #b25e00; }
+.wk-badge.new { background: #ffe3e3; color: #d0143c; }
 /* 제출 현황 카드: 실적현황 카드(.kpi)와 같은 느낌이지만, '제출 현황' 제목 글자 크기 정도로 작게 */
 .subm-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 6px 0 16px; }
 .subm-card { --ac: #2c4a8a; background: #ffffff; border: 1px solid #dde3ef; border-left: 4px solid var(--ac);
@@ -2235,12 +2236,16 @@ def weekly_upsert_item(get_gc, week_code, week_label, uid, uname, item_id, statu
 
 
 def weekly_append_note(get_gc, week_code, week_label, uid, uname, note_text):
-    ws = _weekly_team_ws(get_gc)
-    header = ws.row_values(1)
+    """같은 주차·같은 사번의 '특이사항'은 새 줄로 쌓지 않고 덮어씁니다(추진물건/일정과 같은 업서트 방식).
+    예전에는 제출할 때마다 한 줄씩 추가돼서, 같은 내용을 여러 번 제출하면 특이사항이 그 횟수만큼 중복 표시됐습니다."""
     now = _weekly_now()
-    ws.append_row(_weekly_row(header, 주차코드=week_code, 주차표시=week_label, 사번=uid, 이름=uname,
-                              특이사항=note_text, 작성시각=now, 유형="특이사항", 수정시각=now))
-    weekly_clear_cache()
+
+    def match(header, row):
+        return (_cell(header, row, "주차코드") == week_code and _cell(header, row, "사번") == uid
+                and _cell(header, row, "유형") == "특이사항")
+
+    _weekly_upsert(get_gc, match, dict(주차코드=week_code, 주차표시=week_label, 사번=uid, 이름=uname,
+                                       특이사항=note_text, 작성시각=now, 유형="특이사항", 수정시각=now))
 
 
 def weekly_upsert_schedule(get_gc, week_code, week_label, uid, uname, sched):
@@ -2470,30 +2475,38 @@ def _item_view(r):
     """시트 한 행(r)의 '추진물건' JSON을 풀어서, 팀 현황 표/인쇄용 보기에 쓸 완전한 한 줄 dict로 만듭니다.
     칸 순서는 담당자 입력 표(ITEM_COLS)와 동일하게 오픈예상월 -> 물건명 -> ... -> 최초등록주차 -> 진행경과 순으로 맞춥니다.
     (진행경과는 자유 서술 칸이라 담당자 입력 표와 똑같이 맨 마지막 칸으로 둡니다)"""
+    # d.get(key, "") 는 JSON에 그 칸이 'null'로 저장돼 있으면(= 값이 있는데 None) 기본값 ""로 안 바뀌고
+    # None을 그대로 돌려줘서 화면/인쇄에 "None" 글자가 찍히는 원인이 됩니다. 그래서 `or ""`로 한 번 더 걸러줍니다.
     d = _parse_item_json(r.get("추진물건", ""))
     return {
         "상태": r.get("상태", ""),
         "이름": r.get("이름", ""),
-        "오픈예상월": d.get("오픈예상월", ""),
-        "물건명": d.get("물건명", ""),
-        "부문": d.get("부문", ""),
-        "지역": d.get("지역", ""),
-        "운영형태": d.get("운영형태", ""),
-        "상권대분류": d.get("상권대분류", ""),
-        "세부상권": d.get("세부상권", ""),
+        "오픈예상월": d.get("오픈예상월") or "",
+        "물건명": d.get("물건명") or "",
+        "부문": d.get("부문") or "",
+        "지역": d.get("지역") or "",
+        "운영형태": d.get("운영형태") or "",
+        "상권대분류": d.get("상권대분류") or "",
+        "세부상권": d.get("세부상권") or "",
         "예상매출(천원)": _fmt_item_num(d.get("예상매출(천원)")),
         "예상손익(천원)": _fmt_item_num(d.get("예상손익(천원)")),
-        "추진주체": d.get("추진주체", ""),
+        "추진주체": d.get("추진주체") or "",
         "최초등록주차": r.get("최초등록주차", ""),
-        "진행경과": d.get("진행경과", ""),
+        "진행경과": d.get("진행경과") or "",
     }
 
 
 def _item_view_with_weeks(r, sel):
-    """_item_view 결과에 '진행주수'(경과주)를 최초등록주차 다음, 진행경과 앞에 끼워 넣은 버전 (추진 물건 표용)"""
+    """_item_view 결과 앞에 '신규'(이번에 조회 중인 주차에 처음 등록됐으면 NEW) 배지용 칸을 추가하고,
+    '진행주수'(경과주)를 최초등록주차 다음, 진행경과 앞에 끼워 넣은 버전 (추진 물건 표용)"""
     view = _item_view(r)
     weeks = _weeks_between(r.get("최초등록주차") or sel, sel)
-    row = {k: v for k, v in view.items() if k != "진행경과"}
+    is_new = (r.get("최초등록주차") or "").strip() == str(sel).strip()
+    row = {"신규": "NEW" if is_new else ""}
+    for k, v in view.items():
+        if k == "진행경과":
+            continue
+        row[k] = v
     row["진행주수"] = weeks
     row["진행경과"] = view["진행경과"]
     return row
@@ -2543,6 +2556,8 @@ def _wk_table_html(rows, cols, status_col=None, wrap_cols=()):
                 v = r.get(c, "")
                 if c == status_col:
                     out.append(f"<td>{_status_badge_html(v)}</td>")
+                elif c == "신규":
+                    out.append(f'<td>{"<span class=\'wk-badge new\'>NEW</span>" if v else ""}</td>')
                 elif c in wrap_cols:
                     out.append(f'<td class="wk-prog">{escape(str(v)) if v else "-"}</td>')
                 else:
@@ -2584,9 +2599,13 @@ def _print_badge_html(status):
     return f'<span class="rpt-badge {cls}">{escape(label)}</span>'
 
 
+PRINT_NOTE_MAXLEN = 70     # 인쇄용 '진행경과' 글자수 제한(이 길이를 넘으면 … 로 줄여서, 칸이 좁아져 글자가 깨지는 걸 막음)
+
+
 def _rows_html(items, cols):
     """표 본문(tbody 안에 들어갈 <tr>들). 한 줄이 페이지 중간에서 잘리지 않도록 tr 에 'rpt-row' 클래스를 둡니다.
-    '상태' 칸은 화면(팀 현황) 표와 똑같이 색깔 알약 배지로 그립니다."""
+    '상태' 칸은 화면(팀 현황) 표와 똑같이 색깔 알약 배지로, '신규' 칸은 빨간 NEW 배지로 그립니다.
+    '진행경과'는 칸을 넓혀도 담당자가 아주 길게 쓰면 또 깨질 수 있어, 인쇄에서만 글자수를 제한합니다."""
     if not items:
         return f'<tr class="rpt-row"><td colspan="{len(cols)}" style="text-align:center;color:#999;">해당 사항 없음</td></tr>'
     out = []
@@ -2596,12 +2615,29 @@ def _rows_html(items, cols):
             v = it.get(c, "")
             if c == "상태":
                 cells.append(f"<td>{_print_badge_html(v)}</td>")
+            elif c == "신규":
+                cells.append(f'<td>{"<span class=\'rpt-badge new\'>NEW</span>" if v else ""}</td>')
             elif c == "진행경과":
-                cells.append(f'<td class="pg">{escape(str(v))}</td>')
+                txt = str(v)
+                if len(txt) > PRINT_NOTE_MAXLEN:
+                    txt = txt[:PRINT_NOTE_MAXLEN] + "…"
+                cells.append(f'<td class="pg">{escape(txt)}</td>')
             else:
                 cells.append(f"<td>{escape(str(v))}</td>")
         out.append('<tr class="rpt-row">' + "".join(cells) + "</tr>")
     return "".join(out)
+
+
+def _colgroup_html(cols, wide_col="진행경과", wide_pct=24):
+    """'진행경과' 칸에 더 넓은 비율을 미리 정해 주는 <colgroup>. 칸 수가 줄어도(공간 확보) 나머지 칸이
+    고르게 남은 공간을 나눠 가지므로, 표 전체가 찌그러지면서 글자가 깨지는 일을 줄여줍니다."""
+    if wide_col not in cols:
+        return ""
+    n = len(cols)
+    rest = 100.0 - wide_pct
+    each = rest / (n - 1) if n > 1 else rest
+    parts = [f'<col style="width:{wide_pct if c == wide_col else each:.2f}%">' for c in cols]
+    return "<colgroup>" + "".join(parts) + "</colgroup>"
 
 
 def _month_names_html(items):
@@ -2611,18 +2647,31 @@ def _month_names_html(items):
 
 
 def _month_grid_html(section1):
-    """'월별 오픈 예정 현황'을 image4 참고처럼 월을 가로 칸으로 두고, 칸마다 점포수(큰 숫자)와
-    점포 목록(담당자·물건명)을 세로로 나열하는 색깔 격자표로 그립니다."""
+    """'월별 오픈 예정 현황'을 월을 가로 칸으로 두고, 칸마다 점포수(큰 숫자)와 점포 목록(담당자·물건명)을
+    세로로 나열하는 색깔 격자표로 그립니다. 달력처럼 '이번 달부터 4개월'을 항상 고정으로 보여주고(물건이
+    없는 달도 빈 칸으로 표시), 그보다 더 먼 미래에 물건이 있으면 그 달도 뒤에 이어서 보여줍니다."""
     by_month = {}
     for it in section1:
         key = it.get("오픈예상월") or "월 미정"
         by_month.setdefault(key, []).append(it)
-    month_keys = sorted(by_month.keys(), key=_month_sort_key)
-    if not month_keys:
-        return '<div style="text-align:center;color:#999;padding:16px 0;">해당 사항 없음</div>'
+    today = datetime.now(KST)
+    y, m = today.year, today.month
+    base_months = []
+    for i in range(4):
+        mm = m + i
+        yy = y + (mm - 1) // 12
+        mo = (mm - 1) % 12 + 1
+        base_months.append(f"{yy}년 {mo}월")
+    last_base_key = _month_sort_key(base_months[-1])
+    extra_months = sorted(
+        [k for k in by_month if k != "월 미정" and k not in base_months and _month_sort_key(k) > last_base_key],
+        key=_month_sort_key)
+    month_keys = base_months + extra_months
+    if "월 미정" in by_month:
+        month_keys.append("월 미정")
     heads = "".join(f"<th>{escape(mk)}</th>" for mk in month_keys)
-    counts = "".join(f'<td class="mg-cnt">{len(by_month[mk])}점</td>' for mk in month_keys)
-    names = "".join(f'<td class="mg-names">{_month_names_html(by_month[mk])}</td>' for mk in month_keys)
+    counts = "".join(f'<td class="mg-cnt">{len(by_month.get(mk, []))}점</td>' for mk in month_keys)
+    names = "".join(f'<td class="mg-names">{_month_names_html(by_month.get(mk, []))}</td>' for mk in month_keys)
     return f'<table class="mgrid"><tr>{heads}</tr><tr>{counts}</tr><tr>{names}</tr></table>'
 
 
@@ -2634,15 +2683,21 @@ def _weekly_print_html(week_label, section1, section2, notes):
     표 한 줄이 페이지 경계에서 잘리지 않도록 '페이지 나눔 보호' 규칙을 같이 넣었습니다(아래 CSS @media print 부분).
     ※ 실제 인쇄 결과까지 직접 확인하지 못했습니다. 표가 아주 길면(줄이 매우 많으면) 그래도 중간에서
     페이지가 나뉠 수 있는데, 그 경우에도 표 '한 줄' 단위로는 끊기지 않도록만 보장합니다."""
-    s1_cols = ["상태", "이름", "오픈예상월", "물건명", "부문", "지역", "운영형태", "상권대분류", "세부상권",
-               "예상매출(천원)", "예상손익(천원)", "추진주체", "최초등록주차", "진행경과"]
-    s2_cols = ["상태", "이름", "오픈예상월", "물건명", "부문", "지역", "운영형태", "상권대분류", "세부상권",
-               "예상매출(천원)", "예상손익(천원)", "추진주체", "최초등록주차", "진행주수", "진행경과"]
+    # 인쇄본은 A4 폭이 고정이라 칸이 많으면 '진행경과'가 찌그러져 글자가 깨집니다. 그래서 상대적으로
+    # 덜 중요한 세부상권/추진주체는 두 표 모두에서 빼고, 최초등록주차는 이미 결론이 난 '오픈확정·계약완료'
+    # 표에서만 빼서(화면과 동일한 기준) 그 공간을 진행경과 쪽에 더 몰아줍니다. '추진 물건' 표에는 이번 주
+    # 새로 등록된 물건을 바로 알 수 있도록 '신규' 칸을 넣습니다.
+    s1_cols = ["상태", "이름", "오픈예상월", "물건명", "부문", "지역", "운영형태", "상권대분류",
+               "예상매출(천원)", "예상손익(천원)", "추진주체", "진행경과"]
+    s2_cols = ["신규", "상태", "이름", "오픈예상월", "물건명", "부문", "지역", "운영형태", "상권대분류",
+               "예상매출(천원)", "예상손익(천원)", "최초등록주차", "진행주수", "진행경과"]
 
     month_grid = _month_grid_html(section1)
     note_rows = "".join(f"<li><b>{escape(n['이름'])}</b>: {escape(n['특이사항'])}</li>" for n in notes) or "<li>해당 사항 없음</li>"
     s1_head = "".join(f"<th>{escape(c)}</th>" for c in s1_cols)
     s2_head = "".join(f"<th>{escape(c)}</th>" for c in s2_cols)
+    s1_colgroup = _colgroup_html(s1_cols)
+    s2_colgroup = _colgroup_html(s2_cols)
 
     return f"""
     <html><head><meta charset="utf-8"><style>
@@ -2657,16 +2712,17 @@ def _weekly_print_html(week_label, section1, section2, notes):
     @media print {{ .no-print {{ display:none !important; }} }}
     h1 {{ font-size: 19px; color:#1f3a73; border-bottom: 3px solid #1f3a73; padding-bottom:7px; margin:0 0 6px; }}
     h2 {{ font-size:14.5px; color:#2c4a8a; margin:16px 0 6px; }}
-    table.rpt {{ width:100%; border-collapse: collapse; font-size:11px; }}
+    table.rpt {{ width:100%; border-collapse: collapse; font-size:11px; table-layout: fixed; }}
     table.rpt thead th {{ background: linear-gradient(90deg, #eef3fc, #f8faff); color:#1f3a73; font-weight:800;
-         padding:6px 6px; text-align:center; border-bottom:2px solid #c9d4ea; }}
-    table.rpt td {{ padding:5px 6px; border-bottom:1px solid #edf0f6; text-align:center; }}
-    table.rpt td.pg {{ text-align:left; }}
+         padding:6px 6px; text-align:center; border-bottom:2px solid #c9d4ea; overflow-wrap:break-word; }}
+    table.rpt td {{ padding:5px 6px; border-bottom:1px solid #edf0f6; text-align:center; overflow-wrap:break-word; }}
+    table.rpt td.pg {{ text-align:left; word-break:break-word; line-height:1.4; }}
     table.rpt tbody tr:nth-child(even) td {{ background:#fafbfd; }}
     .rpt-badge {{ display:inline-block; font-size:10.5px; font-weight:800; border-radius:999px; padding:2px 10px; white-space:nowrap; }}
     .rpt-badge.open {{ background:#e3f3ec; color:#0b9a6a; }}
     .rpt-badge.done {{ background:#e8edfb; color:#2c4a8a; }}
     .rpt-badge.prog {{ background:#fef1df; color:#b25e00; }}
+    .rpt-badge.new {{ background:#ffe3e3; color:#d0143c; }}
     ul {{ font-size:13px; line-height:1.6; margin:4px 0; }}
     .page2 {{ margin-top: 10px; }}
     /* 월별 오픈 예정 현황: 월을 가로 칸으로 둔 색깔 격자표 */
@@ -2694,11 +2750,11 @@ def _weekly_print_html(week_label, section1, section2, notes):
       <h2>1) 월별 오픈 예정 현황</h2>
       {month_grid}
       <h2>2) 계약완료 · 오픈확정 물건</h2>
-      <table class="rpt"><thead><tr>{s1_head}</tr></thead><tbody>{_rows_html(section1, s1_cols)}</tbody></table>
+      <table class="rpt">{s1_colgroup}<thead><tr>{s1_head}</tr></thead><tbody>{_rows_html(section1, s1_cols)}</tbody></table>
     </div>
     <div class="page page2">
       <h2>3) 추진 물건</h2>
-      <table class="rpt"><thead><tr>{s2_head}</tr></thead><tbody>{_rows_html(section2, s2_cols)}</tbody></table>
+      <table class="rpt">{s2_colgroup}<thead><tr>{s2_head}</tr></thead><tbody>{_rows_html(section2, s2_cols)}</tbody></table>
       <h2>4) 특이사항</h2>
       <ul>{note_rows}</ul>
     </div>
@@ -2753,7 +2809,9 @@ def _render_weekly_team(get_gc, login_members, team_display_members, records, cu
     if section1:
         rows1 = [_item_view(r) for r in section1]
         rows1.sort(key=lambda x: _month_sort_key(x.get("오픈예상월")))
-        s1_cols = list(rows1[0].keys())
+        # 오픈확정·계약완료 물건은 이미 결론이 난 물건이라 '최초등록주차'가 큰 의미가 없어서 표에서 뺍니다
+        # (추진 물건 표에는 진행 기간 관리를 위해 그대로 남겨 둡니다).
+        s1_cols = [c for c in rows1[0].keys() if c != "최초등록주차"]
         st.markdown(_wk_table_html(rows1, s1_cols, status_col="상태", wrap_cols=("진행경과",)),
                     unsafe_allow_html=True)
     else:
