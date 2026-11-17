@@ -1636,7 +1636,7 @@ def _rank_metric_block(title, icon, note, good, bad, unit, color_fn, dec, state_
         st.markdown(f'<div class="rk-h good">TOP {len(good)}</div>', unsafe_allow_html=True)
         _rank_rows(good, unit, color_fn, dec, state_key, f"{prefix}_g")
     with c2:
-        st.markdown(f'<div class="rk-h bad">Worst {len(bad)}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="rk-h bad">WORST {len(bad)}</div>', unsafe_allow_html=True)
         _rank_rows(bad, unit, color_fn, dec, state_key, f"{prefix}_b")
 
 
@@ -1791,10 +1791,16 @@ SCHEDULE_HALVES = ["오전", "오후"]
 SCHEDULE_SLOTS = [f"{d}{h}" for d in SCHEDULE_DAYS for h in SCHEDULE_HALVES]
 
 # 추진물건 상세 입력 칸(예전 엑셀 양식과 동일). '계약 여부'는 기존의 '상태' 칸을 그대로 쓰고(= 계약여부),
-# 나머지 11개 칸은 시트에 새 열을 추가하지 않고 '추진물건' 칸 하나에 JSON으로 묶어서 저장합니다.
-ITEM_COLS = ["상태", "물건명", "오픈예상월", "부문", "지역", "운영형태", "상권대분류", "상권세부상권",
-             "1년차 예상일매출(천원)", "1년차 예상월손익(천원)", "추진주체", "진행경과"]
-ITEM_NUM_COLS = ("1년차 예상일매출(천원)", "1년차 예상월손익(천원)")
+# 나머지 칸은 시트에 새 열을 추가하지 않고 '추진물건' 칸 하나에 JSON으로 묶어서 저장합니다.
+ITEM_COLS = ["상태", "오픈예상월", "물건명", "부문", "지역", "운영형태", "상권대분류", "세부상권",
+             "예상매출(천원)", "예상손익(천원)", "추진주체", "진행경과"]
+ITEM_NUM_COLS = ("예상매출(천원)", "예상손익(천원)")
+# 화면(표)에 보여줄 순서: '경과(주)'는 저장값이 아니라 자동 계산 칸이라 ITEM_COLS 에는 없고, 맨 뒤 '진행경과' 앞에만 끼워 넣습니다.
+EDITOR_COLS = ITEM_COLS[:-1] + ["경과(주)"] + [ITEM_COLS[-1]]
+# 예전에 저장된 데이터는 칸 이름이 달랐던 적이 있어서(상권세부상권/1년차 예상일매출(천원)/1년차 예상월손익(천원)),
+# 그 이름으로 저장된 JSON을 읽을 때도 새 이름으로 그대로 보이도록 변환해 줍니다.
+_ITEM_OLD_TO_NEW = {"상권세부상권": "세부상권", "1년차 예상일매출(천원)": "예상매출(천원)",
+                    "1년차 예상월손익(천원)": "예상손익(천원)"}
 SELECT_LIST_TAB = "선택목록"      # 부문/운영형태/상권대분류/추진주체 드롭다운 값을 관리하는 탭(직접 편집 가능)
 
 
@@ -1844,6 +1850,9 @@ def _parse_item_json(raw):
     try:
         d = json.loads(raw)
         if isinstance(d, dict):
+            for old, new in _ITEM_OLD_TO_NEW.items():
+                if old in d and new not in d:
+                    d[new] = d.pop(old)
             d.setdefault("물건명", "")
             return d
     except Exception:
@@ -1870,50 +1879,88 @@ def _fmt_item_num(v):
 
 
 def _dropdown_or_text(label, opts, width="small"):
-    """선택목록에 값이 있으면 드롭다운, 없으면(아직 안 채워졌으면) 직접 입력 칸"""
+    """선택목록에 값이 있으면 드롭다운(맨 앞에 빈 선택지 추가), 없으면(아직 안 채워졌으면) 직접 입력 칸.
+    빈 선택지를 넣어두는 이유: 비어 있는 칸이 옵션 목록에 없는 값으로 보여서 'None' 글자로 깨지는 문제를 막기 위함"""
     if opts:
-        return st.column_config.SelectboxColumn(label, options=opts, width=width)
+        options = [""] + [o for o in opts if o]
+        return st.column_config.SelectboxColumn(label, options=options, width=width)
     return st.column_config.TextColumn(label, width=width)
 
 
-def _item_editor(editor_key, statuses, default_status, draft_rows, fw_map, cur_code, select_lists, month_opts):
-    """draft_rows(전체 물건 목록) 중 이 탭(statuses)에 해당하는 것만 엑셀 같은 표(st.data_editor)로 보여주고,
-    편집된 결과(이 탭분)를 돌려줍니다. 행 추가/삭제도 표 자체의 + / 🗑 버튼으로 됩니다."""
-    sub = [dict(r) for r in draft_rows if r.get("상태") in statuses]
-    for r in sub:
-        name = str(r.get("물건명", "")).strip()
-        r["진행(주)"] = _weeks_between(fw_map.get(name, cur_code), cur_code) if name else None
-    cols = ["진행(주)"] + ITEM_COLS
-    df = pd.DataFrame(sub, columns=cols)
-    for c in ITEM_NUM_COLS:
-        df[c] = pd.to_numeric(df[c], errors="coerce")
+def _build_seed_df(rows, fw_map, cur_code):
+    """rows(ITEM_COLS 모양의 dict 리스트)를 data_editor 에 안정적으로 넘길 DataFrame으로 만듭니다.
+    숫자 칸은 빈값이면 NaN(=화면엔 빈 칸), 글자 칸은 빈값이면 빈 문자열로 통일해서 'None' 글자가 보이지 않게 합니다.
+    이 함수로 만든 결과는 '처음 만들 때'와 '상태가 바뀌어 다른 탭으로 옮길 때'만 새로 호출하고, 그 사이에는
+    같은 객체를 data_editor 에 계속 그대로 넘겨야 합니다(매번 새로 만들면 편집 중간에 표가 리셋되는 원인이 됩니다)."""
+    data = []
+    for r in rows:
+        row = {c: r.get(c, "") for c in ITEM_COLS}
+        name = str(row.get("물건명", "")).strip()
+        row["경과(주)"] = _weeks_between(fw_map.get(name, cur_code), cur_code) if name else None
+        data.append(row)
+    df = pd.DataFrame(data, columns=EDITOR_COLS) if data else pd.DataFrame(columns=EDITOR_COLS)
+    for c in EDITOR_COLS:
+        if c in ITEM_NUM_COLS or c == "경과(주)":
+            df[c] = pd.to_numeric(df[c], errors="coerce")
+        else:
+            df[c] = df[c].apply(lambda v: "" if (v is None or (isinstance(v, float) and pd.isna(v))) else str(v))
+    return df.reset_index(drop=True)
+
+
+def _item_editor(editor_key, own_seed_key, other_seed_key, allowed_statuses, status_options, default_status,
+                  select_lists, month_opts, fw_map, cur_code):
+    """표 하나(탭 하나)를 그립니다. data_editor 에 넘기는 값은 세션에 저장해 둔 것을 매번 '그대로' 넘겨서
+    (새로 만들어서 넘기면 한 칸 편집할 때마다 표가 리셋되는 원인이 됩니다) 편집 중 리셋을 막고,
+    상태가 이 탭에 안 맞게 바뀐 줄만 감지해서 다른 탭 쪽으로 옮깁니다."""
+    seed_df = st.session_state[own_seed_key]
     cfg = {
-        "진행(주)": st.column_config.NumberColumn("진행(주)", disabled=True, width="small",
-                                                 help="최초 등록 주차부터 몇 주째 이어지는지 (자동 계산)"),
-        "상태": st.column_config.SelectboxColumn("상태", options=ITEM_STATUS, required=True, width="small"),
-        "물건명": st.column_config.TextColumn("물건명", required=True, width="medium"),
+        "상태": st.column_config.SelectboxColumn("상태", options=status_options, required=True, width="small"),
         "오픈예상월": st.column_config.SelectboxColumn("오픈예상월", options=month_opts, width="small"),
+        "물건명": st.column_config.TextColumn("물건명", required=True, width="medium"),
         "부문": _dropdown_or_text("부문", select_lists.get("부문")),
         "지역": st.column_config.TextColumn("지역", width="small"),
         "운영형태": _dropdown_or_text("운영형태", select_lists.get("운영형태")),
         "상권대분류": _dropdown_or_text("상권대분류", select_lists.get("상권대분류")),
-        "상권세부상권": st.column_config.TextColumn("상권세부상권", width="small"),
-        "1년차 예상일매출(천원)": st.column_config.NumberColumn("1년차 예상일매출(천원)", format="%d", width="small"),
-        "1년차 예상월손익(천원)": st.column_config.NumberColumn("1년차 예상월손익(천원)", format="%d", width="small"),
+        "세부상권": st.column_config.TextColumn("세부상권", width="small"),
+        "예상매출(천원)": st.column_config.NumberColumn("예상매출(천원)", format="%d", width="small"),
+        "예상손익(천원)": st.column_config.NumberColumn("예상손익(천원)", format="%d", width="small"),
         "추진주체": _dropdown_or_text("추진주체", select_lists.get("추진주체")),
+        "경과(주)": st.column_config.NumberColumn("경과(주)", disabled=True, width="small",
+                                                 help="최초 등록 주차부터 몇 주째 이어지는지 (자동 계산)"),
         "진행경과": st.column_config.TextColumn("진행경과", width="large"),
     }
-    edited = st.data_editor(df, column_config=cfg, num_rows="dynamic", use_container_width=True,
-                            hide_index=True, key=editor_key)
+    edited = st.data_editor(seed_df, column_config=cfg, num_rows="dynamic", use_container_width=True,
+                            hide_index=True, key=editor_key, column_order=EDITOR_COLS)
+
+    keep_rows, moved_rows = [], []
+    for rec in edited.to_dict("records"):
+        name = str(rec.get("물건명") or "").strip()
+        status = rec.get("상태") if rec.get("상태") in ITEM_STATUS else default_status
+        rec["물건명"] = name
+        rec["상태"] = status
+        if status in allowed_statuses or not name:
+            keep_rows.append(rec)
+        else:
+            moved_rows.append(rec)
+
+    if moved_rows:
+        # 상태가 이 탭과 안 맞게 바뀐 줄 -> 다른 탭 쪽에 더해 주고, 이 탭에서는 빼서 각각 다시 만듭니다.
+        other_df = st.session_state.get(other_seed_key)
+        other_rows = other_df.to_dict("records") if other_df is not None else []
+        other_rows = other_rows + [{c: r.get(c, "") for c in ITEM_COLS} for r in moved_rows]
+        st.session_state[other_seed_key] = _build_seed_df(other_rows, fw_map, cur_code)
+        st.session_state[own_seed_key] = _build_seed_df(
+            [{c: r.get(c, "") for c in ITEM_COLS} for r in keep_rows], fw_map, cur_code)
+        moved_names = ", ".join(r["물건명"] for r in moved_rows if r["물건명"])
+        if moved_names:
+            st.toast(f"'{moved_names}' 상태가 바뀌어 다른 탭으로 옮겼습니다.", icon="📦")
+        st.rerun()
+
     out = []
-    for r in edited.to_dict("records"):
-        # 물건명이 아직 비어 있는(막 추가한) 줄도 지우지 않고 그대로 들고 있습니다.
-        # -> 다른 칸부터 먼저 입력해도 중간에 줄이 사라지지 않고, 제출할 때만 물건명이 빈 줄을 뺍니다.
-        r["물건명"] = str(r.get("물건명") or "").strip()
-        r["상태"] = r.get("상태") if r.get("상태") in ITEM_STATUS else default_status
+    for rec in keep_rows:
         for c in ITEM_NUM_COLS:
-            r[c] = _item_num(r.get(c))
-        out.append({c: r.get(c, "") for c in ITEM_COLS})
+            rec[c] = _item_num(rec.get(c))
+        out.append({c: rec.get(c, "") for c in ITEM_COLS})
     return out
 
 
@@ -2239,45 +2286,48 @@ def _render_weekly_mine(get_gc, records, uid, uname, cur_code, cur_label):
     submitted_at = weekly_submitted_at(records, uid, cur_code)
     _weekly_status_banner(submitted_at)
 
-    draft_key = f"wk_draft_{cur_code}_{uid}"
+    done_seed_key = f"wk_seed_done_{cur_code}_{uid}"
+    prog_seed_key = f"wk_seed_prog_{cur_code}_{uid}"
     fw_key = f"wk_fw_{cur_code}_{uid}"
-    if draft_key not in st.session_state:
+    if done_seed_key not in st.session_state or prog_seed_key not in st.session_state:
         seed = weekly_items_of_week(records, uid, cur_code) or weekly_latest_items_before(records, uid, cur_code)
-        draft_rows, fw_map = [], {}
+        rows, fw_map = [], {}
         for r in seed:
             d = _parse_item_json(r.get("추진물건", ""))
             row = {c: d.get(c, "") for c in ITEM_COLS}
             row["상태"] = r.get("상태") if r.get("상태") in ITEM_STATUS else "추진물건"
             row["물건명"] = str(d.get("물건명", "")).strip()
-            for c in ITEM_NUM_COLS:
-                row[c] = _item_num(row.get(c))
-            draft_rows.append(row)
+            rows.append(row)
             if row["물건명"]:
                 fw_map[row["물건명"]] = r.get("최초등록주차") or r.get("주차코드") or cur_code
-        st.session_state[draft_key] = draft_rows
         st.session_state[fw_key] = fw_map
+        done_rows = [r for r in rows if r["상태"] in ("오픈확정", "계약완료")]
+        prog_rows = [r for r in rows if r["상태"] == "추진물건"]
+        st.session_state[done_seed_key] = _build_seed_df(done_rows, fw_map, cur_code)
+        st.session_state[prog_seed_key] = _build_seed_df(prog_rows, fw_map, cur_code)
 
     st.markdown("##### 📝 주간업무보고")
-    st.caption("지난주 목록이 그대로 이어집니다. 표를 엑셀처럼 바로 고쳐 쓰고, 빈 줄(가장 아래)에 새 물건을 추가하거나 "
-               "행 왼쪽을 선택해 🗑 로 지울 수 있습니다. 상태를 바꾸면 해당 물건이 알맞은 탭으로 자동으로 옮겨집니다.")
-    draft = st.session_state[draft_key]
+    st.caption("지난주 목록이 그대로 이어집니다. 표를 엑셀처럼 바로 고쳐 쓰고, 빈 줄(가장 아래)에 새 물건을 추가할 수 있습니다. "
+               "각 줄 맨 앞의 체크박스는 그 줄을 지울 때 선택하는 용도입니다(선택하면 위에 🗑 지우기 버튼이 나타납니다). "
+               "상태를 '오픈확정'이나 '계약완료'로 바꾸면 그 물건이 자동으로 '계약완료·오픈확정 물건' 탭으로 옮겨집니다.")
     fw_map = st.session_state.get(fw_key, {})
     select_lists = load_select_lists(get_gc)
-    month_opts = _future_month_labels()
+    month_opts = [""] + _future_month_labels()
 
     t_done, t_prog = st.tabs(["🏆 계약완료·오픈확정 물건", "📦 추진 물건"])
     with t_done:
-        done_rows = _item_editor(f"{draft_key}_ed_done", ("오픈확정", "계약완료"), "오픈확정",
-                                 draft, fw_map, cur_code, select_lists, month_opts)
+        done_rows = _item_editor(f"wk_ed_done_{cur_code}_{uid}", done_seed_key, prog_seed_key,
+                                 ("오픈확정", "계약완료"), ["오픈확정", "계약완료"], "오픈확정",
+                                 select_lists, month_opts, fw_map, cur_code)
     with t_prog:
-        prog_rows = _item_editor(f"{draft_key}_ed_prog", ("추진물건",), "추진물건",
-                                 draft, fw_map, cur_code, select_lists, month_opts)
+        prog_rows = _item_editor(f"wk_ed_prog_{cur_code}_{uid}", prog_seed_key, done_seed_key,
+                                 ("추진물건",), ITEM_STATUS, "추진물건",
+                                 select_lists, month_opts, fw_map, cur_code)
     draft = done_rows + prog_rows
     for r in draft:
         name = str(r.get("물건명", "")).strip()
         if name and name not in fw_map:
             fw_map[name] = cur_code
-    st.session_state[draft_key] = draft
     st.session_state[fw_key] = fw_map
 
     st.markdown("---")
@@ -2370,9 +2420,9 @@ def _item_view(r):
         "지역": d.get("지역", ""),
         "운영형태": d.get("운영형태", ""),
         "상권대분류": d.get("상권대분류", ""),
-        "상권세부상권": d.get("상권세부상권", ""),
-        "1년차 예상일매출(천원)": _fmt_item_num(d.get("1년차 예상일매출(천원)")),
-        "1년차 예상월손익(천원)": _fmt_item_num(d.get("1년차 예상월손익(천원)")),
+        "세부상권": d.get("세부상권", ""),
+        "예상매출(천원)": _fmt_item_num(d.get("예상매출(천원)")),
+        "예상손익(천원)": _fmt_item_num(d.get("예상손익(천원)")),
         "추진주체": d.get("추진주체", ""),
         "진행경과": d.get("진행경과", ""),
         "최초등록주차": r.get("최초등록주차", ""),
@@ -2390,8 +2440,8 @@ def _weekly_print_html(week_label, section1, section2, notes):
             out.append("<tr>" + "".join(f"<td>{escape(str(it.get(c, '')))}</td>" for c in cols) + "</tr>")
         return "".join(out)
 
-    s1_cols = ["상태", "이름", "물건명", "오픈예상월", "부문", "지역", "운영형태", "상권대분류", "상권세부상권",
-               "1년차 예상일매출(천원)", "1년차 예상월손익(천원)", "추진주체", "진행경과", "최초등록주차"]
+    s1_cols = ["상태", "이름", "물건명", "오픈예상월", "부문", "지역", "운영형태", "상권대분류", "세부상권",
+               "예상매출(천원)", "예상손익(천원)", "추진주체", "진행경과", "최초등록주차"]
     s2_cols = s1_cols[1:] + ["진행주수"]
     note_rows = "".join(f"<li><b>{escape(n['이름'])}</b>: {escape(n['특이사항'])}</li>" for n in notes) or "<li>해당 사항 없음</li>"
     return f"""
