@@ -10,7 +10,6 @@ import re
 import math
 import json
 import uuid
-import base64
 import hashlib
 from html import escape
 from datetime import datetime, timezone, timedelta
@@ -453,7 +452,7 @@ div[class*="st-key-backbtn_"] button:hover { background: #1e3a6f !important; }
 .sm-v.top { color: #0b9a6a; }
 /* 영업이익 / 달성률 TOP5·주의 랭킹 카드 (버튼 기반: 점포명 클릭 시 세션 상태만 바꿔서 같은 탭에서 바로 펼침) */
 div[class*="st-key-rkcard_"] { background: #ffffff; border: 1px solid #d5dcea; border-radius: 14px;
-    padding: 16px 20px 6px; margin: 8px 0 14px; height: 100%; }
+    padding: 16px 20px 16px; margin: 8px 0 14px; height: 100%; }
 /* 카드 안 TOP5 / 주의 필요 두 칸 사이 간격만 좀 좁게 */
 div[class*="st-key-rkcard_"] [data-testid="stHorizontalBlock"] { gap: 14px !important; }
 div[class*="st-key-rkcard_"] [data-testid="stColumn"] { min-width: 0 !important; }
@@ -602,11 +601,6 @@ table.wk-tbl td.wk-empty { color: #aab4ca; padding: 16px; }
 .subm-card .sb-v.ok { color: #0b9a6a; }
 .subm-card .sb-v.no { color: #d0143c; }
 .subm-card .sb-s { font-size: 11px; color: #8591ab; margin-top: 2px; }
-/* 인쇄용 보기: '새 창에서 열기' 링크 (임베드된 미리보기 창에서 바로 인쇄하면 잘려서 나오는 문제를 막기 위함) */
-.wk-print-link { display: inline-flex; align-items: center; gap: 7px; height: 40px; padding: 0 18px; border-radius: 10px;
-    background: #2c4a8a; color: #ffffff !important; font-weight: 800; font-size: 14.5px; text-decoration: none !important;
-    box-shadow: 0 3px 10px rgba(31,58,115,.25); }
-.wk-print-link:hover { background: #1e3a6f; }
 </style>
 """
 
@@ -1900,10 +1894,15 @@ def _parse_item_json(raw):
 
 
 def _item_num(v):
+    """숫자로 바꿉니다. 빈 값은 물론, 표 편집기를 거치며 생기는 NaN(판다스의 '숫자 없음' 값)도
+    여기서 같이 걸러내 None으로 돌려줘야, 저장되는 JSON/화면에 'nan' 글자가 남지 않습니다."""
     try:
-        if v in (None, ""):
+        if v is None or v == "":
             return None
-        return float(v)
+        f = float(v)
+        if f != f:   # NaN (NaN은 자기 자신과도 같지 않다는 성질로 판별)
+            return None
+        return f
     except Exception:
         return None
 
@@ -1912,7 +1911,10 @@ def _fmt_item_num(v):
     try:
         if v is None or v == "":
             return ""
-        return f"{float(v):,.0f}"
+        f = float(v)
+        if f != f:   # NaN
+            return ""
+        return f"{f:,.0f}"
     except Exception:
         return str(v)
 
@@ -2614,8 +2616,14 @@ def _weekly_print_html(week_label, section1, section2, notes):
     return f"""
     <html><head><meta charset="utf-8"><style>
     @page {{ size: A4 landscape; margin: 10mm 9mm; }}
-    * {{ box-sizing: border-box; }}
+    * {{ box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; color-adjust: exact; }}
     body {{ font-family: 'Malgun Gothic','맑은 고딕',sans-serif; color:#1f2d4d; padding: 16px 18px; }}
+    .no-print {{ text-align:right; margin-bottom:10px; }}
+    .no-print button {{ height:38px; padding:0 18px; border:none; border-radius:9px; background:#2c4a8a; color:#fff;
+        font-weight:800; font-size:14px; cursor:pointer; box-shadow:0 3px 9px rgba(31,58,115,.25); }}
+    .no-print button:hover {{ background:#1e3a6f; }}
+    .no-print .tip {{ font-size:11.5px; color:#8591ab; margin-top:5px; }}
+    @media print {{ .no-print {{ display:none !important; }} }}
     h1 {{ font-size: 19px; color:#1f3a73; border-bottom: 3px solid #1f3a73; padding-bottom:7px; margin:0 0 6px; }}
     h2 {{ font-size:14.5px; color:#2c4a8a; margin:16px 0 6px; }}
     table.rpt {{ width:100%; border-collapse: collapse; font-size:11px; }}
@@ -2644,6 +2652,8 @@ def _weekly_print_html(week_label, section1, section2, notes):
       h2 {{ page-break-after: avoid; break-after: avoid; }}
     }}
     </style></head><body>
+    <div class="no-print"><button onclick="window.print()">인쇄하기 / PDF로 저장</button>
+      <div class="tip">버튼을 누르면 1페이지(월별 오픈 현황 + 계약완료·오픈확정 물건) / 2페이지(추진 물건)로 나뉜 인쇄 대화상자가 열립니다.</div></div>
     <h1>특수개발팀 주간 현황 · {escape(week_label)}</h1>
     <div class="page page1">
       <h2>1) 월별 오픈 예정 현황</h2>
@@ -2767,17 +2777,12 @@ def _render_weekly_team(get_gc, login_members, team_display_members, records, cu
 
     st.divider()
     st.markdown("##### :material/print: 회의자료용 인쇄 보기")
-    html = _weekly_print_html(label_of.get(sel, sel), rows1, rows2, notes)
-    b64 = base64.b64encode(html.encode("utf-8")).decode("ascii")
-    st.markdown(
-        f'<a class="wk-print-link" href="data:text/html;base64,{b64}" target="_blank">새 창에서 인쇄용 보기 열기 →</a>',
-        unsafe_allow_html=True,
-    )
-    st.caption("위 링크를 누르면 새 탭에 회의자료가 열립니다. 그 새 탭에서 Ctrl+P(인쇄) → 'PDF로 저장'을 하면 "
-               "1페이지(월별 오픈 현황 + 계약완료·오픈확정 물건) / 2페이지(추진 물건)로 나뉜 PDF가 됩니다. "
-               "(아래 미리보기 창은 내용 확인용이며, 여기서 바로 인쇄하면 잘려 나올 수 있어 인쇄는 위 링크를 이용해 주세요)")
-    with st.expander("미리보기(확인용)"):
-        components.html(html, height=700, scrolling=True)
+    st.caption("아래를 열면 회의자료가 보이고, 그 안의 '인쇄하기 / PDF로 저장' 버튼을 누르면 "
+               "1페이지(월별 오픈 현황 + 계약완료·오픈확정 물건) / 2페이지(추진 물건)로 나뉜 인쇄 대화상자가 열립니다. "
+               "(브라우저 자체 인쇄 기능 대신 꼭 이 안의 버튼을 눌러주세요 - 그래야 디자인이 그대로 인쇄됩니다)")
+    with st.expander("인쇄용 보기 열기"):
+        html = _weekly_print_html(label_of.get(sel, sel), rows1, rows2, notes)
+        components.html(html, height=750, scrolling=True)
 
 
 def render_weekly(get_gc, D, uid, uname, is_admin):
