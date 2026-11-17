@@ -1789,6 +1789,134 @@ ITEM_STATUS = ["추진물건", "오픈확정", "계약완료"]
 SCHEDULE_DAYS = ["월", "화", "수", "목", "금"]
 SCHEDULE_HALVES = ["오전", "오후"]
 SCHEDULE_SLOTS = [f"{d}{h}" for d in SCHEDULE_DAYS for h in SCHEDULE_HALVES]
+
+# 추진물건 상세 입력 칸(예전 엑셀 양식과 동일). '계약 여부'는 기존의 '상태' 칸을 그대로 쓰고(= 계약여부),
+# 나머지 11개 칸은 시트에 새 열을 추가하지 않고 '추진물건' 칸 하나에 JSON으로 묶어서 저장합니다.
+ITEM_COLS = ["상태", "물건명", "오픈예상월", "부문", "지역", "운영형태", "상권대분류", "상권세부상권",
+             "1년차 예상일매출(천원)", "1년차 예상월손익(천원)", "추진주체", "진행경과"]
+ITEM_NUM_COLS = ("1년차 예상일매출(천원)", "1년차 예상월손익(천원)")
+SELECT_LIST_TAB = "선택목록"      # 부문/운영형태/상권대분류/추진주체 드롭다운 값을 관리하는 탭(직접 편집 가능)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def load_select_lists(_get_gc):
+    """'선택목록' 탭에서 드롭다운 값을 읽어옵니다. 탭이 없거나 비어 있으면 빈 목록을 돌려주고,
+    그 경우 해당 칸은 드롭다운 대신 직접 입력 칸으로 자동으로 바뀝니다."""
+    cols = ("부문", "운영형태", "상권대분류", "추진주체")
+    out = {c: [] for c in cols}
+    try:
+        gc = _get_gc()
+        values = gc.open(WEEKLY_DOC_NAME).worksheet(SELECT_LIST_TAB).get_all_values()
+    except Exception:
+        return out
+    if not values:
+        return out
+    header = [str(h).strip() for h in values[0]]
+    idx = {c: header.index(c) for c in cols if c in header}
+    for c, i in idx.items():
+        seen = []
+        for row in values[1:]:
+            if i < len(row) and str(row[i]).strip() and str(row[i]).strip() not in seen:
+                seen.append(str(row[i]).strip())
+        out[c] = seen
+    return out
+
+
+def _future_month_labels(n=24):
+    """오늘이 속한 달부터 n개월치 '2026년 11월' 형식 목록(오픈예상월 드롭다운용)"""
+    today = datetime.now(KST)
+    y, m = today.year, today.month
+    labels = []
+    for i in range(n):
+        mm = m + i
+        yy = y + (mm - 1) // 12
+        mo = (mm - 1) % 12 + 1
+        labels.append(f"{yy}년 {mo}월")
+    return labels
+
+
+def _parse_item_json(raw):
+    """'추진물건' 칸 내용을 구조화된 dict로. (도입 전) 예전 데이터는 한 줄 텍스트였으므로,
+    JSON으로 못 읽으면 그 글자 전체를 '물건명'으로 봅니다 -> 기존 데이터도 그대로 보입니다."""
+    raw = str(raw or "").strip()
+    if not raw:
+        return {"물건명": ""}
+    try:
+        d = json.loads(raw)
+        if isinstance(d, dict):
+            d.setdefault("물건명", "")
+            return d
+    except Exception:
+        pass
+    return {"물건명": raw}
+
+
+def _item_num(v):
+    try:
+        if v in (None, ""):
+            return None
+        return float(v)
+    except Exception:
+        return None
+
+
+def _fmt_item_num(v):
+    try:
+        if v is None or v == "":
+            return ""
+        return f"{float(v):,.0f}"
+    except Exception:
+        return str(v)
+
+
+def _dropdown_or_text(label, opts, width="small"):
+    """선택목록에 값이 있으면 드롭다운, 없으면(아직 안 채워졌으면) 직접 입력 칸"""
+    if opts:
+        return st.column_config.SelectboxColumn(label, options=opts, width=width)
+    return st.column_config.TextColumn(label, width=width)
+
+
+def _item_editor(editor_key, statuses, default_status, draft_rows, fw_map, cur_code, select_lists, month_opts):
+    """draft_rows(전체 물건 목록) 중 이 탭(statuses)에 해당하는 것만 엑셀 같은 표(st.data_editor)로 보여주고,
+    편집된 결과(이 탭분)를 돌려줍니다. 행 추가/삭제도 표 자체의 + / 🗑 버튼으로 됩니다."""
+    sub = [dict(r) for r in draft_rows if r.get("상태") in statuses]
+    for r in sub:
+        name = str(r.get("물건명", "")).strip()
+        r["진행(주)"] = _weeks_between(fw_map.get(name, cur_code), cur_code) if name else None
+    cols = ["진행(주)"] + ITEM_COLS
+    df = pd.DataFrame(sub, columns=cols)
+    for c in ITEM_NUM_COLS:
+        df[c] = pd.to_numeric(df[c], errors="coerce")
+    cfg = {
+        "진행(주)": st.column_config.NumberColumn("진행(주)", disabled=True, width="small",
+                                                 help="최초 등록 주차부터 몇 주째 이어지는지 (자동 계산)"),
+        "상태": st.column_config.SelectboxColumn("상태", options=ITEM_STATUS, required=True, width="small"),
+        "물건명": st.column_config.TextColumn("물건명", required=True, width="medium"),
+        "오픈예상월": st.column_config.SelectboxColumn("오픈예상월", options=month_opts, width="small"),
+        "부문": _dropdown_or_text("부문", select_lists.get("부문")),
+        "지역": st.column_config.TextColumn("지역", width="small"),
+        "운영형태": _dropdown_or_text("운영형태", select_lists.get("운영형태")),
+        "상권대분류": _dropdown_or_text("상권대분류", select_lists.get("상권대분류")),
+        "상권세부상권": st.column_config.TextColumn("상권세부상권", width="small"),
+        "1년차 예상일매출(천원)": st.column_config.NumberColumn("1년차 예상일매출(천원)", format="%d", width="small"),
+        "1년차 예상월손익(천원)": st.column_config.NumberColumn("1년차 예상월손익(천원)", format="%d", width="small"),
+        "추진주체": _dropdown_or_text("추진주체", select_lists.get("추진주체")),
+        "진행경과": st.column_config.TextColumn("진행경과", width="large"),
+    }
+    edited = st.data_editor(df, column_config=cfg, num_rows="dynamic", use_container_width=True,
+                            hide_index=True, key=editor_key)
+    out = []
+    for r in edited.to_dict("records"):
+        # 물건명이 아직 비어 있는(막 추가한) 줄도 지우지 않고 그대로 들고 있습니다.
+        # -> 다른 칸부터 먼저 입력해도 중간에 줄이 사라지지 않고, 제출할 때만 물건명이 빈 줄을 뺍니다.
+        r["물건명"] = str(r.get("물건명") or "").strip()
+        r["상태"] = r.get("상태") if r.get("상태") in ITEM_STATUS else default_status
+        for c in ITEM_NUM_COLS:
+            r[c] = _item_num(r.get(c))
+        out.append({c: r.get(c, "") for c in ITEM_COLS})
+    return out
+
+
 # 로그인 가능한 사람 목록(= 현재 실제 팀원) : '점포마스터' 탭의 담당자는 그 점포를 오픈할 당시 담당자라서
 # 팀원이 바뀌어도 갱신되지 않습니다. 그래서 팀 현황에 보여줄 담당자 목록은 로그인 시트에서 따로 읽습니다.
 LOGIN_SHEET_KEY = "1zD20Om2mHH7M9ppcialvqB1SxA9IyVq2aCLM9IWoo8c"
@@ -2112,52 +2240,45 @@ def _render_weekly_mine(get_gc, records, uid, uname, cur_code, cur_label):
     _weekly_status_banner(submitted_at)
 
     draft_key = f"wk_draft_{cur_code}_{uid}"
+    fw_key = f"wk_fw_{cur_code}_{uid}"
     if draft_key not in st.session_state:
         seed = weekly_items_of_week(records, uid, cur_code) or weekly_latest_items_before(records, uid, cur_code)
-        st.session_state[draft_key] = [
-            {"id": r.get("아이템ID") or uuid.uuid4().hex[:10],
-             "status": r.get("상태") if r.get("상태") in ITEM_STATUS else "추진물건",
-             "content": r.get("추진물건", ""),
-             "first_week": r.get("최초등록주차") or r.get("주차코드") or cur_code}
-            for r in seed
-        ]
+        draft_rows, fw_map = [], {}
+        for r in seed:
+            d = _parse_item_json(r.get("추진물건", ""))
+            row = {c: d.get(c, "") for c in ITEM_COLS}
+            row["상태"] = r.get("상태") if r.get("상태") in ITEM_STATUS else "추진물건"
+            row["물건명"] = str(d.get("물건명", "")).strip()
+            for c in ITEM_NUM_COLS:
+                row[c] = _item_num(row.get(c))
+            draft_rows.append(row)
+            if row["물건명"]:
+                fw_map[row["물건명"]] = r.get("최초등록주차") or r.get("주차코드") or cur_code
+        st.session_state[draft_key] = draft_rows
+        st.session_state[fw_key] = fw_map
 
     st.markdown("##### 📝 주간업무보고")
-    st.caption("지난주 목록이 그대로 이어집니다. 상태/내용을 고쳐 쓰거나, 끝난 물건은 삭제 버튼으로 지워 주세요. "
-               "상태를 바꾸면 해당 물건이 알맞은 탭으로 자동으로 옮겨집니다.")
+    st.caption("지난주 목록이 그대로 이어집니다. 표를 엑셀처럼 바로 고쳐 쓰고, 빈 줄(가장 아래)에 새 물건을 추가하거나 "
+               "행 왼쪽을 선택해 🗑 로 지울 수 있습니다. 상태를 바꾸면 해당 물건이 알맞은 탭으로 자동으로 옮겨집니다.")
     draft = st.session_state[draft_key]
-
-    def _item_tab(statuses, add_label, default_status):
-        remove_id = None
-        shown = [it for it in draft if it["status"] in statuses]
-        for it in shown:
-            weeks_pending = _weeks_between(it["first_week"], cur_code)
-            c1, c2, c3 = st.columns([1.3, 5, 1])
-            with c1:
-                it["status"] = st.selectbox(
-                    "상태", ITEM_STATUS,
-                    index=ITEM_STATUS.index(it["status"]) if it["status"] in ITEM_STATUS else 0,
-                    key=f"{draft_key}_status_{it['id']}", label_visibility="collapsed")
-            with c2:
-                it["content"] = st.text_input(
-                    "내용", value=it["content"], key=f"{draft_key}_content_{it['id']}",
-                    placeholder="예: OO휴게소 브랜드 교체 협의", label_visibility="collapsed")
-            with c3:
-                st.caption(f"{weeks_pending}주째" if weeks_pending > 1 else "신규")
-                if st.button("삭제", key=f"{draft_key}_del_{it['id']}"):
-                    remove_id = it["id"]
-        if remove_id is not None:
-            draft[:] = [it for it in draft if it["id"] != remove_id]
-            st.rerun()
-        if st.button(add_label, key=f"{draft_key}_add_{'_'.join(statuses)}"):
-            draft.append({"id": uuid.uuid4().hex[:10], "status": default_status, "content": "", "first_week": cur_code})
-            st.rerun()
+    fw_map = st.session_state.get(fw_key, {})
+    select_lists = load_select_lists(get_gc)
+    month_opts = _future_month_labels()
 
     t_done, t_prog = st.tabs(["🏆 계약완료·오픈확정 물건", "📦 추진 물건"])
     with t_done:
-        _item_tab(("오픈확정", "계약완료"), "➕ 계약완료·오픈확정 물건 추가", "오픈확정")
+        done_rows = _item_editor(f"{draft_key}_ed_done", ("오픈확정", "계약완료"), "오픈확정",
+                                 draft, fw_map, cur_code, select_lists, month_opts)
     with t_prog:
-        _item_tab(("추진물건",), "➕ 추진 물건 추가", "추진물건")
+        prog_rows = _item_editor(f"{draft_key}_ed_prog", ("추진물건",), "추진물건",
+                                 draft, fw_map, cur_code, select_lists, month_opts)
+    draft = done_rows + prog_rows
+    for r in draft:
+        name = str(r.get("물건명", "")).strip()
+        if name and name not in fw_map:
+            fw_map[name] = cur_code
+    st.session_state[draft_key] = draft
+    st.session_state[fw_key] = fw_map
 
     st.markdown("---")
     st.markdown("##### 🗒️ 특이사항")
@@ -2190,9 +2311,14 @@ def _render_weekly_mine(get_gc, records, uid, uname, cur_code, cur_label):
     submit_feedback = st.empty()
     if submit_clicked:
         for it in draft:
-            if it["content"].strip():
-                weekly_upsert_item(get_gc, cur_code, cur_label, uid, uname, it["id"], it["status"],
-                                   it["content"].strip(), it["first_week"])
+            name = str(it.get("물건명", "")).strip()
+            if not name:
+                continue
+            first_week = fw_map.get(name, cur_code)
+            item_id = hashlib.md5(f"{uid}|{name}".encode("utf-8")).hexdigest()[:10]
+            content_json = json.dumps({c: it.get(c, "") for c in ITEM_COLS if c != "상태"}, ensure_ascii=False)
+            weekly_upsert_item(get_gc, cur_code, cur_label, uid, uname, item_id,
+                               it.get("상태", "추진물건"), content_json, first_week)
         note_val = st.session_state.get(note_key, "").strip()
         if note_val:
             weekly_append_note(get_gc, cur_code, cur_label, uid, uname, note_val)
@@ -2232,6 +2358,27 @@ def _render_weekly_mine(get_gc, records, uid, uname, cur_code, cur_label):
             st.rerun()
 
 
+def _item_view(r):
+    """시트 한 행(r)의 '추진물건' JSON을 풀어서, 팀 현황 표/인쇄용 보기에 쓸 완전한 한 줄 dict로 만듭니다."""
+    d = _parse_item_json(r.get("추진물건", ""))
+    return {
+        "상태": r.get("상태", ""),
+        "이름": r.get("이름", ""),
+        "물건명": d.get("물건명", ""),
+        "오픈예상월": d.get("오픈예상월", ""),
+        "부문": d.get("부문", ""),
+        "지역": d.get("지역", ""),
+        "운영형태": d.get("운영형태", ""),
+        "상권대분류": d.get("상권대분류", ""),
+        "상권세부상권": d.get("상권세부상권", ""),
+        "1년차 예상일매출(천원)": _fmt_item_num(d.get("1년차 예상일매출(천원)")),
+        "1년차 예상월손익(천원)": _fmt_item_num(d.get("1년차 예상월손익(천원)")),
+        "추진주체": d.get("추진주체", ""),
+        "진행경과": d.get("진행경과", ""),
+        "최초등록주차": r.get("최초등록주차", ""),
+    }
+
+
 def _weekly_print_html(week_label, section1, section2, notes):
     """회의자료용 인쇄 HTML. 브라우저로 열어 Ctrl+P → 'PDF로 저장'하면 그대로 정리된 PDF가 됩니다.
     (한글 폰트를 직접 심어야 하는 PDF 라이브러리 대신, 브라우저의 한글 글꼴을 그대로 쓰는 방식이라 더 안전합니다)"""
@@ -2243,8 +2390,9 @@ def _weekly_print_html(week_label, section1, section2, notes):
             out.append("<tr>" + "".join(f"<td>{escape(str(it.get(c, '')))}</td>" for c in cols) + "</tr>")
         return "".join(out)
 
-    s1_cols = ["상태", "이름", "추진물건", "최초등록주차"]
-    s2_cols = ["이름", "추진물건", "최초등록주차"]
+    s1_cols = ["상태", "이름", "물건명", "오픈예상월", "부문", "지역", "운영형태", "상권대분류", "상권세부상권",
+               "1년차 예상일매출(천원)", "1년차 예상월손익(천원)", "추진주체", "진행경과", "최초등록주차"]
+    s2_cols = s1_cols[1:] + ["진행주수"]
     note_rows = "".join(f"<li><b>{escape(n['이름'])}</b>: {escape(n['특이사항'])}</li>" for n in notes) or "<li>해당 사항 없음</li>"
     return f"""
     <html><head><meta charset="utf-8"><style>
@@ -2324,24 +2472,24 @@ def _render_weekly_team(get_gc, login_members, team_display_members, records, cu
     section1 = [r for r in records if r.get("유형") == "추진물건" and r.get("주차코드", "").strip() == sel
                 and r.get("상태") in ("오픈확정", "계약완료") and (not managers or r.get("이름", "").strip() in managers)]
     if section1:
-        rows1 = [{"상태": r["상태"], "이름": r["이름"], "추진물건": r["추진물건"],
-                  "최초등록주차": r.get("최초등록주차", "")} for r in section1]
+        rows1 = [_item_view(r) for r in section1]
         st.dataframe(pd.DataFrame(rows1), use_container_width=True, hide_index=True)
     else:
+        rows1 = []
         st.caption("해당 사항 없음")
 
     st.markdown("##### 2) 추진 물건")
     section2 = [r for r in records if r.get("유형") == "추진물건" and r.get("주차코드", "").strip() == sel
                 and r.get("상태") == "추진물건" and (not managers or r.get("이름", "").strip() in managers)]
     if section2:
-        rows2 = [{"이름": r["이름"], "추진물건": r["추진물건"], "최초등록주차": r.get("최초등록주차", ""),
-                  "진행주수": _weeks_between(r.get("최초등록주차") or sel, sel)} for r in section2]
+        rows2 = [dict(_item_view(r), 진행주수=_weeks_between(r.get("최초등록주차") or sel, sel)) for r in section2]
         rows2.sort(key=lambda x: -x["진행주수"])
         st.dataframe(pd.DataFrame(rows2), use_container_width=True, hide_index=True)
         stale = [r for r in rows2 if r["진행주수"] >= 4]
         if stale:
-            st.warning("⚠️ 4주 이상 그대로인 물건: " + ", ".join(f"{r['이름']}·{r['추진물건']}" for r in stale))
+            st.warning("⚠️ 4주 이상 그대로인 물건: " + ", ".join(f"{r['이름']}·{r['물건명']}" for r in stale))
     else:
+        rows2 = []
         st.caption("해당 사항 없음")
 
     st.markdown("##### 3) 특이사항")
@@ -2383,7 +2531,7 @@ def _render_weekly_team(get_gc, login_members, team_display_members, records, cu
     st.markdown("##### 🖨️ 회의자료용 인쇄 보기")
     st.caption("아래를 열고 Ctrl+P(인쇄) → 'PDF로 저장'을 하면 정리된 회의자료 PDF로 바로 저장됩니다.")
     with st.expander("인쇄용 보기 열기"):
-        html = _weekly_print_html(label_of.get(sel, sel), section1, section2, notes)
+        html = _weekly_print_html(label_of.get(sel, sel), rows1, rows2, notes)
         components.html(html, height=700, scrolling=True)
 
 
