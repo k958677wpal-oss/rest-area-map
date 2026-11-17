@@ -1921,10 +1921,29 @@ def _weekly_now():
     return datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
 
 
+# '사번'/'이름' 글자가 시트 헤더와 코드에서 눈으로는 똑같아 보여도(보이지 않는 문자 차이 등으로)
+# 매칭에 실패하는 경우를 막기 위한 안전장치: 예전부터 app.py가 위치로 써온 고정 자리
+# (사번=3번째 칸, 이름=4번째 칸)를 글자 매칭이 실패했을 때 대신 사용합니다.
+_LEGACY_POS = {"사번": 2, "이름": 3}
+
+
+def _header_index(header, name):
+    """헤더에서 name 칸의 위치(0부터)를 찾습니다. 글자로 못 찾으면 고정 위치로 한 번 더 시도합니다."""
+    if name in header:
+        return header.index(name)
+    pos = _LEGACY_POS.get(name)
+    if pos is not None and len(header) > pos:
+        return pos
+    return -1
+
+
 def _weekly_row(header, **kw):
-    base = {h: "" for h in header}
-    base.update(kw)
-    return [base.get(h, "") for h in header]
+    row = [""] * len(header)
+    for name, val in kw.items():
+        i = _header_index(header, name)
+        if 0 <= i < len(row):
+            row[i] = val
+    return row
 
 
 def weekly_append_visit(get_gc, week_code, week_label, uid, uname, visit_name, activity, note):
@@ -1953,9 +1972,7 @@ def _weekly_upsert(get_gc, match_fn, row_vals_map):
 
 
 def _cell(header, row, name):
-    if name not in header:
-        return ""
-    i = header.index(name)
+    i = _header_index(header, name)
     return row[i].strip() if 0 <= i < len(row) else ""
 
 
