@@ -1801,13 +1801,17 @@ def view_stores(D, yms, period_text):
 
 
 # ───────────────────────── 주간 활동 보고 ─────────────────────────
-# 저장 위치: 구글시트 '휴게소_통합_데이터' 의 '주간_활동보고' 탭 (휴게소 데이터허브와 완전히 같은 시트/탭).
-# 그래서 여기서 '휴게소 방문'을 적으면 별도 연동 코드 없이 그 즉시 휴게소 데이터허브 지도 핀의 방문 이력에도 나타납니다.
-# 기존(휴게소 데이터허브) 글쓰기 함수가 쓰던 9개 칸(주차코드~작성시각)은 그대로 두고, 뒤에 5개 칸만 새로 더했습니다.
-# -> 휴게소 데이터허브 쪽 코드를 하나도 안 건드려도 계속 똑같이 동작합니다.
+# 저장 위치: 구글시트 '휴게소_통합_데이터' 안에 탭을 2개로 나눠서 씁니다.
+#   - '주간_활동보고' 탭: '휴게소 방문' 전용(휴게소 데이터허브가 읽는 탭과 완전히 같음) -> 방문 보고는 여전히
+#     그 즉시 휴게소 데이터허브 지도 핀의 방문 이력에 그대로 나타납니다.
+#   - '특수팀_주간보고' 탭(새로 추가): 추진물건 / 일정 / 특이사항 / 제출완료 등 SD팀 전용 데이터.
+#     이 탭은 코드가 처음 실행될 때 없으면 자동으로 만들어 줍니다(수동으로 만들 필요 없음).
+# 예전에는 이 둘을 같은 탭에 같이 썼었는데, 그러면 휴게소 데이터허브 쪽이 SD팀 전용 행(JSON 등)까지
+# 그대로 읽어서 화면에 섞여 나오는 문제가 있었습니다. 탭을 분리해서 서로 완전히 독립적으로 동작하게 했습니다.
 KST = timezone(timedelta(hours=9))
 WEEKLY_DOC_NAME = "휴게소_통합_데이터"
-WEEKLY_TAB = "주간_활동보고"
+WEEKLY_TAB = "주간_활동보고"          # 휴게소 방문 전용(휴게소 데이터허브와 공유)
+WEEKLY_TEAM_TAB = "특수팀_주간보고"    # SD팀 전용(추진물건/일정/특이사항/제출완료) - 새로 분리한 탭
 WEEKLY_HEADERS = ["주차코드", "주차표시", "사번", "이름", "방문휴게소", "활동내용", "추진물건", "특이사항", "작성시각",
                   "아이템ID", "유형", "상태", "최초등록주차", "수정시각"]
 ITEM_STATUS = ["추진물건", "오픈확정", "계약완료"]
@@ -2099,15 +2103,14 @@ def _weeks_between(first_week, cur_code):
     return max(0, (m2 - m1).days // 7) + 1
 
 
-def _weekly_ws(get_gc, create=True):
-    gc = get_gc()
-    doc = gc.open(WEEKLY_DOC_NAME)
+def _ensure_ws(doc, tab_name, create=True):
+    """해당 이름의 탭을 열어서 돌려줍니다. 탭이 없으면(create=True일 때) 새로 만들고 머리글을 채워 줍니다."""
     try:
-        ws = doc.worksheet(WEEKLY_TAB)
+        ws = doc.worksheet(tab_name)
     except gspread.exceptions.WorksheetNotFound:
         if not create:
             return None
-        ws = doc.add_worksheet(title=WEEKLY_TAB, rows=3000, cols=len(WEEKLY_HEADERS))
+        ws = doc.add_worksheet(title=tab_name, rows=3000, cols=len(WEEKLY_HEADERS))
         ws.append_row(WEEKLY_HEADERS)
         return ws
     header = ws.row_values(1)
@@ -2115,6 +2118,18 @@ def _weekly_ws(get_gc, create=True):
     if missing:
         ws.update("A1", [header + missing])      # 기존 칸은 그대로, 새 칸만 뒤에 추가
     return ws
+
+
+def _weekly_ws(get_gc, create=True):
+    """휴게소 방문 전용 탭('주간_활동보고', 휴게소 데이터허브와 공유)"""
+    gc = get_gc()
+    return _ensure_ws(gc.open(WEEKLY_DOC_NAME), WEEKLY_TAB, create)
+
+
+def _weekly_team_ws(get_gc, create=True):
+    """SD팀 전용 탭('특수팀_주간보고': 추진물건/일정/특이사항/제출완료). 없으면 자동으로 새로 만듭니다."""
+    gc = get_gc()
+    return _ensure_ws(gc.open(WEEKLY_DOC_NAME), WEEKLY_TEAM_TAB, create)
 
 
 def _infer_weekly_type(r):
@@ -2137,7 +2152,8 @@ def _infer_weekly_type(r):
 
 @st.cache_data(ttl=60, show_spinner=False)
 def load_weekly_all(_get_gc):
-    ws = _weekly_ws(_get_gc, create=True)
+    """SD팀 전용 탭('특수팀_주간보고')만 읽습니다. 휴게소 방문 데이터는 여기 섞이지 않습니다."""
+    ws = _weekly_team_ws(_get_gc, create=True)
     if ws is None:
         return []
     return [_infer_weekly_type(r) for r in _records(ws.get_all_values())]
@@ -2187,8 +2203,8 @@ def weekly_append_visit(get_gc, week_code, week_label, uid, uname, visit_name, a
 
 
 def _weekly_upsert(get_gc, match_fn, row_vals_map):
-    """match_fn(header, row) -> bool 인 첫 행을 찾아 덮어쓰고, 없으면 새 행을 추가"""
-    ws = _weekly_ws(get_gc)
+    """match_fn(header, row) -> bool 인 첫 행을 찾아 덮어쓰고, 없으면 새 행을 추가 (SD팀 전용 탭에만 씀)"""
+    ws = _weekly_team_ws(get_gc)
     values = ws.get_all_values()
     header = values[0] if values else WEEKLY_HEADERS
     row = _weekly_row(header, **row_vals_map)
@@ -2219,7 +2235,7 @@ def weekly_upsert_item(get_gc, week_code, week_label, uid, uname, item_id, statu
 
 
 def weekly_append_note(get_gc, week_code, week_label, uid, uname, note_text):
-    ws = _weekly_ws(get_gc)
+    ws = _weekly_team_ws(get_gc)
     header = ws.row_values(1)
     now = _weekly_now()
     ws.append_row(_weekly_row(header, 주차코드=week_code, 주차표시=week_label, 사번=uid, 이름=uname,
@@ -2561,15 +2577,30 @@ def _wk_schedule_table_html(days, halves, managers, sched_by_mgr, prev_sched_by_
     return "".join(out)
 
 
+def _print_badge_html(status):
+    """인쇄용 상태 배지. 화면(팀 현황)의 .wk-badge 와 같은 색 언어를 쓰되, 인쇄 HTML은 별도 문서라
+    TOOL_CSS를 못 읽으므로 같은 모양의 .rpt-badge 클래스를 인쇄 HTML 자체 <style>에 따로 둡니다."""
+    cls, label = _STATUS_BADGE.get(status, ("prog", status or "-"))
+    return f'<span class="rpt-badge {cls}">{escape(label)}</span>'
+
+
 def _rows_html(items, cols):
-    """표 본문(tbody 안에 들어갈 <tr>들). 한 줄이 페이지 중간에서 잘리지 않도록 tr 에 'rpt-row' 클래스를 둡니다."""
+    """표 본문(tbody 안에 들어갈 <tr>들). 한 줄이 페이지 중간에서 잘리지 않도록 tr 에 'rpt-row' 클래스를 둡니다.
+    '상태' 칸은 화면(팀 현황) 표와 똑같이 색깔 알약 배지로 그립니다."""
     if not items:
         return f'<tr class="rpt-row"><td colspan="{len(cols)}" style="text-align:center;color:#999;">해당 사항 없음</td></tr>'
     out = []
     for it in items:
-        out.append('<tr class="rpt-row">' + "".join(
-            f'<td class="pg">{escape(str(it.get(c, "")))}</td>' if c == "진행경과"
-            else f"<td>{escape(str(it.get(c, '')))}</td>" for c in cols) + "</tr>")
+        cells = []
+        for c in cols:
+            v = it.get(c, "")
+            if c == "상태":
+                cells.append(f"<td>{_print_badge_html(v)}</td>")
+            elif c == "진행경과":
+                cells.append(f'<td class="pg">{escape(str(v))}</td>')
+            else:
+                cells.append(f"<td>{escape(str(v))}</td>")
+        out.append('<tr class="rpt-row">' + "".join(cells) + "</tr>")
     return "".join(out)
 
 
@@ -2632,6 +2663,10 @@ def _weekly_print_html(week_label, section1, section2, notes):
     table.rpt td {{ padding:5px 6px; border-bottom:1px solid #edf0f6; text-align:center; }}
     table.rpt td.pg {{ text-align:left; }}
     table.rpt tbody tr:nth-child(even) td {{ background:#fafbfd; }}
+    .rpt-badge {{ display:inline-block; font-size:10.5px; font-weight:800; border-radius:999px; padding:2px 10px; white-space:nowrap; }}
+    .rpt-badge.open {{ background:#e3f3ec; color:#0b9a6a; }}
+    .rpt-badge.done {{ background:#e8edfb; color:#2c4a8a; }}
+    .rpt-badge.prog {{ background:#fef1df; color:#b25e00; }}
     ul {{ font-size:13px; line-height:1.6; margin:4px 0; }}
     .page2 {{ margin-top: 10px; }}
     /* 월별 오픈 예정 현황: 월을 가로 칸으로 둔 색깔 격자표 */
@@ -2680,14 +2715,11 @@ def _render_weekly_team(get_gc, login_members, team_display_members, records, cu
         all_candidates = list(login_members) + [n for n in record_names if n not in login_members]
     else:
         all_candidates = record_names
-    # 기본으로 보여줄 담당자: 사용자 명단의 '팀현황표시' 열이 Y인 사람만 (없으면 전체)
-    display_default = [n for n in team_display_members if n in all_candidates] or all_candidates
-    default_sel = st.session_state.get("wk_team_managers", display_default)
-    default_sel = [m for m in default_sel if m in all_candidates] or all_candidates
-    managers = st.multiselect(":material/groups: 표시할 담당자 선택 (팀원 변경 시 여기서 바로 조정)", all_candidates,
-                              default=default_sel, key="wk_team_managers")
+    # 표시할 담당자: 사용자 명단의 '팀현황표시' 열이 Y인 사람만 (없으면 전체). 화면에서 직접 켜고 끄는 선택 기능은
+    # 빼고 시트 기준으로만 정하도록 했습니다 - 팀원 구성을 바꾸려면 '사용자 명단' 시트의 '팀현황표시' 열(Y/N)을 고쳐주세요.
+    managers = [n for n in team_display_members if n in all_candidates] or all_candidates
     if not managers:
-        st.info("담당자를 1명 이상 선택해 주세요.")
+        st.info("표시할 담당자가 없습니다. '사용자 명단' 시트의 '팀현황표시' 열을 확인해 주세요.")
         return
 
     weeks = sorted({r.get("주차코드", "").strip() for r in records if wk_parse(r.get("주차코드", ""))},
@@ -2704,14 +2736,6 @@ def _render_weekly_team(get_gc, login_members, team_display_members, records, cu
 
     sel = st.selectbox("조회 주차", weeks, format_func=lambda c: wk_short_label(label_of.get(c, c)), key="wk_team_week")
     st.caption(f":material/event: {label_of.get(sel, sel)}")
-    prev_code = wk_prev(sel)
-    prev_sched_by_name = {}
-    for r in records:
-        if r.get("유형") == "일정" and r.get("주차코드", "").strip() == prev_code:
-            try:
-                prev_sched_by_name[r.get("이름", "").strip()] = json.loads(r.get("추진물건", "") or "{}")
-            except Exception:
-                pass
 
     st.markdown("##### :material/check_circle: 제출 현황")
     if managers:
@@ -2761,19 +2785,7 @@ def _render_weekly_team(get_gc, login_members, team_display_members, records, cu
     else:
         st.caption("해당 사항 없음")
 
-    if managers:
-        st.markdown("##### :material/calendar_month: 담당자별 주간 일정")
-        sched_by_mgr = {}
-        for mgr in managers:
-            sch = next((r for r in records if r.get("유형") == "일정" and r.get("주차코드", "").strip() == sel
-                       and r.get("이름", "").strip() == mgr), None)
-            try:
-                sched_by_mgr[mgr] = json.loads(sch.get("추진물건", "") or "{}") if sch else {}
-            except Exception:
-                sched_by_mgr[mgr] = {}
-        st.markdown(_wk_schedule_table_html(SCHEDULE_DAYS, SCHEDULE_HALVES, managers, sched_by_mgr, prev_sched_by_name),
-                    unsafe_allow_html=True)
-        st.caption(":material/history: = 지난주와 동일한 일정")
+    st.caption(":material/calendar_month: 담당자별 주간 일정은 옆의 '팀 활동계획' 탭에서 볼 수 있습니다.")
 
     st.divider()
     st.markdown("##### :material/print: 회의자료용 인쇄 보기")
@@ -2785,6 +2797,55 @@ def _render_weekly_team(get_gc, login_members, team_display_members, records, cu
         components.html(html, height=750, scrolling=True)
 
 
+def _render_weekly_plan(login_members, team_display_members, records, cur_code, cur_label):
+    """'팀 활동계획' 탭: 담당자별 주간 일정만 따로 떼어서 보여줍니다(추진물건 표가 길어져도 일정은 바로 보임)."""
+    record_names = sorted({r.get("이름", "").strip() for r in records if r.get("이름", "").strip()})
+    if login_members:
+        all_candidates = list(login_members) + [n for n in record_names if n not in login_members]
+    else:
+        all_candidates = record_names
+    managers = [n for n in team_display_members if n in all_candidates] or all_candidates
+    if not managers:
+        st.info("표시할 담당자가 없습니다. '사용자 명단' 시트의 '팀현황표시' 열을 확인해 주세요.")
+        return
+
+    weeks = sorted({r.get("주차코드", "").strip() for r in records if wk_parse(r.get("주차코드", ""))},
+                   key=lambda c: wk_parse(c), reverse=True)
+    if cur_code not in weeks:
+        weeks = [cur_code] + weeks
+    label_of = {}
+    for r in records:
+        c = r.get("주차코드", "").strip()
+        if c and c not in label_of:
+            label_of[c] = r.get("주차표시", c)
+    label_of.setdefault(cur_code, cur_label)
+
+    sel = st.selectbox("조회 주차", weeks, format_func=lambda c: wk_short_label(label_of.get(c, c)), key="wk_plan_week")
+    st.caption(f":material/event: {label_of.get(sel, sel)}")
+
+    prev_code = wk_prev(sel)
+    prev_sched_by_name = {}
+    for r in records:
+        if r.get("유형") == "일정" and r.get("주차코드", "").strip() == prev_code:
+            try:
+                prev_sched_by_name[r.get("이름", "").strip()] = json.loads(r.get("추진물건", "") or "{}")
+            except Exception:
+                pass
+
+    sched_by_mgr = {}
+    for mgr in managers:
+        sch = next((r for r in records if r.get("유형") == "일정" and r.get("주차코드", "").strip() == sel
+                   and r.get("이름", "").strip() == mgr), None)
+        try:
+            sched_by_mgr[mgr] = json.loads(sch.get("추진물건", "") or "{}") if sch else {}
+        except Exception:
+            sched_by_mgr[mgr] = {}
+    st.markdown("##### :material/calendar_month: 담당자별 주간 일정")
+    st.markdown(_wk_schedule_table_html(SCHEDULE_DAYS, SCHEDULE_HALVES, managers, sched_by_mgr, prev_sched_by_name),
+                unsafe_allow_html=True)
+    st.caption(":material/history: = 지난주와 동일한 일정")
+
+
 def render_weekly(get_gc, D, uid, uname, is_admin):
     cur_code, cur_label = wk_info()
     records = load_weekly_all(get_gc)
@@ -2792,11 +2853,14 @@ def render_weekly(get_gc, D, uid, uname, is_admin):
     if is_admin:
         login_members = load_login_members(get_gc)
         team_display_members = load_team_display_members(get_gc)
-        t_mine, t_team = st.tabs([":material/edit: 내 보고 작성", ":material/groups: 팀 현황"])
+        t_mine, t_team, t_plan = st.tabs([":material/edit: 내 보고 작성", ":material/groups: 팀 현황",
+                                          ":material/calendar_month: 팀 활동계획"])
         with t_mine:
             _render_weekly_mine(get_gc, records, uid, uname, cur_code, cur_label)
         with t_team:
             _render_weekly_team(get_gc, login_members, team_display_members, records, cur_code, cur_label)
+        with t_plan:
+            _render_weekly_plan(login_members, team_display_members, records, cur_code, cur_label)
     else:
         # 팀 현황은 관리자만 볼 수 있도록 제한 (일반 사용자는 탭 자체가 보이지 않음)
         _render_weekly_mine(get_gc, records, uid, uname, cur_code, cur_label)
