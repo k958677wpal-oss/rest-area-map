@@ -1795,23 +1795,37 @@ LOGIN_SHEET_KEY = "1zD20Om2mHH7M9ppcialvqB1SxA9IyVq2aCLM9IWoo8c"
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def load_login_members(_get_gc):
+def load_login_records(_get_gc):
+    """'사용자 명단' 시트를 그대로 읽어옵니다. (사번/생년월일/이름 외에 팀현황표시/관리자여부 같은
+    선택 열이 있으면 같이 읽히고, 없으면 그냥 빠집니다)"""
     try:
         gc = _get_gc()
         doc = gc.open_by_key(LOGIN_SHEET_KEY)
         values = doc.worksheet("사용자 명단").get_all_values()
     except Exception:
         return []
-    if not values:
-        return []
-    header = [str(h).strip() for h in values[0]]
-    if "이름" not in header:
-        return []
-    i = header.index("이름")
+    return _records(values)
+
+
+def load_login_members(_get_gc):
+    """로그인 가능한 전체 이름 목록 (시트에 적힌 순서 그대로, 중복 제거)"""
     names = []
-    for row in values[1:]:
-        if i < len(row) and str(row[i]).strip() and str(row[i]).strip() not in names:
-            names.append(str(row[i]).strip())
+    for r in load_login_records(_get_gc):
+        n = r.get("이름", "").strip()
+        if n and n not in names:
+            names.append(n)
+    return names
+
+
+def load_team_display_members(_get_gc):
+    """'팀현황표시' 열이 Y인 사람만 (팀 현황 화면에 기본으로 보여줄 담당자).
+    시트에 이 열이 아직 없거나 Y로 표시된 사람이 한 명도 없으면 빈 목록을 돌려주고,
+    이 경우 부르는 쪽에서 전체 인원을 기본값으로 쓰도록 되어 있습니다."""
+    names = []
+    for r in load_login_records(_get_gc):
+        n = r.get("이름", "").strip()
+        if n and str(r.get("팀현황표시", "")).strip().upper() == "Y" and n not in names:
+            names.append(n)
     return names
 
 
@@ -2108,32 +2122,42 @@ def _render_weekly_mine(get_gc, records, uid, uname, cur_code, cur_label):
             for r in seed
         ]
 
-    st.markdown("##### 📦 추진 물건")
-    st.caption("지난주 목록이 그대로 이어집니다. 상태/내용을 고쳐 쓰거나, 끝난 물건은 삭제 버튼으로 지워 주세요.")
+    st.markdown("##### 📝 주간업무보고")
+    st.caption("지난주 목록이 그대로 이어집니다. 상태/내용을 고쳐 쓰거나, 끝난 물건은 삭제 버튼으로 지워 주세요. "
+               "상태를 바꾸면 해당 물건이 알맞은 탭으로 자동으로 옮겨집니다.")
     draft = st.session_state[draft_key]
-    remove_idx = None
-    for i, it in enumerate(draft):
-        weeks_pending = _weeks_between(it["first_week"], cur_code)
-        c1, c2, c3 = st.columns([1.3, 5, 1])
-        with c1:
-            it["status"] = st.selectbox(
-                "상태", ITEM_STATUS,
-                index=ITEM_STATUS.index(it["status"]) if it["status"] in ITEM_STATUS else 0,
-                key=f"{draft_key}_status_{it['id']}", label_visibility="collapsed")
-        with c2:
-            it["content"] = st.text_input(
-                "내용", value=it["content"], key=f"{draft_key}_content_{it['id']}",
-                placeholder="예: OO휴게소 브랜드 교체 협의", label_visibility="collapsed")
-        with c3:
-            st.caption(f"{weeks_pending}주째" if weeks_pending > 1 else "신규")
-            if st.button("삭제", key=f"{draft_key}_del_{it['id']}"):
-                remove_idx = i
-    if remove_idx is not None:
-        draft.pop(remove_idx)
-        st.rerun()
-    if st.button("➕ 추진 물건 추가", key=f"{draft_key}_add"):
-        draft.append({"id": uuid.uuid4().hex[:10], "status": "추진물건", "content": "", "first_week": cur_code})
-        st.rerun()
+
+    def _item_tab(statuses, add_label, default_status):
+        remove_id = None
+        shown = [it for it in draft if it["status"] in statuses]
+        for it in shown:
+            weeks_pending = _weeks_between(it["first_week"], cur_code)
+            c1, c2, c3 = st.columns([1.3, 5, 1])
+            with c1:
+                it["status"] = st.selectbox(
+                    "상태", ITEM_STATUS,
+                    index=ITEM_STATUS.index(it["status"]) if it["status"] in ITEM_STATUS else 0,
+                    key=f"{draft_key}_status_{it['id']}", label_visibility="collapsed")
+            with c2:
+                it["content"] = st.text_input(
+                    "내용", value=it["content"], key=f"{draft_key}_content_{it['id']}",
+                    placeholder="예: OO휴게소 브랜드 교체 협의", label_visibility="collapsed")
+            with c3:
+                st.caption(f"{weeks_pending}주째" if weeks_pending > 1 else "신규")
+                if st.button("삭제", key=f"{draft_key}_del_{it['id']}"):
+                    remove_id = it["id"]
+        if remove_id is not None:
+            draft[:] = [it for it in draft if it["id"] != remove_id]
+            st.rerun()
+        if st.button(add_label, key=f"{draft_key}_add_{'_'.join(statuses)}"):
+            draft.append({"id": uuid.uuid4().hex[:10], "status": default_status, "content": "", "first_week": cur_code})
+            st.rerun()
+
+    t_done, t_prog = st.tabs(["🏆 계약완료·오픈확정 물건", "📦 추진 물건"])
+    with t_done:
+        _item_tab(("오픈확정", "계약완료"), "➕ 계약완료·오픈확정 물건 추가", "오픈확정")
+    with t_prog:
+        _item_tab(("추진물건",), "➕ 추진 물건 추가", "추진물건")
 
     st.markdown("---")
     st.markdown("##### 🗒️ 특이사항")
@@ -2244,7 +2268,7 @@ def _weekly_print_html(week_label, section1, section2, notes):
     """
 
 
-def _render_weekly_team(get_gc, login_members, records, cur_code, cur_label):
+def _render_weekly_team(get_gc, login_members, team_display_members, records, cur_code, cur_label):
     # 담당자 목록: 로그인 시트(현재 실제 팀원) 기준이 기본이지만, 테스트 계정 등
     # 로그인 시트에 아직 없는 이름이 실제로 보고를 제출한 경우에도 누락되지 않도록
     # 실제 보고 데이터에 등장한 이름들을 뒤에 합쳐 둡니다. (제출했는데 목록에 안 보이는 문제 방지)
@@ -2253,7 +2277,9 @@ def _render_weekly_team(get_gc, login_members, records, cur_code, cur_label):
         all_candidates = list(login_members) + [n for n in record_names if n not in login_members]
     else:
         all_candidates = record_names
-    default_sel = st.session_state.get("wk_team_managers", all_candidates)
+    # 기본으로 보여줄 담당자: 사용자 명단의 '팀현황표시' 열이 Y인 사람만 (없으면 전체)
+    display_default = [n for n in team_display_members if n in all_candidates] or all_candidates
+    default_sel = st.session_state.get("wk_team_managers", display_default)
     default_sel = [m for m in default_sel if m in all_candidates] or all_candidates
     managers = st.multiselect("👥 표시할 담당자 선택 (팀원 변경 시 여기서 바로 조정)", all_candidates,
                               default=default_sel, key="wk_team_managers")
@@ -2329,30 +2355,29 @@ def _render_weekly_team(get_gc, login_members, records, cur_code, cur_label):
 
     if managers:
         st.markdown("##### 🗓️ 담당자별 주간 일정")
+        sched_by_mgr = {}
         for mgr in managers:
             sch = next((r for r in records if r.get("유형") == "일정" and r.get("주차코드", "").strip() == sel
                        and r.get("이름", "").strip() == mgr), None)
-            with st.expander(f"👤 {mgr}"):
-                if not sch:
-                    st.caption("일정 미작성")
-                    continue
-                try:
-                    sdict = json.loads(sch.get("추진물건", "") or "{}")
-                except Exception:
-                    sdict = {}
-                prev_s = prev_sched_by_name.get(mgr, {})
-                for d in SCHEDULE_DAYS:
-                    c1, c2 = st.columns(2)
-                    for half, col in zip(SCHEDULE_HALVES, (c1, c2)):
-                        slot = f"{d}{half}"
-                        v = sdict.get(slot, "")
-                        with col:
-                            if not v:
-                                st.caption(f"{d} {half}: -")
-                            elif prev_s.get(slot, "").strip() == v.strip():
-                                st.markdown(f"{d} {half}: {v} 🔁(지난주와 동일)")
-                            else:
-                                st.markdown(f"{d} {half}: {v}")
+            try:
+                sched_by_mgr[mgr] = json.loads(sch.get("추진물건", "") or "{}") if sch else {}
+            except Exception:
+                sched_by_mgr[mgr] = {}
+        rows = []
+        for d in SCHEDULE_DAYS:
+            for half in SCHEDULE_HALVES:
+                slot = f"{d}{half}"
+                row = {"요일": f"{d}요일", "구분": half}
+                for mgr in managers:
+                    v = sched_by_mgr.get(mgr, {}).get(slot, "").strip()
+                    prev_v = prev_sched_by_name.get(mgr, {}).get(slot, "").strip()
+                    if v and prev_v == v:
+                        row[mgr] = f"{v} 🔁"
+                    else:
+                        row[mgr] = v or "-"
+                rows.append(row)
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        st.caption("🔁 = 지난주와 동일한 일정")
 
     st.divider()
     st.markdown("##### 🖨️ 회의자료용 인쇄 보기")
@@ -2368,11 +2393,12 @@ def render_weekly(get_gc, D, uid, uname, is_admin):
 
     if is_admin:
         login_members = load_login_members(get_gc)
+        team_display_members = load_team_display_members(get_gc)
         t_mine, t_team = st.tabs([":material/edit: 내 보고 작성", ":material/groups: 팀 현황"])
         with t_mine:
             _render_weekly_mine(get_gc, records, uid, uname, cur_code, cur_label)
         with t_team:
-            _render_weekly_team(get_gc, login_members, records, cur_code, cur_label)
+            _render_weekly_team(get_gc, login_members, team_display_members, records, cur_code, cur_label)
     else:
         # 팀 현황은 관리자만 볼 수 있도록 제한 (일반 사용자는 탭 자체가 보이지 않음)
         _render_weekly_mine(get_gc, records, uid, uname, cur_code, cur_label)
