@@ -3201,33 +3201,40 @@ def _coming_soon(icon, title, desc, bullets):
         st.markdown(f"- {b}")
 
 
-def _kakao_map_html(points, api_key, height=560):
-    """points: [{"name":, "brand":, "lat":, "lng":, "biz":, "sub":}, ...] (lat/lng 는 숫자만 들어있다고 가정)
-    카카오맵 JS SDK 를 불러와서 핀을 찍고, 핀을 클릭하면 간단한 정보창을 띄웁니다."""
-    data = json.dumps(points, ensure_ascii=False)
+# 휴게소 지도(index.html/bid.html)와 같은 깃허브 페이지 저장소에 함께 올려 둘 SD 지도 전용 정적 페이지.
+# (components.html 안에 카카오 SDK 스크립트를 바로 심으면 iframe 출처가 없어서(about:srcdoc) 카카오가
+#  등록된 도메인으로 인식하지 못해 지도가 안 뜹니다. 그래서 휴게소 지도와 똑같이, 도메인이 있는 깃허브
+#  페이지를 iframe 으로 불러오고 postMessage 로 점포 데이터를 전달하는 방식을 씁니다.)
+SD_MAP_PAGE_URL = "https://k958677wpal-oss.github.io/rest-area-map/sd-map.html"
+SD_MAP_TARGET_ORIGIN = "https://k958677wpal-oss.github.io"
+
+
+def _sd_map_component_html(points, api_key, height=560):
+    """points: [{"name":, "brand":, "lat":, "lng":, "kind":, "biz":, "daily":}, ...]
+    sd-map.html(깃허브 페이지) 을 iframe 으로 불러온 뒤, postMessage 로 점포 데이터와 카카오 JS 키를 전달합니다.
+    키는 여기서 파일에 적어두지 않고 매번 st.secrets 값을 실어 보내기만 합니다(휴게소 지도의 drive 키 전달 방식과 동일)."""
+    points_json = json.dumps(points, ensure_ascii=False)
+    api_key_json = json.dumps(api_key)
     return f"""
-    <div id="kakao-map" style="width:100%;height:{height}px;border-radius:12px;overflow:hidden;"></div>
-    <script src="https://dapi.kakao.com/v2/maps/sdk.js?appkey={escape(api_key)}&autoload=false"></script>
+    <iframe
+        id="sdMapFrame"
+        src="{SD_MAP_PAGE_URL}"
+        style="width:100%; height:{height}px; border:none;"
+        scrolling="no"
+    ></iframe>
     <script>
-      var POINTS = {data};
-      kakao.maps.load(function () {{
-        var container = document.getElementById('kakao-map');
-        var first = POINTS[0];
-        var center = first ? new kakao.maps.LatLng(first.lat, first.lng) : new kakao.maps.LatLng(37.5665, 126.9780);
-        var map = new kakao.maps.Map(container, {{ center: center, level: 10 }});
-        var bounds = new kakao.maps.LatLngBounds();
-        POINTS.forEach(function (p) {{
-          var pos = new kakao.maps.LatLng(p.lat, p.lng);
-          bounds.extend(pos);
-          var marker = new kakao.maps.Marker({{ position: pos, map: map }});
-          var html = '<div style="padding:8px 10px;font-size:13px;line-height:1.5;min-width:140px;">' +
-                     '<b>' + p.name + '</b><br/>' + (p.brand || '') +
-                     (p.biz ? ' · ' + p.biz : '') + '</div>';
-          var iw = new kakao.maps.InfoWindow({{ content: html }});
-          kakao.maps.event.addListener(marker, 'click', function () {{ iw.open(map, marker); }});
-        }});
-        if (POINTS.length > 1) map.setBounds(bounds);
-      }});
+      (function () {{
+        var mapPoints = {points_json};
+        var apiKey = {api_key_json};
+        var iframe = document.getElementById('sdMapFrame');
+        function sendData() {{
+          iframe.contentWindow.postMessage(
+            {{ type: 'INIT_SD_MAP_DATA', points: mapPoints, apiKey: apiKey }},
+            '{SD_MAP_TARGET_ORIGIN}'
+          );
+        }}
+        iframe.onload = function () {{ sendData(); setTimeout(sendData, 1200); }};
+      }})();
     </script>
     """
 
@@ -3278,15 +3285,15 @@ def view_store_map(get_gc, D):
         api_key = ""
 
     if not api_key:
-        st.warning(":material/key_off: 카카오맵을 띄우려면 앱 설정(st.secrets)에 `KAKAO_JS_KEY` 값(카카오 디벨로퍼스에서 발급한 JavaScript 키)을 등록해야 합니다. "
+        st.warning(":material/key_off: 카카오맵을 띄우려면 앱 설정(st.secrets)에 `KAKAO_JS_KEY` 값(카카오 디벨로퍼스에서 발급한 JavaScript 키, 휴게소 지도와 같은 키 사용 가능)을 등록해야 합니다. "
                    "지금은 지도 없이 아래 목록만 표시합니다.")
     elif not pin_rows:
         st.info(":material/location_off: 아직 위도/경도가 입력된 점포가 없어서 지도에 찍을 핀이 없습니다. 점포마스터/전사특수점 탭에 위도·경도를 채워 주시면 자동으로 지도에 나타납니다.")
     else:
-        points = [{"name": r["name"], "brand": r["brand"], "biz": r["biz_major"],
-                    "lat": r["lat"], "lng": r["lng"]} for r in pin_rows]
-        components.html(_kakao_map_html(points, api_key), height=580, scrolling=False)
-        st.caption(f":material/push_pin: 지도에 핀으로 표시된 점포: {len(pin_rows)}점")
+        points = [{"name": r["name"], "brand": r["brand"], "kind": r["구분"], "biz": r["biz_major"],
+                    "daily": r["daily_sales"], "lat": r["lat"], "lng": r["lng"]} for r in pin_rows]
+        components.html(_sd_map_component_html(points, api_key, height=560), height=560, scrolling=False)
+        st.caption(f":material/push_pin: 지도에 핀으로 표시된 점포: {len(pin_rows)}점 (녹색 = 우리팀 오픈점, 네이비 = 전사 특수점)")
 
     if filtered:
         df = pd.DataFrame([{
