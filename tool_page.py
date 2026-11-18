@@ -323,9 +323,13 @@ def calc_store(D, name, yms):
             "margin": margin, "tw": tw, "td": td}
 
 
-def calc_group(D, names, yms):
-    end = yms[-1] if yms else ""
-    start = yms[0] if yms else ""
+def calc_group(D, names, yms, open_yms=None):
+    """yms: 매출/영업이익 등 실적 합산에 쓸 기간(기준연도). open_yms: 출점수 집계용 기간(조회 연도) -
+    따로 안 주면 yms 와 같게 씁니다. 두 기간을 분리한 이유는 '조회 연도(어떤 점포가 보이는지)'와
+    '기준연도(그 점포들의 매출을 어느 해 걸로 보여줄지)'가 서로 다를 수 있기 때문입니다."""
+    open_yms = yms if open_yms is None else open_yms
+    end = open_yms[-1] if open_yms else ""
+    start = open_yms[0] if open_yms else ""
     rows = [calc_store(D, n, yms) for n in names]
     data_rows = [r for r in rows if r["has_data"]]
 
@@ -1056,9 +1060,10 @@ def _open_flow_svg(D, names, yms, w=150, h=42):
             + "".join(parts) + "</svg>")
 
 
-def group_cards(G, mode, P=None, D=None, who="팀", flow_svg=""):
+def group_cards(G, mode, P=None, D=None, who="팀", flow_svg="", metric_label=""):
     """P: 전월 계산 결과(월별 보기에서만 전달), D/who: 목표 조회용
-    flow_svg: 출점수 카드 우측 상단에 넣을 월별 출점 흐름 미니 그래프(선택, _open_flow_svg 로 생성)"""
+    flow_svg: 출점수 카드 우측 상단에 넣을 월별 출점 흐름 미니 그래프(선택, _open_flow_svg 로 생성)
+    metric_label: 일매출 카드에 '어느 해 매출인지' 표시(예: '26년 매출')"""
     cumulative = (mode == "누계")
     use_d = P is not None
     p_ok = use_d and P["data_n"] > 0
@@ -1109,7 +1114,7 @@ def group_cards(G, mode, P=None, D=None, who="팀", flow_svg=""):
              icon="store", value2=fnum(G["margin"], 1), unit2="%",
              delta=open_bot + dl(G["margin"], pv("margin"), "pp", "매익율"),
              spark=flow_svg or None),
-        dict(label="일매출", value=fnum(G["daily"]), unit="천원", accent=COLOR_BLUE, icon="coin",
+        dict(label="일매출", value=fnum(G["daily"]), unit="천원", sub=metric_label, accent=COLOR_BLUE, icon="coin",
              delta=gl("일매출", G["daily"], "천원", True, "일매출 목표") + dl(G["daily"], pv("daily"), "amt", "일매출")),
         dict(label="예상매출 달성률", value=fnum(G["rate"], 1), unit="%",
              sub=f"{G['rate_n']}점 중 {G['achieved']}점 달성 · 구성비 {pct_text(G['achieved'], G['rate_n'])}",
@@ -1190,6 +1195,22 @@ def pick_period(D):
             f'<div class="pb-head"><div class="pb-title"><span class="ic">{mini_icon("cal", "#ffffff", 18)}</span>조회 연도</div>'
             f'<div class="pb-chip">{text}</div></div>', unsafe_allow_html=True)
     return yms, text, year
+
+
+def metric_period(D):
+    """실적 수치(일매출/매익율/영업이익 등)에 쓸 '기준 연도'. 위의 조회 연도(오픈연도 기준 필터)와는
+    별개로, 언제나 '오늘 날짜 기준 올해' 데이터를 보여줍니다 - 예전에 오픈한 점포라도 '지금 얼마를
+    팔고 있는지'를 확인하려는 용도입니다. (아직 입력 안 된 달은 그냥 빈 칸으로 남습니다.)
+    내년에 새 연도 오픈점이 생기면, 그 시점에 다시 요청해주시면 '예전 오픈점은 올해(완결된 해)에
+    고정, 새 연도 오픈점만 그 해'로 나누는 방식으로 조정할 수 있습니다."""
+    year = str(datetime.now(KST).year)
+    yms = [m for m in D["months"] if m[:4] == year]
+    short = f"{year[2:]}년 매출"
+    if yms:
+        full = f"{year}년 매출 ({ym_label(yms[0])} ~ {ym_label(yms[-1])})"
+    else:
+        full = f"{year}년 매출 (아직 입력된 실적 없음)"
+    return yms, year, full, short
 
 
 # ───────────────────────── 점포 카드 / 상세 ─────────────────────────
@@ -1607,13 +1628,14 @@ def _sm_card(icon, color, title, note, items, avg_frac, avg_label="평균", chip
     return "".join(out)
 
 
-def summary_html(D, managers, yms, all_names):
-    """요약: 담당자별 출점수 / 일매출 / 예상매출 달성점 구성비 / 흑자점 구성비 비교 그래프 4장"""
+def summary_html(D, managers, yms, open_yms, all_names):
+    """요약: 담당자별 출점수 / 일매출 / 예상매출 달성점 구성비 / 흑자점 구성비 비교 그래프 4장.
+    yms: 매출 등 실적 집계 기준연도 / open_yms: 출점수 집계용 조회 연도"""
     G = []
     for mgr in managers:
         names = [n for n in all_names if D["master_by_name"].get(n, {}).get("manager") == mgr]
-        G.append((mgr, calc_group(D, names, yms)))
-    T = calc_group(D, all_names, yms)
+        G.append((mgr, calc_group(D, names, yms, open_yms=open_yms)))
+    T = calc_group(D, all_names, yms, open_yms=open_yms)
 
     # 1) 출점수
     vals = [g["opened"] for _, g in G]
@@ -1764,7 +1786,9 @@ def render_ranking(D, names, yms, period_text, state_key, qkey="team"):
             render_store_detail(D, sel, yms, period_text)
 
 
-def view_performance(D, yms, period_text, year):
+def view_performance(D, yms, period_text, year, myms, mfull, mshort):
+    """yms/period_text/year: 조회 연도(어떤 점포가 보이는지, 오픈연도 기준) / myms/mfull/mshort: 그 점포들의
+    매출·영업이익·매익율을 실제로 어느 해 걸로 보여줄지(기준연도 = 오늘 날짜 기준 올해, metric_period 로 계산)"""
     mode = "누계"      # 이제 연도 선택만 있고 항상 누계로 봄 (전월 대비 비교는 더 이상 쓰지 않음)
     # 담당자 실적은 '그 연도에 오픈한 점포'만 대상으로 봄(오픈연도 기준) -> 예전에 오픈해서 지금도
     # 매출을 내는 점포는 여기서는 빼고, 점포 자체 실적은 '점포 현황' 탭에서 계속 전체 기간을 볼 수 있음
@@ -1773,14 +1797,14 @@ def view_performance(D, yms, period_text, year):
     def prev_of(names):
         return None
 
-    st.markdown(sec_heading("trophy", f"{year}년 오픈점 팀 전체 · {period_text}"), unsafe_allow_html=True)
+    st.markdown(sec_heading("trophy", f"{year}년 오픈점 팀 전체 · {mfull}"), unsafe_allow_html=True)
     if not all_names:
         st.info(f"{year}년에 오픈한 점포가 없습니다. 연도를 바꿔서 확인해 주세요.")
         return
-    st.markdown(group_cards(calc_group(D, all_names, yms), mode, prev_of(all_names), D, "팀",
-                             _open_flow_svg(D, all_names, yms)),
+    st.markdown(group_cards(calc_group(D, all_names, myms, open_yms=yms), mode, prev_of(all_names), D, "팀",
+                             _open_flow_svg(D, all_names, yms), mshort),
                 unsafe_allow_html=True)
-    render_ranking(D, all_names, yms, period_text, "tool_rank_open_team", "team")
+    render_ranking(D, all_names, myms, mfull, "tool_rank_open_team", "team")
 
     managers = ordered_managers_for(D, all_names)
     if not managers:
@@ -1819,7 +1843,7 @@ def view_performance(D, yms, period_text, year):
     show_open = st.session_state.get("tool_show_open", True)
 
     if pick == "요약":
-        st.markdown(summary_html(D, managers, yms, all_names), unsafe_allow_html=True)
+        st.markdown(summary_html(D, managers, myms, yms, all_names), unsafe_allow_html=True)
         return
 
     def _mgr_box(mgr, mi):
@@ -1829,12 +1853,12 @@ def view_performance(D, yms, period_text, year):
             # 이름 줄 + 카드를 한 덩어리로 그려서 간격을 내 CSS(mgr-row 의 margin-bottom)만으로 정함
             st.markdown(f'<div class="mgr-row"><div class="mgr-name">{escape(mgr)}</div>'
                         f'<div class="mgr-chips">{chips}</div></div>'
-                        + group_cards(calc_group(D, names, yms), mode, prev_of(names), D, mgr,
-                                       _open_flow_svg(D, names, yms)),
+                        + group_cards(calc_group(D, names, myms, open_yms=yms), mode, prev_of(names), D, mgr,
+                                       _open_flow_svg(D, names, yms), mshort),
                         unsafe_allow_html=True)
-            render_ranking(D, names, yms, period_text, f"tool_rank_open_mgr_{mi}", f"mgr{mi}")
+            render_ranking(D, names, myms, mfull, f"tool_rank_open_mgr_{mi}", f"mgr{mi}")
             if show_open:
-                render_store_cards(D, names, yms, period_text, ctx=f"a{mi}")
+                render_store_cards(D, names, myms, mfull, ctx=f"a{mi}")
 
     for mi, mgr in enumerate(managers):
         if pick == mgr:
@@ -3347,6 +3371,7 @@ def render_tool(get_gc, user_id="", user_name="", is_admin=False):
         return
 
     yms, period_text, period_year = pick_period(D)
+    myms, myear, mfull, mshort = metric_period(D)
 
     tab_perf, tab_store, tab_weekly, tab_map, tab_bid, tab_files = st.tabs([
         ":material/bar_chart: 실적 현황",
@@ -3357,9 +3382,12 @@ def render_tool(get_gc, user_id="", user_name="", is_admin=False):
         ":material/folder: 자료실",
     ])
     with tab_perf:
-        view_performance(D, yms, period_text, period_year)
+        view_performance(D, yms, period_text, period_year, myms, mfull, mshort)
     with tab_store:
-        view_stores(D, yms, period_text)
+        # 점포 현황의 상세 매출/영업이익은 조회 연도와 무관하게 항상 '기준연도(오늘 날짜 기준 올해)'
+        # 실적을 보여줍니다(= 지금 얼마 팔고 있는지 확인용). 목록 필터(오픈연도 등)는 view_stores 안에서
+        # 별도로 처리됩니다.
+        view_stores(D, myms, mfull)
     with tab_weekly:
         render_weekly(get_gc, D, user_id, user_name, is_admin)
     with tab_map:
