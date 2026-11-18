@@ -414,6 +414,37 @@ button[role="tab"][aria-selected="true"], [data-testid="stTab"][aria-selected="t
 button[role="tab"][aria-selected="true"] p, button[role="tab"][aria-selected="true"] div,
 button[role="tab"][aria-selected="true"] span, [data-testid="stTab"][aria-selected="true"] p { color: #ffffff !important; }
 [data-baseweb="tab-highlight"], [data-baseweb="tab-border"] { display: none !important; }
+/* 하위 메뉴(2단계: 내 보고 작성/팀 현황/팀 활동계획) - 큰 메뉴(1단계)와 톤을 구분하기 위해 알약을 버리고
+   '밑줄 탭' 모양으로: 선택 = 밑줄 + 굵은 네이비 글자, 미선택 = 연한 회색 글자, 배경 없음 */
+.st-key-lvl2tabs [data-baseweb="tab-list"], .st-key-lvl2tabs [role="tablist"] {
+    background: transparent !important; padding: 0 !important; border-radius: 0 !important;
+    gap: 22px !important; border-bottom: 2px solid #e3e8f2; }
+.st-key-lvl2tabs button[data-baseweb="tab"], .st-key-lvl2tabs button[role="tab"] {
+    height: 40px !important; padding: 0 2px !important; border-radius: 0 !important; background: transparent !important;
+    border-bottom: 3px solid transparent !important; margin-bottom: -2px; }
+.st-key-lvl2tabs button[role="tab"] p, .st-key-lvl2tabs button[role="tab"] div, .st-key-lvl2tabs button[role="tab"] span {
+    font-size: 15.5px !important; font-weight: 600 !important; color: #9aa5bd !important; }
+.st-key-lvl2tabs button[role="tab"]:hover { background: transparent !important; }
+.st-key-lvl2tabs button[role="tab"]:hover p { color: #55648a !important; }
+.st-key-lvl2tabs button[role="tab"][aria-selected="true"] { background: transparent !important; box-shadow: none !important;
+    border-bottom: 3px solid #2c4a8a !important; }
+.st-key-lvl2tabs button[role="tab"][aria-selected="true"] p, .st-key-lvl2tabs button[role="tab"][aria-selected="true"] div,
+.st-key-lvl2tabs button[role="tab"][aria-selected="true"] span { color: #1f3a73 !important; font-weight: 800 !important; }
+/* 하위 메뉴(3단계: 계약완료·오픈확정 물건/추진 물건, 팀원 화면 전용) - 2단계보다도 더 가볍게,
+   탭이라기보단 같은 화면 안의 토글처럼: 배경·알약 없이 글자 + 선택된 것만 얇은 밑줄 */
+.st-key-lvl3tabs [data-baseweb="tab-list"], .st-key-lvl3tabs [role="tablist"] {
+    background: transparent !important; padding: 0 !important; border-radius: 0 !important; gap: 18px !important; }
+.st-key-lvl3tabs button[data-baseweb="tab"], .st-key-lvl3tabs button[role="tab"] {
+    height: 32px !important; padding: 0 2px !important; border-radius: 0 !important; background: transparent !important;
+    border-bottom: 2px solid transparent !important; }
+.st-key-lvl3tabs button[role="tab"] p, .st-key-lvl3tabs button[role="tab"] div, .st-key-lvl3tabs button[role="tab"] span {
+    font-size: 13.5px !important; font-weight: 600 !important; color: #9aa5bd !important; }
+.st-key-lvl3tabs button[role="tab"]:hover { background: transparent !important; }
+.st-key-lvl3tabs button[role="tab"]:hover p { color: #55648a !important; }
+.st-key-lvl3tabs button[role="tab"][aria-selected="true"] { background: transparent !important; box-shadow: none !important;
+    border-bottom: 2px solid #55648a !important; }
+.st-key-lvl3tabs button[role="tab"][aria-selected="true"] p, .st-key-lvl3tabs button[role="tab"][aria-selected="true"] div,
+.st-key-lvl3tabs button[role="tab"][aria-selected="true"] span { color: #2c4a8a !important; font-weight: 800 !important; }
 .st-key-mgr_filter { margin-top: 18px; }
 .st-key-mgr_filter [data-testid="stHorizontalBlock"] {
     align-items: flex-start !important; justify-content: flex-start !important; gap: 16px !important; }
@@ -681,6 +712,8 @@ def mini_icon(kind, color, size=18):
     elif kind == "pin":
         b = (f'<path d="M12 22s7-6.2 7-12a7 7 0 0 0-14 0c0 5.8 7 12 7 12z" fill="{color}"/>'
              '<circle cx="12" cy="10" r="2.8" fill="#fff"/>')
+    elif kind == "folder":
+        b = (f'<path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4.8l1.6 2H19.5A1.5 1.5 0 0 1 21 8.5v9A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5z" fill="{color}"/>')
     else:   # person
         b = f'<circle cx="12" cy="8" r="4.4" fill="{color}"/><path d="M3.5 21c0-5 3.8-8 8.5-8s8.5 3 8.5 8z" fill="{color}"/>'
     return (f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" '
@@ -2421,7 +2454,8 @@ def _render_weekly_mine(get_gc, records, uid, uname, cur_code, cur_label):
     select_lists = load_select_lists(get_gc)
     month_opts = [""] + _future_month_labels()
 
-    t_done, t_prog = st.tabs([":material/emoji_events: 계약완료·오픈확정 물건", ":material/package_2: 추진 물건"])
+    with st.container(key="lvl3tabs"):
+        t_done, t_prog = st.tabs([":material/emoji_events: 계약완료·오픈확정 물건", ":material/package_2: 추진 물건"])
     with t_done:
         done_rows = _item_editor(f"wk_ed_done_{cur_code}_{uid}", done_seed_key, prog_seed_key,
                                  ("오픈확정", "계약완료"), ["오픈확정", "계약완료"], "오픈확정",
@@ -2722,11 +2756,14 @@ def _month_names_html(items):
 
 
 def _month_cards_html(section1, opened_year=None, confirmed_n=None):
-    """'월별 오픈 예정 현황'을 카드 형태로 그립니다. 카드마다 숫자 아래 작은 막대(그 달 점수를 서로 비교하는
-    미니 바 차트)를 넣어서 어느 달이 몰려 있는지 한눈에 보이게 하고, '이번 달' 카드는 테두리를 강조해서
-    구분합니다. 달력처럼 '이번 달부터 4개월'을 항상 고정 카드로 보여주고(물건이 없는 달도 빈 카드로 표시),
-    그보다 먼 미래에 물건이 있으면 카드를 이어서 더 붙입니다. 맨 끝에는(값이 있을 때만) '지금까지 누적
-    출점수'와 '앞으로 열릴 확정 물건 수(오픈확정·계약완료)'를 보여주는 진한 색 강조 카드를 하나 더 붙입니다."""
+    """'월별 오픈 예정 현황'을 카드 형태로 그립니다. 이 표는 임원 보고용이라, 물건이 없는 달이라고 해서
+    그 카드를 점선·회색으로 죽이거나 그래프로 다른 달과 비교해서 '이 달은 비었다'를 시각적으로 티내지
+    않습니다 - 모든 달 카드를 같은 테두리·배경·글자색으로 담담하게 통일해서 두고, 숫자와 물건 목록만
+    조용히 보여줍니다('예정 물건 없음'도 다른 달 목록 자리에 같은 보조색으로 적습니다). '이번 달' 표시만
+    그대로 두는데, 이건 좋고 나쁨이 아니라 지금이 어디인지 알려주는 시점 안내용입니다.
+    달력처럼 '이번 달부터 4개월'을 항상 고정 카드로 보여주고, 그보다 먼 미래에 물건이 있으면 카드를
+    이어서 더 붙입니다. 맨 끝에는(값이 있을 때만) '지금까지 누적 출점수'와 '앞으로 열릴 확정 물건 수
+    (오픈확정·계약완료)'를 보여주는 진한 색 강조 카드를 하나 더 붙입니다."""
     by_month = {}
     for it in section1:
         key = it.get("오픈예상월") or "월 미정"
@@ -2747,18 +2784,15 @@ def _month_cards_html(section1, opened_year=None, confirmed_n=None):
     if "월 미정" in by_month:
         month_keys.append("월 미정")
 
-    max_n = max([len(by_month.get(mk, [])) for mk in month_keys] + [1])
     cards = []
     for i, mk in enumerate(month_keys):
         items = by_month.get(mk, [])
         label = mk if mk == "월 미정" else _month_short(mk)
         n = len(items)
-        cls = ("empty" if n == 0 else "") + (" cur" if i == 0 and mk != "월 미정" else "")
+        cls = " cur" if i == 0 and mk != "월 미정" else ""
         tag = '<div class="mo-tag">이번달</div>' if i == 0 and mk != "월 미정" else ""
-        bar_h = max(8, round(n / max_n * 100)) if n > 0 else 0
         cards.append(
-            f'<div class="mo-card {cls}">{tag}<div class="mo-m">{escape(label)}</div>'
-            f'<div class="mo-barwrap"><div class="mo-bar" style="height:{bar_h}%"></div></div>'
+            f'<div class="mo-card{cls}">{tag}<div class="mo-m">{escape(label)}</div>'
             f'<div class="mo-n">{n}<small>점</small></div>'
             f'<div class="mo-list">{_month_names_html(items)}</div></div>'
         )
@@ -2829,28 +2863,24 @@ def _weekly_print_html(week_label, section1, section2, notes, opened_year=None, 
     .rpt-badge.new {{ background:#ffe3e3; color:#d0143c; }}
     ul {{ font-size:13px; line-height:1.6; margin:4px 0; }}
     .page2 {{ margin-top: 10px; }}
-    /* 월별 오픈 예정 현황: 월별 카드(숫자 아래 미니 막대로 서로 비교) + 맨 끝 누적 출점수 요약 카드 */
+    /* 월별 오픈 예정 현황: 월별 카드. 임원 보고용이라 물건이 없는 달도 다른 달과 똑같은 테두리·배경·
+       글자색으로 두어서(점선/흐림/비교 그래프 없음) '이 달은 안 좋다'는 신호를 그림으로 주지 않습니다.
+       '이번달' 표시만 시점 안내용으로 남겨 둡니다. */
     .mo-grid {{ display:flex; gap:9px; margin:10px 0 2px; align-items:stretch; }}
-    .mo-card {{ flex:1; min-width:0; border:1px solid #d7deee; border-radius:12px; padding:12px 7px 9px;
+    .mo-card {{ flex:1; min-width:0; border:1px solid #d7deee; border-radius:12px; padding:14px 8px 11px;
         text-align:center; box-shadow:0 2px 8px rgba(31,58,115,.05); background:#ffffff;
         position:relative; display:flex; flex-direction:column; }}
-    .mo-card.empty {{ background:#fafbfd; border-style:dashed; }}
     .mo-card.cur {{ border:1.5px solid #2c4a8a; box-shadow:0 0 0 3px rgba(44,74,138,.10), 0 2px 8px rgba(31,58,115,.08); }}
     .mo-card .mo-tag {{ position:absolute; top:-9px; left:50%; transform:translateX(-50%); font-size:9px;
-        font-weight:800; color:#fff; background:#d0143c; border-radius:999px; padding:2px 10px;
-        white-space:nowrap; box-shadow:0 2px 5px rgba(208,20,60,.35); }}
-    .mo-card .mo-m {{ font-size:12px; font-weight:800; color:#55648a; margin-bottom:6px; }}
+        font-weight:800; color:#fff; background:#2c4a8a; border-radius:999px; padding:2px 10px;
+        white-space:nowrap; box-shadow:0 2px 5px rgba(44,74,138,.3); }}
+    .mo-card .mo-m {{ font-size:12px; font-weight:800; color:#55648a; margin-bottom:8px; }}
     .mo-card.cur .mo-m {{ color:#1f3a73; }}
-    .mo-card .mo-barwrap {{ height:28px; display:flex; align-items:flex-end; justify-content:center; margin-bottom:6px; }}
-    .mo-card .mo-bar {{ width:55%; max-width:30px; min-width:10px; border-radius:4px 4px 1px 1px;
-        background: linear-gradient(180deg,#3d64b0,#1f3a73); }}
-    .mo-card.empty .mo-bar {{ background:#dfe5f1; }}
-    .mo-card .mo-n {{ font-size:20px; font-weight:800; color:#1f3a73; margin-bottom:6px; }}
+    .mo-card .mo-n {{ font-size:22px; font-weight:800; color:#1f3a73; margin-bottom:8px; }}
     .mo-card .mo-n small {{ font-size:11px; font-weight:700; color:#8591ab; margin-left:2px; }}
-    .mo-card.empty .mo-n {{ color:#c3cadd; }}
     .mo-card .mo-list {{ font-size:10px; color:#2c4a8a; font-weight:600; line-height:1.5; margin-top:auto; min-height:14px; }}
     .mo-card .mo-list div {{ padding:1px 0; }}
-    .mo-card .mo-empty {{ color:#aab4ca; font-weight:500; }}
+    .mo-card .mo-empty {{ color:#9aa5bd; font-weight:500; }}
     .mo-card.sum {{ background: linear-gradient(165deg,#1f3a73,#2c4a8a); border:none; justify-content:center; }}
     .mo-card.sum .mo-m {{ color:#cfdcf4; }}
     .mo-card.sum .mo-stat {{ display:flex; flex-direction:column; align-items:center; margin:2px 0; }}
@@ -3077,8 +3107,9 @@ def render_weekly(get_gc, D, uid, uname, is_admin):
     if is_admin:
         login_members = load_login_members(get_gc)
         team_display_members = load_team_display_members(get_gc)
-        t_mine, t_team, t_plan = st.tabs([":material/edit: 내 보고 작성", ":material/groups: 팀 현황",
-                                          ":material/calendar_month: 팀 활동계획"])
+        with st.container(key="lvl2tabs"):
+            t_mine, t_team, t_plan = st.tabs([":material/edit: 내 보고 작성", ":material/groups: 팀 현황",
+                                              ":material/calendar_month: 팀 활동계획"])
         with t_mine:
             _render_weekly_mine(get_gc, records, uid, uname, cur_code, cur_label)
         with t_team:
@@ -3088,6 +3119,52 @@ def render_weekly(get_gc, D, uid, uname, is_admin):
     else:
         # 팀 현황은 관리자만 볼 수 있도록 제한 (일반 사용자는 탭 자체가 보이지 않음)
         _render_weekly_mine(get_gc, records, uid, uname, cur_code, cur_label)
+
+
+# ───────────────────────── 준비 중인 메뉴 (자리만 먼저 만들어 둠) ─────────────────────────
+def _coming_soon(icon, title, desc, bullets):
+    st.markdown(sec_heading(icon, title), unsafe_allow_html=True)
+    st.info(f":material/construction: {desc}")
+    st.markdown("**앞으로 들어갈 기능(예정)**")
+    for b in bullets:
+        st.markdown(f"- {b}")
+
+
+def view_store_map():
+    _coming_soon(
+        "pin", "전국 특수점 지도",
+        "입지별로 필터해서 어디에 어떤 점포가 있는지 카카오맵 핀으로 바로 보여주는 지도가 이 자리에 들어갈 예정입니다.",
+        [
+            "최근 5개년 출점 점포 + 전국 특수점 리스트를 함께 지도에 핀으로 표시",
+            "업종(병원 등) 등 조건으로 필터",
+            "핀을 클릭하면 점포 상세정보 표시",
+            "필터링한 리스트를 구글시트로 따로 추출",
+        ],
+    )
+
+
+def view_bid_tracker():
+    _coming_soon(
+        "badge", "입찰 관리",
+        "입찰 참여 내역과 결과를 누적해서 관리하는 화면이 이 자리에 들어갈 예정입니다.",
+        [
+            "입찰명 / 담당자 / 참여일 / 결과 / 금액 등 입력 및 누적 관리",
+            "담당자가 직접 입력하거나 관리자가 대신 입력",
+            "누적되면 팀 입찰 성공률 등 통계로 확장 가능",
+        ],
+    )
+
+
+def view_file_library():
+    _coming_soon(
+        "folder", "자료실",
+        "입찰 필요서류, 이슈 점포(한강·63빌딩·인천공항 등) 보고서를 폴더별로 올려두고 다운로드할 수 있는 화면이 이 자리에 들어갈 예정입니다.",
+        [
+            "'입찰 필요서류', '한강', '63빌딩', '인천공항' 등 폴더(하위 메뉴)별로 구분",
+            "구글드라이브와 연동해서 올리고 받기",
+            "최신 서류만 한 곳에서 받을 수 있어 중복 발급 방지",
+        ],
+    )
 
 
 # ───────────────────────── 진입점 ─────────────────────────
@@ -3113,12 +3190,23 @@ def render_tool(get_gc, user_id="", user_name="", is_admin=False):
 
     mode, yms, period_text = pick_period(D["months"])
 
-    tab_perf, tab_store, tab_weekly = st.tabs([":material/bar_chart: 실적 현황",
-                                               ":material/storefront: 점포 현황",
-                                               ":material/edit_note: 주간 활동 보고"])
+    tab_perf, tab_store, tab_weekly, tab_map, tab_bid, tab_files = st.tabs([
+        ":material/bar_chart: 실적 현황",
+        ":material/storefront: 점포 현황",
+        ":material/edit_note: 주간 활동 보고",
+        ":material/map: 특수점 지도",
+        ":material/gavel: 입찰 관리",
+        ":material/folder: 자료실",
+    ])
     with tab_perf:
         view_performance(D, yms, mode, period_text)
     with tab_store:
         view_stores(D, yms, period_text)
     with tab_weekly:
         render_weekly(get_gc, D, user_id, user_name, is_admin)
+    with tab_map:
+        view_store_map()
+    with tab_bid:
+        view_bid_tracker()
+    with tab_files:
+        view_file_library()
