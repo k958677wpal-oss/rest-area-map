@@ -1793,6 +1793,8 @@ def view_performance(D, yms, period_text, year, myms, mfull, mshort):
     # 담당자 실적은 '그 연도에 오픈한 점포'만 대상으로 봄(오픈연도 기준) -> 예전에 오픈해서 지금도
     # 매출을 내는 점포는 여기서는 빼고, 점포 자체 실적은 '점포 현황' 탭에서 계속 전체 기간을 볼 수 있음
     all_names = [m["name"] for m in D["masters"] if m.get("open_ym", "")[:4] == year]
+    # 출점수 집계용 기간: 실적 입력 여부와 상관없이 '선택 연도 1~12월' 전체 (실적이 아직 없는 연도도 출점수가 잡히도록)
+    open_full = [f"{year}{mo:02d}" for mo in range(1, 13)]
 
     def prev_of(names):
         return None
@@ -1801,7 +1803,7 @@ def view_performance(D, yms, period_text, year, myms, mfull, mshort):
     if not all_names:
         st.info(f"{year}년에 오픈한 점포가 없습니다. 연도를 바꿔서 확인해 주세요.")
         return
-    st.markdown(group_cards(calc_group(D, all_names, myms, open_yms=yms), mode, prev_of(all_names), D, "팀",
+    st.markdown(group_cards(calc_group(D, all_names, myms, open_yms=open_full), mode, prev_of(all_names), D, "팀",
                              _open_flow_svg(D, all_names, yms), mshort),
                 unsafe_allow_html=True)
     render_ranking(D, all_names, myms, mfull, "tool_rank_open_team", "team")
@@ -1843,7 +1845,7 @@ def view_performance(D, yms, period_text, year, myms, mfull, mshort):
     show_open = st.session_state.get("tool_show_open", True)
 
     if pick == "요약":
-        st.markdown(summary_html(D, managers, myms, yms, all_names), unsafe_allow_html=True)
+        st.markdown(summary_html(D, managers, myms, open_full, all_names), unsafe_allow_html=True)
         return
 
     def _mgr_box(mgr, mi):
@@ -1853,7 +1855,7 @@ def view_performance(D, yms, period_text, year, myms, mfull, mshort):
             # 이름 줄 + 카드를 한 덩어리로 그려서 간격을 내 CSS(mgr-row 의 margin-bottom)만으로 정함
             st.markdown(f'<div class="mgr-row"><div class="mgr-name">{escape(mgr)}</div>'
                         f'<div class="mgr-chips">{chips}</div></div>'
-                        + group_cards(calc_group(D, names, myms, open_yms=yms), mode, prev_of(names), D, mgr,
+                        + group_cards(calc_group(D, names, myms, open_yms=open_full), mode, prev_of(names), D, mgr,
                                        _open_flow_svg(D, names, yms), mshort),
                         unsafe_allow_html=True)
             render_ranking(D, names, myms, mfull, f"tool_rank_open_mgr_{mi}", f"mgr{mi}")
