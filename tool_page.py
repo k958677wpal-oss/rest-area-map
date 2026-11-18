@@ -278,6 +278,17 @@ def ordered_managers(D):
     return sorted(names, key=lambda n: (n not in order, order.get(n, 0), n))
 
 
+def ordered_managers_for(D, names):
+    """ordered_managers 와 같지만, 주어진 점포명 목록(names)을 담당한 담당자만 추려서 돌려줍니다.
+    (예: 선택한 연도에 오픈한 점포만 names 로 넘기면 -> 그 연도에 오픈 실적이 있는 담당자만 나옴)"""
+    hidden = D.get("mgr_hidden", set())
+    order = D.get("mgr_order", {})
+    name_set = set(names)
+    mgrs = {m["manager"] for m in D["masters"]
+            if m["manager"] and m["manager"] not in hidden and m["name"] in name_set}
+    return sorted(mgrs, key=lambda n: (n not in order, order.get(n, 0), n))
+
+
 # ───────────────────────── 지표 계산 ─────────────────────────
 def calc_store(D, name, yms):
     """한 점포의 선택 기간 지표.
@@ -1150,51 +1161,35 @@ def pill_select(options, key, on_change=None):
     return st.session_state[key]
 
 
-def pick_period(months):
-    """조회 기간 바: 카드 하나 안에 [제목] [보기 방식] [월 선택] [월 선택] [여백] [새로고침]"""
-    if "tool_pmode" not in st.session_state:
-        st.session_state["tool_pmode"] = "누계"      # 처음 접속하면 '올해 1월 ~ 최신월 누계'로 시작
+def pick_period(D):
+    """조회 연도 바: 담당자 실적은 보통 '그 해 1년치 누계'만 보기 때문에, 예전의 [보기 방식(월별/누계)] +
+    [월~월 선택] 대신 연도 하나만 고르면 그 해 1월 ~ (올해면 최신월, 지난해면 12월까지) 누계를 바로 보여줍니다.
+    월별로 쪼개 보는 화면(점포 상세의 월별 흐름 그래프 등)은 이 선택과 무관하게 그대로 동작합니다."""
+    months = D["months"]
+    years = sorted({m[:4] for m in months} |
+                   {mm["open_ym"][:4] for mm in D["masters"] if mm.get("open_ym")}, reverse=True)
+    if not years:
+        years = [str(datetime.now().year)]
+    if st.session_state.get("tool_year") not in years:
+        st.session_state["tool_year"] = years[0]
     with st.container(key="periodbar"):
         head = st.empty()
         with st.container(key="periodbody"):
-            # 라벨을 위가 아니라 입력칸 '왼쪽'에 두고 전부 세로 가운데 정렬 -> 겹침/높이 어긋남이 생기지 않음
-            l1, c1, l2, c2, l3, c3, c5 = st.columns([1, 1, 1, 1, 1, 1, 1])
-            lab = lambda t, g="": st.markdown(f'<div class="pb-lab{g}">{t}</div>', unsafe_allow_html=True)
+            l1, c1, c5 = st.columns([1, 1, 6])
             with l1:
-                lab("보기 방식")
+                st.markdown('<div class="pb-lab">조회 연도</div>', unsafe_allow_html=True)
             with c1:
-                mode = st.radio("보기 방식", ["월별", "누계"], horizontal=True, key="tool_pmode",
-                                label_visibility="collapsed")
+                year = st.selectbox("조회 연도", years, format_func=lambda y: f"{y}년",
+                                    key="tool_year", label_visibility="collapsed")
             with c5:
                 refresh_button("tool_refresh")
-            if mode == "월별":
-                with l2:
-                    lab("기준 월", " gap")
-                with c2:
-                    m = st.selectbox("기준 월", months[::-1], format_func=ym_label, key="tool_pm",
-                                     label_visibility="collapsed")
-                yms, text = [m], ym_label(m)
-            else:
-                last_year = months[-1][:4]
-                first_of_year = [x for x in months if x[:4] == last_year][0]
-                with l2:
-                    lab("조회 구간", " gap")
-                with c2:
-                    s = st.selectbox("시작월", months, index=months.index(first_of_year),
-                                     format_func=ym_label, key="tool_ps", label_visibility="collapsed")
-                with l3:
-                    st.markdown('<div class="pb-tilde">~</div>', unsafe_allow_html=True)
-                with c3:
-                    e = st.selectbox("종료월", months, index=len(months) - 1, format_func=ym_label,
-                                     key="tool_pe", label_visibility="collapsed")
-                if s > e:
-                    s, e = e, s
-                yms = [x for x in months if s <= x <= e]
-                text = f"{ym_label(s)} ~ {ym_label(e)}"
+        yms = [m for m in months if m[:4] == year]
+        text = (f"{year}년 누계 ({ym_label(yms[0])} ~ {ym_label(yms[-1])})" if yms
+                else f"{year}년 누계 (실적 데이터 없음)")
         head.markdown(
-            f'<div class="pb-head"><div class="pb-title"><span class="ic">{mini_icon("cal", "#ffffff", 18)}</span>조회 기간</div>'
-            f'<div class="pb-chip"><b>{mode}</b>{text}</div></div>', unsafe_allow_html=True)
-    return mode, yms, text
+            f'<div class="pb-head"><div class="pb-title"><span class="ic">{mini_icon("cal", "#ffffff", 18)}</span>조회 연도</div>'
+            f'<div class="pb-chip">{text}</div></div>', unsafe_allow_html=True)
+    return yms, text, year
 
 
 # ───────────────────────── 점포 카드 / 상세 ─────────────────────────
@@ -1616,7 +1611,7 @@ def summary_html(D, managers, yms, all_names):
     """요약: 담당자별 출점수 / 일매출 / 예상매출 달성점 구성비 / 흑자점 구성비 비교 그래프 4장"""
     G = []
     for mgr in managers:
-        names = [m["name"] for m in D["masters"] if m["manager"] == mgr]
+        names = [n for n in all_names if D["master_by_name"].get(n, {}).get("manager") == mgr]
         G.append((mgr, calc_group(D, names, yms)))
     T = calc_group(D, all_names, yms)
 
@@ -1769,25 +1764,28 @@ def render_ranking(D, names, yms, period_text, state_key, qkey="team"):
             render_store_detail(D, sel, yms, period_text)
 
 
-def view_performance(D, yms, mode, period_text):
-    all_names = [m["name"] for m in D["masters"]]
+def view_performance(D, yms, period_text, year):
+    mode = "누계"      # 이제 연도 선택만 있고 항상 누계로 봄 (전월 대비 비교는 더 이상 쓰지 않음)
+    # 담당자 실적은 '그 연도에 오픈한 점포'만 대상으로 봄(오픈연도 기준) -> 예전에 오픈해서 지금도
+    # 매출을 내는 점포는 여기서는 빼고, 점포 자체 실적은 '점포 현황' 탭에서 계속 전체 기간을 볼 수 있음
+    all_names = [m["name"] for m in D["masters"] if m.get("open_ym", "")[:4] == year]
 
     def prev_of(names):
-        # 월별 보기에서만 '전월 대비'를 계산 (누계 보기는 None)
-        if mode == "월별" and len(yms) == 1:
-            return calc_group(D, names, [_prev_ym(yms[0])])
         return None
 
-    st.markdown(sec_heading("trophy", f"팀 전체 · {period_text}"), unsafe_allow_html=True)
+    st.markdown(sec_heading("trophy", f"{year}년 오픈점 팀 전체 · {period_text}"), unsafe_allow_html=True)
+    if not all_names:
+        st.info(f"{year}년에 오픈한 점포가 없습니다. 연도를 바꿔서 확인해 주세요.")
+        return
     st.markdown(group_cards(calc_group(D, all_names, yms), mode, prev_of(all_names), D, "팀",
                              _open_flow_svg(D, all_names, yms)),
                 unsafe_allow_html=True)
     render_ranking(D, all_names, yms, period_text, "tool_rank_open_team", "team")
 
-    managers = ordered_managers(D)
+    managers = ordered_managers_for(D, all_names)
     if not managers:
         st.markdown(sec_heading("badge", "담당자별"), unsafe_allow_html=True)
-        st.info("점포마스터에 담당자가 입력되어 있지 않습니다.")
+        st.info(f"{year}년에 오픈한 점포를 담당한 담당자가 없습니다.")
         return
 
     # 제목 + 담당자 알약 필터 (전체 / 이름...)
@@ -1825,7 +1823,7 @@ def view_performance(D, yms, mode, period_text):
         return
 
     def _mgr_box(mgr, mi):
-        names = [m["name"] for m in D["masters"] if m["manager"] == mgr]
+        names = [n for n in all_names if D["master_by_name"].get(n, {}).get("manager") == mgr]
         chips = "".join(f'<span class="mgr-chip">{escape(n)}</span>' for n in names)
         with st.container(key=f"mgrbox_{mi}"):
             # 이름 줄 + 카드를 한 덩어리로 그려서 간격을 내 CSS(mgr-row 의 margin-bottom)만으로 정함
@@ -3348,7 +3346,7 @@ def render_tool(get_gc, user_id="", user_name="", is_admin=False):
                 st.rerun()
         return
 
-    mode, yms, period_text = pick_period(D["months"])
+    yms, period_text, period_year = pick_period(D)
 
     tab_perf, tab_store, tab_weekly, tab_map, tab_bid, tab_files = st.tabs([
         ":material/bar_chart: 실적 현황",
@@ -3359,7 +3357,7 @@ def render_tool(get_gc, user_id="", user_name="", is_admin=False):
         ":material/folder: 자료실",
     ])
     with tab_perf:
-        view_performance(D, yms, mode, period_text)
+        view_performance(D, yms, period_text, period_year)
     with tab_store:
         view_stores(D, yms, period_text)
     with tab_weekly:
