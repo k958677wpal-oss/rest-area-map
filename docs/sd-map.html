@@ -2,31 +2,51 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SD 특수점 지도</title>
 <style>
-  html, body { margin: 0; padding: 0; height: 100%; font-family: "Malgun Gothic", -apple-system, sans-serif; }
-  #map { width: 100%; height: 100vh; background: #eef1f6; display: flex; align-items: center; justify-content: center;
-         color: #7d8aa8; font-size: 14px; }
-  .sd-iw { padding: 10px 12px; font-size: 13px; line-height: 1.6; min-width: 160px; max-width: 220px; }
+  html, body, #map { width: 100%; height: 100%; margin: 0; padding: 0; font-family: -apple-system, "Malgun Gothic", "Apple SD Gothic Neo", sans-serif; }
+  #emptyNote {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 90;
+    background: rgba(255,255,255,.95); border-radius: 10px; padding: 14px 20px;
+    box-shadow: 0 2px 10px rgba(0,0,0,.25); font-size: 14px; color: #555; display: none; text-align: center;
+  }
+  .sd-iw {
+    position: relative; margin-bottom: 8px; padding: 10px 12px; font-size: 13px; line-height: 1.6;
+    min-width: 160px; max-width: 230px; background: #fff; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,.25);
+    white-space: normal; word-break: break-word; transform: translateY(-46px);
+  }
   .sd-iw b { font-size: 14px; color: #1f3a73; display: block; margin-bottom: 2px; }
-  .sd-tag { display: inline-block; margin-top: 6px; padding: 2px 9px; border-radius: 999px; font-size: 11px;
-            font-weight: 700; color: #fff; }
+  .sd-iw .sd-tag {
+    display: inline-block; margin-top: 6px; padding: 2px 9px; border-radius: 999px; font-size: 11px;
+    font-weight: 700; color: #fff;
+  }
+  .sd-iw .sd-close {
+    position: absolute; top: 4px; right: 6px; width: 18px; height: 18px; line-height: 18px;
+    text-align: center; font-size: 14px; color: #888; cursor: pointer; border-radius: 50%;
+  }
+  .sd-iw .sd-close:hover { background: #eee; color: #333; }
+  .sd-tail {
+    width: 0; height: 0; margin: -8px auto 0; border-left: 9px solid transparent; border-right: 9px solid transparent;
+    border-top: 10px solid #fff; filter: drop-shadow(0 2px 2px rgba(0,0,0,.2)); transform: translateY(-46px);
+  }
 </style>
 </head>
 <body>
-<div id="map">지도를 불러오는 중입니다...</div>
+<div id="map"></div>
+<div id="emptyNote">아직 지도에 찍을 좌표(위도/경도)가 있는 점포가 없습니다.</div>
+
+<!-- bid.html 과 동일하게, 이미 이 도메인에 등록된 카카오 JS 키를 그대로 고정해서 씁니다. -->
+<script src="//dapi.kakao.com/v2/maps/sdk.js?appkey=fbd1e96068b754f1939c7e11a2790ce1&autoload=false"></script>
 <script>
   var map = null;
-  var markers = [];
-  var sdkLoaded = false;
-  var sdkLoading = false;
+  var overlays = [];
+  var popup = null;
   var pendingPoints = null;
 
-  function colorFor(kind) {
-    return kind === "우리팀 오픈점" ? "#0b9a6a" : "#2c4a8a";
-  }
+  function esc(s) { return (s == null ? "" : String(s)).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+  function colorFor(kind) { return kind === "우리팀 오픈점" ? "#0b9a6a" : "#2c4a8a"; }
 
-  // 핀 모양 SVG 를 그 자리에서 만들어 씁니다(이미지 파일 없이도 구분 색을 바로 바꿀 수 있게).
   function markerImage(color) {
     var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="38" viewBox="0 0 28 38">' +
               '<path d="M14 37S1 22.6 1 14a13 13 0 0 1 26 0c0 8.6-13 23-13 23z" fill="' + color + '" stroke="#fff" stroke-width="1.5"/>' +
@@ -35,82 +55,67 @@
     return new kakao.maps.MarkerImage(url, new kakao.maps.Size(28, 38), { offset: new kakao.maps.Point(14, 38) });
   }
 
-  function clearMarkers() {
-    markers.forEach(function (m) { m.setMap(null); });
-    markers = [];
+  function closePopup() { if (popup) { popup.setMap(null); popup = null; } }
+
+  function openPopup(p, position) {
+    closePopup();
+    var daily = (p.daily != null && p.daily !== "")
+      ? "<br/>일매출 " + Number(p.daily).toLocaleString() + "천원" : "";
+    var el = document.createElement("div");
+    el.innerHTML = '<div class="sd-iw"><span class="sd-close" onclick="window.__sdClosePopup()">×</span>' +
+      '<b>' + esc(p.name || "") + '</b>' + esc(p.brand || "") + (p.biz ? " · " + esc(p.biz) : "") + daily +
+      '<div class="sd-tag" style="background:' + colorFor(p.kind) + '">' + esc(p.kind || "") + '</div></div>' +
+      '<div class="sd-tail"></div>';
+    popup = new kakao.maps.CustomOverlay({
+      position: position, content: el, yAnchor: 1, xAnchor: 0.5, zIndex: 50, clickable: true
+    });
+    popup.setMap(map);
+  }
+  window.__sdClosePopup = closePopup;
+
+  function clearOverlays() {
+    overlays.forEach(function (o) { o.setMap(null); });
+    overlays = [];
+    closePopup();
   }
 
   function renderPoints(points) {
     if (!map) { pendingPoints = points; return; }
-    clearMarkers();
+    clearOverlays();
+    document.getElementById("emptyNote").style.display = (points && points.length) ? "none" : "block";
     if (!points || !points.length) return;
 
     var bounds = new kakao.maps.LatLngBounds();
-    var hasBounds = false;
-
     points.forEach(function (p) {
       if (p.lat == null || p.lng == null) return;
       var pos = new kakao.maps.LatLng(p.lat, p.lng);
       bounds.extend(pos);
-      hasBounds = true;
-
-      var marker = new kakao.maps.Marker({
-        position: pos,
-        map: map,
-        image: markerImage(colorFor(p.kind)),
-      });
-
-      var daily = (p.daily != null && p.daily !== "")
-        ? "<br/>일매출 " + Number(p.daily).toLocaleString() + "천원"
-        : "";
-      var html = '<div class="sd-iw"><b>' + (p.name || "") + '</b>' +
-                  (p.brand || "") + (p.biz ? " · " + p.biz : "") + daily +
-                  '<div class="sd-tag" style="background:' + colorFor(p.kind) + '">' + (p.kind || "") + '</div></div>';
-      var iw = new kakao.maps.InfoWindow({ content: html, removable: true });
-      kakao.maps.event.addListener(marker, "click", function () { iw.open(map, marker); });
-      markers.push(marker);
+      var marker = new kakao.maps.Marker({ position: pos, map: map, image: markerImage(colorFor(p.kind)) });
+      kakao.maps.event.addListener(marker, "click", function () { openPopup(p, pos); });
+      overlays.push(marker);
     });
 
     if (points.length === 1) {
       map.setCenter(new kakao.maps.LatLng(points[0].lat, points[0].lng));
       map.setLevel(6);
-    } else if (hasBounds) {
+    } else {
       map.setBounds(bounds);
     }
-  }
-
-  function initMap() {
-    var el = document.getElementById("map");
-    el.innerText = "";
-    map = new kakao.maps.Map(el, {
-      center: new kakao.maps.LatLng(36.5, 127.8),   // 대한민국 중앙 어림
-      level: 12,
-    });
-    sdkLoaded = true;
-    if (pendingPoints) { renderPoints(pendingPoints); pendingPoints = null; }
-  }
-
-  function loadKakaoSdk(apiKey) {
-    if (sdkLoaded || sdkLoading || !apiKey) return;
-    sdkLoading = true;
-    var s = document.createElement("script");
-    s.src = "https://dapi.kakao.com/v2/maps/sdk.js?appkey=" + encodeURIComponent(apiKey) + "&autoload=false";
-    s.onload = function () { kakao.maps.load(initMap); };
-    s.onerror = function () {
-      document.getElementById("map").innerText = "카카오맵 스크립트를 불러오지 못했습니다. (JS 키 또는 등록 도메인을 확인해 주세요)";
-    };
-    document.head.appendChild(s);
   }
 
   window.addEventListener("message", function (e) {
     var data = e.data || {};
     if (data.type !== "INIT_SD_MAP_DATA") return;
-    if (data.apiKey) loadKakaoSdk(data.apiKey);
-    if (map) {
-      renderPoints(data.points || []);
-    } else {
-      pendingPoints = data.points || [];
-    }
+    renderPoints(data.points || []);
+  });
+
+  kakao.maps.load(function () {
+    map = new kakao.maps.Map(document.getElementById("map"), {
+      center: new kakao.maps.LatLng(36.2, 127.8),   // 대한민국 중앙 어림, 데이터 오면 자동으로 범위 맞춤
+      level: 13,
+    });
+    kakao.maps.event.addListener(map, "click", closePopup);
+    if (pendingPoints) { var pts = pendingPoints; pendingPoints = null; renderPoints(pts); }
   });
 </script>
 </body>
