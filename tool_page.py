@@ -3203,18 +3203,18 @@ def _coming_soon(icon, title, desc, bullets):
 
 # 휴게소 지도(index.html/bid.html)와 같은 깃허브 페이지 저장소에 함께 올려 둘 SD 지도 전용 정적 페이지.
 # (components.html 안에 카카오 SDK 스크립트를 바로 심으면 iframe 출처가 없어서(about:srcdoc) 카카오가
-#  등록된 도메인으로 인식하지 못해 지도가 안 뜹니다. 그래서 휴게소 지도와 똑같이, 도메인이 있는 깃허브
-#  페이지를 iframe 으로 불러오고 postMessage 로 점포 데이터를 전달하는 방식을 씁니다.)
+#  등록된 도메인으로 인식하지 못해 지도가 안 뜹니다. 그래서 bid.html 과 똑같이, 도메인이 있는 깃허브
+#  페이지를 iframe 으로 불러오고 postMessage 로 점포 데이터만 전달합니다. 카카오 JS 키는 sd-map.html
+#  안에 bid.html 과 동일한 값으로 고정돼 있어서(이미 이 도메인에 등록된 키) 여기서는 신경 쓸 필요가 없습니다.)
 SD_MAP_PAGE_URL = "https://k958677wpal-oss.github.io/rest-area-map/sd-map.html"
 SD_MAP_TARGET_ORIGIN = "https://k958677wpal-oss.github.io"
 
 
-def _sd_map_component_html(points, api_key, height=560):
+def _sd_map_component_html(points, height=560):
     """points: [{"name":, "brand":, "lat":, "lng":, "kind":, "biz":, "daily":}, ...]
-    sd-map.html(깃허브 페이지) 을 iframe 으로 불러온 뒤, postMessage 로 점포 데이터와 카카오 JS 키를 전달합니다.
-    키는 여기서 파일에 적어두지 않고 매번 st.secrets 값을 실어 보내기만 합니다(휴게소 지도의 drive 키 전달 방식과 동일)."""
+    sd-map.html(깃허브 페이지) 을 iframe 으로 불러온 뒤, postMessage 로 점포 데이터만 전달합니다.
+    카카오 JS 키는 bid.html 과 똑같이 sd-map.html 안에 이미 고정돼 있어서 여기서 따로 보낼 필요가 없습니다."""
     points_json = json.dumps(points, ensure_ascii=False)
-    api_key_json = json.dumps(api_key)
     return f"""
     <iframe
         id="sdMapFrame"
@@ -3225,11 +3225,10 @@ def _sd_map_component_html(points, api_key, height=560):
     <script>
       (function () {{
         var mapPoints = {points_json};
-        var apiKey = {api_key_json};
         var iframe = document.getElementById('sdMapFrame');
         function sendData() {{
           iframe.contentWindow.postMessage(
-            {{ type: 'INIT_SD_MAP_DATA', points: mapPoints, apiKey: apiKey }},
+            {{ type: 'INIT_SD_MAP_DATA', points: mapPoints }},
             '{SD_MAP_TARGET_ORIGIN}'
           );
         }}
@@ -3278,37 +3277,30 @@ def view_store_map(get_gc, D):
     st.caption(f"조건에 맞는 점포: {len(filtered)}점 (좌표가 입력된 점포만 지도에 핀으로 표시됩니다)")
 
     pin_rows = [r for r in filtered if r.get("lat") is not None and r.get("lng") is not None]
-    api_key = ""
-    try:
-        api_key = st.secrets.get("KAKAO_JS_KEY", "")
-    except Exception:
-        api_key = ""
 
-    if not api_key:
-        st.warning(":material/key_off: 카카오맵을 띄우려면 앱 설정(st.secrets)에 `KAKAO_JS_KEY` 값(카카오 디벨로퍼스에서 발급한 JavaScript 키, 휴게소 지도와 같은 키 사용 가능)을 등록해야 합니다. "
-                   "지금은 지도 없이 아래 목록만 표시합니다.")
-    elif not pin_rows:
-        st.info(":material/location_off: 아직 위도/경도가 입력된 점포가 없어서 지도에 찍을 핀이 없습니다. 점포마스터/전사특수점 탭에 위도·경도를 채워 주시면 자동으로 지도에 나타납니다.")
-    else:
-        points = [{"name": r["name"], "brand": r["brand"], "kind": r["구분"], "biz": r["biz_major"],
-                    "daily": r["daily_sales"], "lat": r["lat"], "lng": r["lng"]} for r in pin_rows]
-        components.html(_sd_map_component_html(points, api_key, height=560), height=560, scrolling=False)
+    points = [{"name": r["name"], "brand": r["brand"], "kind": r["구분"], "biz": r["biz_major"],
+                "daily": r["daily_sales"], "lat": r["lat"], "lng": r["lng"]} for r in pin_rows]
+    components.html(_sd_map_component_html(points, height=560), height=560, scrolling=False)
+    if pin_rows:
         st.caption(f":material/push_pin: 지도에 핀으로 표시된 점포: {len(pin_rows)}점 (녹색 = 우리팀 오픈점, 네이비 = 전사 특수점)")
+    else:
+        st.caption(":material/location_off: 아직 위도/경도가 입력된 점포가 없어서 지도에 찍을 핀이 없습니다. 점포마스터/전사특수점 탭에 위도·경도를 채워 주시면 자동으로 지도에 나타납니다.")
 
     if filtered:
-        df = pd.DataFrame([{
-            "구분": r["구분"], "점포명": r["name"], "브랜드": r["brand"],
-            "업종대분류": r["biz_major"], "업종세부": r["biz_minor"], "주소": r["address"],
-            "위도": r["lat"], "경도": r["lng"], "일매출(천원)": r["daily_sales"],
-        } for r in filtered])
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        with st.expander(f"📋 필터링된 목록 보기 ({len(filtered)}점)", expanded=False):
+            df = pd.DataFrame([{
+                "구분": r["구분"], "점포명": r["name"], "브랜드": r["brand"],
+                "업종대분류": r["biz_major"], "업종세부": r["biz_minor"], "주소": r["address"],
+                "위도": r["lat"], "경도": r["lng"], "일매출(천원)": r["daily_sales"],
+            } for r in filtered])
+            st.dataframe(df, use_container_width=True, hide_index=True)
 
-        if st.button(":material/upload_file: 필터링된 목록 구글시트로 내보내기", key="map_export_btn"):
-            try:
-                n = export_map_rows(get_gc, filtered)
-                st.success(f"'{MAP_EXPORT_TAB}' 탭에 {n}건을 내보냈습니다.")
-            except Exception as e:
-                st.error(f"내보내기에 실패했습니다: {e}")
+            if st.button(":material/upload_file: 필터링된 목록 구글시트로 내보내기", key="map_export_btn"):
+                try:
+                    n = export_map_rows(get_gc, filtered)
+                    st.success(f"'{MAP_EXPORT_TAB}' 탭에 {n}건을 내보냈습니다.")
+                except Exception as e:
+                    st.error(f"내보내기에 실패했습니다: {e}")
 
 
 def view_bid_tracker():
