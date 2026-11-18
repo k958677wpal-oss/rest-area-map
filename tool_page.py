@@ -25,6 +25,9 @@ TAB_MONTH = "월실적"
 TAB_TARGET = "예상목표"
 TAB_GOAL = "목표"          # (선택) MBO 목표: 대상 | 지표 | 기간 | 목표값
 TAB_MGR = "담당자"         # (선택) 담당자 표시 순서: 담당자 | 순서 | 사용여부(N 이면 화면에서 숨김)
+TAB_CORP = "전사특수점"    # (선택, 지도용) 전사 특수점 현황: 위도/경도/업종/일매출 등
+MAP_EXPORT_TAB = "지도_추출"     # 지도 화면에서 '필터링된 목록 내보내기' 눌렀을 때 쓸 탭(없으면 새로 만듦)
+MAP_EXPORT_HEADERS = ["구분", "점포명", "브랜드", "업종대분류", "업종세부", "주소", "위도", "경도", "일매출", "추출일시"]
 TEAM_KEYS = ("팀", "팀전체", "전체", "특수개발팀", "특수팀")
 
 KIND_DAILY_KEYWORD = "일매출"
@@ -143,6 +146,11 @@ def load_perf(_get_gc):
             "region": rec.get("지역", "").strip(),
             "address": rec.get("주소", "").strip(),
             "place": rec.get("입지", "").strip(),
+            # 지도용(선택 칸): 아직 좌표/업종을 안 채웠으면 그냥 빈 값으로 둠 -> 지도에서는 핀 없이 목록에만 나옴
+            "lat": _num(rec.get("위도", "")),
+            "lng": _num(rec.get("경도", "")),
+            "biz_major": rec.get("업종대분류", "").strip(),
+            "biz_minor": rec.get("업종세부", "").strip(),
         }
         masters.append(m)
         master_by_name[name] = m
@@ -227,6 +235,39 @@ def load_perf(_get_gc):
     return {"error": None, "masters": masters, "master_by_name": master_by_name,
             "monthly": monthly, "targets": targets, "months": months, "goals": goals, "grades": grades,
             "mgr_order": mgr_order, "mgr_hidden": mgr_hidden}
+
+
+@st.cache_data(ttl=300, show_spinner="전사 특수점 데이터를 불러오는 중...")
+def load_corp_stores(_get_gc):
+    """'전사특수점' 탭(선택): 지도 전용 데이터. 탭이 아직 없거나 비어 있으면 그냥 빈 목록을 돌려줍니다(오류 아님).
+    기대 열(이름이 비슷하면 알아서 매칭): 점포명 | 브랜드 | 위도 | 경도 | 업종대분류 | 업종세부 | 일매출 | 폐점여부 | 오픈일 | 주소"""
+    try:
+        gc = _get_gc()
+        doc = gc.open(PERF_SHEET_NAME)
+        values = doc.worksheet(TAB_CORP).get_all_values()
+    except Exception:
+        return []
+
+    rows = []
+    for rec in _records(values):
+        name = rec.get("점포명", "").strip()
+        if not name:
+            continue
+        closed = rec.get("폐점여부", "").strip()
+        if closed and closed[0] in ("Y", "y", "폐"):
+            continue
+        rows.append({
+            "name": name,
+            "brand": rec.get("브랜드", "").strip() or "GS25",
+            "lat": _num(rec.get("위도", "")),
+            "lng": _num(rec.get("경도", "")),
+            "biz_major": rec.get("업종대분류", "").strip(),
+            "biz_minor": rec.get("업종세부", "").strip(),
+            "daily_sales": _num(rec.get("일매출", "")),
+            "address": rec.get("주소", "").strip(),
+            "open_date": rec.get("오픈일", "").strip(),
+        })
+    return rows
 
 
 def ordered_managers(D):
@@ -1812,7 +1853,10 @@ def view_stores(D, yms, period_text):
     managers = ordered_managers(D)
     types = sorted({m["type"] for m in D["masters"] if m["type"]})
     places = sorted({m["place"] for m in D["masters"] if m["place"]})
-    c1, c2, c3 = st.columns(3)
+    years = sorted({m["open_ym"][:4] for m in D["masters"] if m["open_ym"]}, reverse=True)
+    c0, c1, c2, c3 = st.columns(4)
+    with c0:
+        f_year = st.selectbox("오픈연도", ["전체"] + years, key="tool_f_year")
     with c1:
         f_mgr = st.selectbox("담당자", ["전체"] + managers, key="tool_f_mgr")
     with c2:
@@ -1826,7 +1870,8 @@ def view_stores(D, yms, period_text):
         q = st.text_input("점포명 검색", key="tool_f_q", placeholder="점포명 일부를 입력")
 
     names = [m["name"] for m in D["masters"]
-             if (f_mgr == "전체" or m["manager"] == f_mgr)
+             if (f_year == "전체" or m["open_ym"][:4] == f_year)
+             and (f_mgr == "전체" or m["manager"] == f_mgr)
              and (f_type == "전체" or m["type"] == f_type)
              and (f_place == "전체" or m["place"] == f_place)
              and (not q.strip() or q.strip() in m["name"])]
@@ -2177,6 +2222,26 @@ def _weekly_ws(get_gc, create=True):
     """휴게소 방문 전용 탭('주간_활동보고', 휴게소 데이터허브와 공유)"""
     gc = get_gc()
     return _ensure_ws(gc.open(WEEKLY_DOC_NAME), WEEKLY_TAB, create)
+
+
+def export_map_rows(get_gc, rows):
+    """지도 화면에서 필터링된 목록을 '지도_추출' 탭에 통째로 덮어 씁니다(매번 최신 필터 결과로 교체).
+    rows: [{"구분":.., "name":.., "brand":.., "biz_major":.., "biz_minor":.., "address":.., "lat":.., "lng":.., "daily_sales":..}, ...]"""
+    gc = get_gc()
+    doc = gc.open(PERF_SHEET_NAME)
+    try:
+        ws = doc.worksheet(MAP_EXPORT_TAB)
+    except gspread.exceptions.WorksheetNotFound:
+        ws = doc.add_worksheet(title=MAP_EXPORT_TAB, rows=max(len(rows) + 10, 100), cols=len(MAP_EXPORT_HEADERS))
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    body = [[
+        r.get("구분", ""), r.get("name", ""), r.get("brand", ""), r.get("biz_major", ""), r.get("biz_minor", ""),
+        r.get("address", ""), r.get("lat") if r.get("lat") is not None else "", r.get("lng") if r.get("lng") is not None else "",
+        r.get("daily_sales") if r.get("daily_sales") is not None else "", now,
+    ] for r in rows]
+    ws.clear()
+    ws.update("A1", [MAP_EXPORT_HEADERS] + body)
+    return len(body)
 
 
 def _weekly_team_ws(get_gc, create=True):
@@ -3067,14 +3132,20 @@ def _render_weekly_plan(login_members, team_display_members, records, cur_code, 
         sel = st.selectbox("조회 주차", weeks,
                             format_func=lambda c: wk_short_label(label_of.get(c) or wk_label_from_code(c)),
                             key=nav_key, label_visibility="collapsed")
+
+    # 이전주/다음주 버튼: st.session_state[nav_key] 를 'if st.button(...):' 안에서 직접 덮어쓰면,
+    # 바로 위 selectbox(같은 key)가 이미 그려진 뒤라 스트림릿이 '위젯이 이미 그려진 뒤에는 그 세션 값을
+    # 못 바꾼다'며 오류를 냅니다(데이터 유무와는 무관한 문제). on_click 콜백은 화면을 다시 그리기 '전에'
+    # 실행되므로 이 문제가 생기지 않습니다 - 담당자 필터 알약(pill_select)에서 이미 쓰고 있는 방식과 동일.
+    def _goto_week(code):
+        st.session_state[nav_key] = code
+
     with c_prev:
-        if st.button("◀ 이전 주", key="wk_plan_prev", use_container_width=True):
-            st.session_state[nav_key] = wk_prev(sel)
-            st.rerun()
+        st.button("◀ 이전 주", key="wk_plan_prev", use_container_width=True,
+                  on_click=_goto_week, args=(wk_prev(sel),))
     with c_next:
-        if st.button("다음 주 ▶", key="wk_plan_next", use_container_width=True):
-            st.session_state[nav_key] = wk_next(sel)
-            st.rerun()
+        st.button("다음 주 ▶", key="wk_plan_next", use_container_width=True,
+                  on_click=_goto_week, args=(wk_next(sel),))
     st.caption(f":material/event: {label_of.get(sel) or wk_label_from_code(sel)}")
 
     prev_code = wk_prev(sel)
@@ -3130,17 +3201,107 @@ def _coming_soon(icon, title, desc, bullets):
         st.markdown(f"- {b}")
 
 
-def view_store_map():
-    _coming_soon(
-        "pin", "전국 특수점 지도",
-        "입지별로 필터해서 어디에 어떤 점포가 있는지 카카오맵 핀으로 바로 보여주는 지도가 이 자리에 들어갈 예정입니다.",
-        [
-            "최근 5개년 출점 점포 + 전국 특수점 리스트를 함께 지도에 핀으로 표시",
-            "업종(병원 등) 등 조건으로 필터",
-            "핀을 클릭하면 점포 상세정보 표시",
-            "필터링한 리스트를 구글시트로 따로 추출",
-        ],
-    )
+def _kakao_map_html(points, api_key, height=560):
+    """points: [{"name":, "brand":, "lat":, "lng":, "biz":, "sub":}, ...] (lat/lng 는 숫자만 들어있다고 가정)
+    카카오맵 JS SDK 를 불러와서 핀을 찍고, 핀을 클릭하면 간단한 정보창을 띄웁니다."""
+    data = json.dumps(points, ensure_ascii=False)
+    return f"""
+    <div id="kakao-map" style="width:100%;height:{height}px;border-radius:12px;overflow:hidden;"></div>
+    <script src="https://dapi.kakao.com/v2/maps/sdk.js?appkey={escape(api_key)}&autoload=false"></script>
+    <script>
+      var POINTS = {data};
+      kakao.maps.load(function () {{
+        var container = document.getElementById('kakao-map');
+        var first = POINTS[0];
+        var center = first ? new kakao.maps.LatLng(first.lat, first.lng) : new kakao.maps.LatLng(37.5665, 126.9780);
+        var map = new kakao.maps.Map(container, {{ center: center, level: 10 }});
+        var bounds = new kakao.maps.LatLngBounds();
+        POINTS.forEach(function (p) {{
+          var pos = new kakao.maps.LatLng(p.lat, p.lng);
+          bounds.extend(pos);
+          var marker = new kakao.maps.Marker({{ position: pos, map: map }});
+          var html = '<div style="padding:8px 10px;font-size:13px;line-height:1.5;min-width:140px;">' +
+                     '<b>' + p.name + '</b><br/>' + (p.brand || '') +
+                     (p.biz ? ' · ' + p.biz : '') + '</div>';
+          var iw = new kakao.maps.InfoWindow({{ content: html }});
+          kakao.maps.event.addListener(marker, 'click', function () {{ iw.open(map, marker); }});
+        }});
+        if (POINTS.length > 1) map.setBounds(bounds);
+      }});
+    </script>
+    """
+
+
+def view_store_map(get_gc, D):
+    st.markdown(sec_heading("pin", "전국 특수점 지도"), unsafe_allow_html=True)
+
+    team_rows = [{
+        "구분": "우리팀 오픈점", "name": m["name"], "brand": "GS25",
+        "biz_major": m.get("biz_major", ""), "biz_minor": m.get("biz_minor", ""),
+        "address": m.get("address", ""), "lat": m.get("lat"), "lng": m.get("lng"),
+        "daily_sales": None,
+    } for m in D["masters"]]
+    corp_rows = [{
+        "구분": "전사 특수점", "name": r["name"], "brand": r.get("brand", "GS25"),
+        "biz_major": r.get("biz_major", ""), "biz_minor": r.get("biz_minor", ""),
+        "address": r.get("address", ""), "lat": r.get("lat"), "lng": r.get("lng"),
+        "daily_sales": r.get("daily_sales"),
+    } for r in load_corp_stores(get_gc)]
+    all_rows = team_rows + corp_rows
+
+    if not corp_rows:
+        st.caption(":material/info: '전사특수점' 탭에서 아직 데이터를 읽지 못했습니다(탭이 비어 있거나 아직 안 만들어졌으면 우리팀 오픈점만 표시됩니다).")
+
+    kinds = ["우리팀 오픈점", "전사 특수점"]
+    bizs = sorted({r["biz_major"] for r in all_rows if r["biz_major"]})
+    brands = sorted({r["brand"] for r in all_rows if r["brand"]})
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        f_kind = st.multiselect("구분", kinds, default=kinds, key="map_f_kind")
+    with c2:
+        f_biz = st.selectbox("업종대분류", ["전체"] + bizs, key="map_f_biz")
+    with c3:
+        f_brand = st.multiselect("브랜드", brands, default=brands, key="map_f_brand")
+
+    filtered = [r for r in all_rows
+                if r["구분"] in f_kind
+                and (f_biz == "전체" or r["biz_major"] == f_biz)
+                and (not brands or r["brand"] in f_brand)]
+    st.caption(f"조건에 맞는 점포: {len(filtered)}점 (좌표가 입력된 점포만 지도에 핀으로 표시됩니다)")
+
+    pin_rows = [r for r in filtered if r.get("lat") is not None and r.get("lng") is not None]
+    api_key = ""
+    try:
+        api_key = st.secrets.get("KAKAO_JS_KEY", "")
+    except Exception:
+        api_key = ""
+
+    if not api_key:
+        st.warning(":material/key_off: 카카오맵을 띄우려면 앱 설정(st.secrets)에 `KAKAO_JS_KEY` 값(카카오 디벨로퍼스에서 발급한 JavaScript 키)을 등록해야 합니다. "
+                   "지금은 지도 없이 아래 목록만 표시합니다.")
+    elif not pin_rows:
+        st.info(":material/location_off: 아직 위도/경도가 입력된 점포가 없어서 지도에 찍을 핀이 없습니다. 점포마스터/전사특수점 탭에 위도·경도를 채워 주시면 자동으로 지도에 나타납니다.")
+    else:
+        points = [{"name": r["name"], "brand": r["brand"], "biz": r["biz_major"],
+                    "lat": r["lat"], "lng": r["lng"]} for r in pin_rows]
+        components.html(_kakao_map_html(points, api_key), height=580, scrolling=False)
+        st.caption(f":material/push_pin: 지도에 핀으로 표시된 점포: {len(pin_rows)}점")
+
+    if filtered:
+        df = pd.DataFrame([{
+            "구분": r["구분"], "점포명": r["name"], "브랜드": r["brand"],
+            "업종대분류": r["biz_major"], "업종세부": r["biz_minor"], "주소": r["address"],
+            "위도": r["lat"], "경도": r["lng"], "일매출(천원)": r["daily_sales"],
+        } for r in filtered])
+        st.dataframe(df, use_container_width=True, hide_index=True)
+
+        if st.button(":material/upload_file: 필터링된 목록 구글시트로 내보내기", key="map_export_btn"):
+            try:
+                n = export_map_rows(get_gc, filtered)
+                st.success(f"'{MAP_EXPORT_TAB}' 탭에 {n}건을 내보냈습니다.")
+            except Exception as e:
+                st.error(f"내보내기에 실패했습니다: {e}")
 
 
 def view_bid_tracker():
@@ -3205,7 +3366,7 @@ def render_tool(get_gc, user_id="", user_name="", is_admin=False):
     with tab_weekly:
         render_weekly(get_gc, D, user_id, user_name, is_admin)
     with tab_map:
-        view_store_map()
+        view_store_map(get_gc, D)
     with tab_bid:
         view_bid_tracker()
     with tab_files:
