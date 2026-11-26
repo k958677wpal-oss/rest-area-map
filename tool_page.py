@@ -6,9 +6,11 @@ SD 허브(팀 관리툴) 화면 - app.py 의 '관리툴' 모드에서 불러 씁
   - 월실적     : 연월 | 점포명 | 총매출액(천원) | 영업일수 | 매출이익(천원) | 영업이익(천원)
   - 예상목표   : 점포명 | 구분(예상일매출 / 예상월이익) | M | M+1 | ... | M+11   (단위: 천원)
 """
+import io
 import re
 import math
 import json
+import zipfile
 import uuid
 import hashlib
 from html import escape
@@ -689,6 +691,65 @@ table.wk-tbl td.wk-empty { color: #aab4ca; padding: 16px; }
 .subm-card .sb-v.ok { color: #0b9a6a; }
 .subm-card .sb-v.no { color: #d0143c; }
 .subm-card .sb-s { font-size: 11px; color: #8591ab; margin-top: 2px; }
+/* 자료실 (구글 드라이브 연동) */
+.st-key-lib_pills_bid [data-testid="stWidgetLabel"], .st-key-lib_pills_store [data-testid="stWidgetLabel"] { display: none !important; }
+.st-key-lib_pills_bid [role="radiogroup"], .st-key-lib_pills_store [role="radiogroup"] {
+    display: flex !important; flex-direction: row !important; flex-wrap: wrap !important; gap: 6px !important;
+    align-items: center; background: #eef2fa; padding: 5px; border-radius: 12px; width: fit-content; }
+.st-key-lib_pills_bid [role="radiogroup"] > label, .st-key-lib_pills_store [role="radiogroup"] > label {
+    margin: 0 !important; height: 34px; padding: 0 16px !important; border-radius: 9px; cursor: pointer;
+    display: flex !important; align-items: center; justify-content: center; background: transparent; }
+.st-key-lib_pills_bid [role="radiogroup"] > label > div:first-child,
+.st-key-lib_pills_store [role="radiogroup"] > label > div:first-child { display: none !important; }
+.st-key-lib_pills_bid [role="radiogroup"] > label p, .st-key-lib_pills_store [role="radiogroup"] > label p {
+    font-size: 14px !important; font-weight: 700 !important; color: #55648a !important; margin: 0 !important; white-space: nowrap; }
+.st-key-lib_pills_bid [role="radiogroup"] > label:hover, .st-key-lib_pills_store [role="radiogroup"] > label:hover { background: #dfe7f6; }
+.st-key-lib_pills_bid [role="radiogroup"] > label:has(input:checked),
+.st-key-lib_pills_store [role="radiogroup"] > label:has(input:checked) {
+    background: #2c4a8a !important; box-shadow: 0 2px 6px rgba(31,58,115,.22); }
+.st-key-lib_pills_bid [role="radiogroup"] > label:has(input:checked) p,
+.st-key-lib_pills_store [role="radiogroup"] > label:has(input:checked) p { color: #ffffff !important; }
+.st-key-lib_bulkbar { background: linear-gradient(90deg, #eef3fc, #f8faff); border: 1px solid #d5dcea;
+    border-radius: 12px; padding: 10px 16px !important; margin: 4px 0 8px; }
+.st-key-lib_bulkbar [data-testid="stHorizontalBlock"] { align-items: center !important; }
+div[class*="st-key-librow_"] { background: #ffffff; border: 1px solid #dfe6f3; border-radius: 12px;
+    padding: 10px 16px !important; box-shadow: 0 2px 6px rgba(31,58,115,.04);
+    transition: border-color .15s ease, box-shadow .15s ease; }
+div[class*="st-key-librow_"]:hover { border-color: #b5c4e3; box-shadow: 0 4px 12px rgba(31,58,115,.09); }
+div[class*="st-key-librow_"] [data-testid="stHorizontalBlock"] { align-items: center !important; }
+.lib-item { display: flex; align-items: center; gap: 10px; min-width: 0; flex-wrap: wrap; }
+.lib-ext { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; height: 24px;
+    padding: 0 8px; border-radius: 6px; font-size: 11px; font-weight: 800; letter-spacing: .3px; flex: none; }
+.lib-ext.pdf { background: #fde8ec; color: #c9184a; }
+.lib-ext.hwp { background: #e3f2fd; color: #0277bd; }
+.lib-ext.xls { background: #e3f3ec; color: #0b9a6a; }
+.lib-ext.ppt { background: #fff0e0; color: #d95f02; }
+.lib-ext.doc { background: #e8edfb; color: #2c4a8a; }
+.lib-ext.img { background: #f1e8fb; color: #6a35b5; }
+.lib-ext.zip { background: #eaeef7; color: #1f3a73; }
+.lib-ext.etc { background: #eef2fa; color: #55648a; }
+.lib-title { font-size: 15px; font-weight: 700; color: #1f2d4d; word-break: break-all; line-height: 1.35; }
+.lib-cat { font-size: 11.5px; font-weight: 700; color: #2c4a8a; background: #eaf0fb; border-radius: 999px;
+    padding: 2px 10px; white-space: nowrap; flex: none; }
+.lib-store { font-size: 12px; font-weight: 800; color: #ffffff; background: linear-gradient(135deg, #2c4a8a, #3a5fa8);
+    border-radius: 999px; padding: 3px 11px; white-space: nowrap; flex: none; }
+.lib-meta { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap;
+    font-size: 12.5px; color: #6b7a99; font-weight: 600; }
+.lib-date { color: #3a4a6b; font-weight: 700; white-space: nowrap; }
+.lib-fresh { font-size: 11px; font-weight: 800; border-radius: 999px; padding: 2px 8px; white-space: nowrap; }
+.lib-fresh.new { background: #e3f3ec; color: #0b9a6a; }
+.lib-fresh.ok { background: #eef2fa; color: #2c4a8a; }
+.lib-fresh.old { background: #fef1df; color: #b25e00; }
+.lib-size { font-size: 12px; color: #8591ab; min-width: 58px; text-align: right; white-space: nowrap; }
+.lib-sel-badge { display: inline-flex; align-items: center; height: 36px; padding: 0 14px; border-radius: 999px;
+    background: #ffffff; border: 1px solid #c9d4ea; font-size: 13.5px; font-weight: 700; color: #2c4a8a; }
+.lib-sel-badge b { color: #0b9a6a; margin: 0 3px; font-weight: 800; }
+.lib-setup { background: #ffffff; border: 1px solid #d5dcea; border-left: 6px solid #2c4a8a; border-radius: 14px;
+    padding: 20px 24px; box-shadow: 0 4px 14px rgba(31,58,115,.07); margin-top: 8px; }
+.lib-setup h4 { margin: 0 0 8px; font-size: 17px; font-weight: 800; color: #1f3a73; }
+.lib-setup p { margin: 4px 0 12px; font-size: 13.5px; color: #55648a; line-height: 1.55; }
+.lib-tree { background: #f6f8fc; border: 1px solid #e1e7f3; border-radius: 10px; padding: 12px 16px;
+    font-family: Consolas, monospace; font-size: 13px; color: #1f3a73; line-height: 1.6; white-space: pre; overflow-x: auto; }
 </style>
 """
 
@@ -3895,16 +3956,581 @@ def view_bid_tracker():
     )
 
 
-def view_file_library():
-    _coming_soon(
-        "folder", "자료실",
-        "입찰 필요서류, 이슈 점포(한강·63빌딩·인천공항 등) 보고서를 폴더별로 올려두고 다운로드할 수 있는 화면이 이 자리에 들어갈 예정입니다.",
-        [
-            "'입찰 필요서류', '한강', '63빌딩', '인천공항' 등 폴더(하위 메뉴)별로 구분",
-            "구글드라이브와 연동해서 올리고 받기",
-            "최신 서류만 한 곳에서 받을 수 있어 중복 발급 방지",
-        ],
+# ───────────────────────── 자료실 (구글 드라이브 비공개 연동) ─────────────────────────
+SD_LIBRARY_ROOT_NAME = "SD_자료실"
+DRIVE_FILES_API = "https://www.googleapis.com/drive/v3/files"
+DRIVE_FOLDER_MIME = "application/vnd.google-apps.folder"
+DRIVE_SHORTCUT_MIME = "application/vnd.google-apps.shortcut"
+
+# 구글 문서/시트/프레젠테이션 원본이 폴더에 들어있을 경우 다운로드 가능한 오피스/PDF 형식으로 자동 변환
+GDOC_EXPORT_MAP = {
+    "application/vnd.google-apps.document": ("application/pdf", ".pdf"),
+    "application/vnd.google-apps.spreadsheet": (
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", ".xlsx"
+    ),
+    "application/vnd.google-apps.presentation": (
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation", ".pptx"
+    ),
+    "application/vnd.google-apps.drawing": ("application/pdf", ".pdf"),
+}
+
+_EXT_STYLE_MAP = {
+    "PDF": "pdf",
+    "HWP": "hwp", "HWPX": "hwp",
+    "XLSX": "xls", "XLS": "xls", "CSV": "xls",
+    "PPTX": "ppt", "PPT": "ppt",
+    "DOCX": "doc", "DOC": "doc", "TXT": "doc",
+    "JPG": "img", "JPEG": "img", "PNG": "img", "WEBP": "img",
+    "ZIP": "zip", "7Z": "zip", "RAR": "zip",
+}
+
+
+def _clean_folder_label(raw_name):
+    """폴더 정렬용 접두 번호('1_', '02. ', '3-' 등)만 제거하고 '63빌딩' 같은 고유 숫자는 그대로 보존합니다."""
+    s = str(raw_name or "").strip()
+    cleaned = re.sub(r"^\s*\d{1,2}\s*[._\-)]\s*", "", s).strip()
+    return cleaned or s
+
+
+def _folder_sort_key(raw_name):
+    """앞에 번호('1_', '02.' 등)가 있으면 숫자 순으로 먼저 정렬하고, 없으면 가나다순으로 정렬합니다."""
+    s = str(raw_name or "").strip()
+    m = re.match(r"^\s*(\d{1,2})\s*[._\-)]\s*(.*)$", s)
+    if m:
+        return (0, int(m.group(1)), m.group(2).strip())
+    return (1, 999, s)
+
+
+def _format_file_size(size_val):
+    try:
+        b = int(size_val)
+    except (TypeError, ValueError):
+        return "-"
+    if b < 1024:
+        return f"{b} B"
+    if b < 1024 * 1024:
+        return f"{b / 1024:.0f} KB"
+    return f"{b / (1024 * 1024):.1f} MB"
+
+
+def _file_ext_info(download_name):
+    nm = str(download_name or "").strip()
+    ext = nm.rsplit(".", 1)[1].upper() if "." in nm else "FILE"
+    ext_short = ext[:5]
+    return ext_short, _EXT_STYLE_MAP.get(ext, "etc")
+
+
+def _extract_doc_date(filename, modified_iso="", today=None):
+    """파일명에 적힌 날짜(YYYYMMDD / YYYY-MM-DD / YYMMDD 등)를 우선 인식하고, 없으면 드라이브 수정일을 기준으로 씁니다."""
+    if today is None:
+        today = datetime.now(KST).date()
+    stem = str(filename or "").rsplit(".", 1)[0]
+
+    # 1) 8자리 날짜 (예: 2026-11-25, 2026.11.25, 20261125)
+    for m in re.finditer(r"(?<!\d)(20[2-4]\d)[.\-_/\s]?(0[1-9]|1[0-2])[.\-_/\s]?(0[1-9]|[12]\d|3[01])(?!\d)", stem):
+        try:
+            d = _dt.date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+            return d.strftime("%Y-%m-%d"), "파일명", max(0, (today - d).days)
+        except ValueError:
+            pass
+
+    # 2) 6자리 날짜 (예: _261125, (26.11.25))
+    for m in re.finditer(r"(?<!\d)(2\d)[.\-_]?(0[1-9]|1[0-2])[.\-_]?(0[1-9]|[12]\d|3[01])(?!\d)", stem):
+        try:
+            d = _dt.date(2000 + int(m.group(1)), int(m.group(2)), int(m.group(3)))
+            return d.strftime("%Y-%m-%d"), "파일명", max(0, (today - d).days)
+        except ValueError:
+            pass
+
+    # 3) 드라이브 수정시각(UTC ISO8601 -> KST)
+    s = str(modified_iso or "").strip()
+    if s:
+        try:
+            dt_utc = datetime.fromisoformat(s.replace("Z", "+00:00"))
+            d = dt_utc.astimezone(KST).date()
+            return d.strftime("%Y-%m-%d"), "업로드일", max(0, (today - d).days)
+        except Exception:
+            if len(s) >= 10:
+                return s[:10], "업로드일", None
+    return "-", "", None
+
+
+def _drive_query(gc, q, fields="nextPageToken, files(id, name, mimeType, size, modifiedTime, shortcutDetails)"):
+    """Drive v3 files.list 페이지네이션 조회 (서비스 계정에 공유된 폴더·파일만 조회됨)."""
+    items = []
+    page_token = None
+    while True:
+        params = {
+            "q": q,
+            "fields": fields,
+            "pageSize": 1000,
+            "supportsAllDrives": "true",
+            "includeItemsFromAllDrives": "true",
+        }
+        if page_token:
+            params["pageToken"] = page_token
+        res = gc.http_client.request("get", DRIVE_FILES_API, params=params)
+        payload = res.json()
+        items.extend(payload.get("files", []))
+        page_token = payload.get("nextPageToken")
+        if not page_token:
+            break
+    return items
+
+
+def _drive_list_children(gc, folder_id):
+    raw_items = _drive_query(gc, f"'{folder_id}' in parents and trashed = false")
+    resolved = []
+    for it in raw_items:
+        if it.get("mimeType") == DRIVE_SHORTCUT_MIME:
+            sc = it.get("shortcutDetails") or {}
+            tid, tmime = sc.get("targetId"), sc.get("targetMimeType")
+            if not tid or not tmime:
+                continue
+            it = dict(it, id=tid, mimeType=tmime)
+        resolved.append(it)
+    return resolved
+
+
+def _enrich_drive_file(raw_file, group_label="", today=None):
+    fid = raw_file.get("id", "")
+    name = str(raw_file.get("name", "")).strip()
+    mime = raw_file.get("mimeType", "") or "application/octet-stream"
+    if mime in GDOC_EXPORT_MAP:
+        dl_mime, ext = GDOC_EXPORT_MAP[mime]
+        dl_name = name if name.lower().endswith(ext) else f"{name}{ext}"
+    else:
+        dl_mime = mime
+        dl_name = name
+    ext_label, ext_cls = _file_ext_info(dl_name)
+    date_str, date_src, days_ago = _extract_doc_date(name, raw_file.get("modifiedTime", ""), today=today)
+    return {
+        "id": fid,
+        "name": name,
+        "download_name": dl_name,
+        "mimeType": mime,
+        "download_mime": dl_mime,
+        "size_bytes": raw_file.get("size"),
+        "size_text": _format_file_size(raw_file.get("size")),
+        "modifiedTime": raw_file.get("modifiedTime", ""),
+        "date_str": date_str,
+        "date_src": date_src,
+        "days_ago": days_ago,
+        "ext_label": ext_label,
+        "ext_cls": ext_cls,
+        "group": group_label,
+    }
+
+
+def _collect_files_recursive(gc, folder_id, group_label="", today=None, max_depth=2):
+    """폴더 안의 모든 파일을 수집합니다(하위 폴더가 한 단계 더 있어도 누락 없이 가져옵니다)."""
+    out = []
+    children = _drive_list_children(gc, folder_id)
+    subfolders = sorted([c for c in children if c.get("mimeType") == DRIVE_FOLDER_MIME],
+                        key=lambda x: _folder_sort_key(x.get("name", "")))
+    files = [c for c in children if c.get("mimeType") != DRIVE_FOLDER_MIME]
+    for f in files:
+        out.append(_enrich_drive_file(f, group_label=group_label, today=today))
+    if max_depth > 0:
+        for sf in subfolders:
+            sub_lbl = _clean_folder_label(sf.get("name", ""))
+            merged_lbl = f"{group_label} · {sub_lbl}" if group_label else sub_lbl
+            out.extend(_collect_files_recursive(gc, sf["id"], group_label=merged_lbl, today=today, max_depth=max_depth - 1))
+    return out
+
+
+@st.cache_data(ttl=180, show_spinner="자료실 목록을 불러오는 중...")
+def load_drive_library(_get_gc):
+    """구글 드라이브 'SD_자료실' 폴더 구조를 읽어 입찰 필요서류와 주요 이슈 점포 보고서 목록을 구성합니다."""
+    try:
+        gc = _get_gc()
+    except Exception as e:
+        return {"ready": False, "error": f"구글 인증 연결 실패: {e}", "sa_email": ""}
+
+    sa_email = str(getattr(getattr(gc.http_client, "auth", None), "service_account_email", "") or "")
+    configured_id = ""
+    try:
+        configured_id = str(st.secrets.get("sd_library_folder_id", "")).strip()
+    except Exception:
+        configured_id = ""
+
+    try:
+        root_id = configured_id
+        if not root_id:
+            roots = _drive_query(
+                gc,
+                f"mimeType = '{DRIVE_FOLDER_MIME}' and name = '{SD_LIBRARY_ROOT_NAME}' and trashed = false",
+                fields="files(id, name, modifiedTime)",
+            )
+            if not roots:
+                return {"ready": False, "error": None, "sa_email": sa_email}
+            roots.sort(key=lambda r: r.get("modifiedTime", ""), reverse=True)
+            root_id = roots[0]["id"]
+
+        today = datetime.now(KST).date()
+        top_items = _drive_list_children(gc, root_id)
+        top_folders = sorted([c for c in top_items if c.get("mimeType") == DRIVE_FOLDER_MIME],
+                             key=lambda x: _folder_sort_key(x.get("name", "")))
+        top_files = [c for c in top_items if c.get("mimeType") != DRIVE_FOLDER_MIME]
+
+        bid_categories = []
+        bid_files = []
+        store_names = []
+        store_files = []
+
+        def _add_cat(lst, name):
+            if name and name not in lst:
+                lst.append(name)
+
+        for tf in top_folders:
+            clean_top = _clean_folder_label(tf.get("name", ""))
+            if "입찰" in clean_top:
+                # 입찰 필요서류 폴더: 직속 파일 + 소분류 하위 폴더
+                sub_items = _drive_list_children(gc, tf["id"])
+                sub_folders = sorted([c for c in sub_items if c.get("mimeType") == DRIVE_FOLDER_MIME],
+                                     key=lambda x: _folder_sort_key(x.get("name", "")))
+                direct_files = [c for c in sub_items if c.get("mimeType") != DRIVE_FOLDER_MIME]
+                if direct_files:
+                    cat = "일반·공통" if sub_folders else ""
+                    if cat:
+                        _add_cat(bid_categories, cat)
+                    for f in direct_files:
+                        bid_files.append(_enrich_drive_file(f, group_label=cat, today=today))
+                for sf in sub_folders:
+                    cat = _clean_folder_label(sf.get("name", ""))
+                    _add_cat(bid_categories, cat)
+                    bid_files.extend(_collect_files_recursive(gc, sf["id"], group_label=cat, today=today, max_depth=1))
+            elif any(kw in clean_top for kw in ("이슈", "점포", "보고서")):
+                # 주요 이슈 점포 상위 폴더: 하위 폴더 하나하나가 점포명(한강, 63빌딩, 인천공항 등)
+                sub_items = _drive_list_children(gc, tf["id"])
+                sub_folders = sorted([c for c in sub_items if c.get("mimeType") == DRIVE_FOLDER_MIME],
+                                     key=lambda x: _folder_sort_key(x.get("name", "")))
+                direct_files = [c for c in sub_items if c.get("mimeType") != DRIVE_FOLDER_MIME]
+                for sf in sub_folders:
+                    sname = _clean_folder_label(sf.get("name", ""))
+                    _add_cat(store_names, sname)
+                    store_files.extend(_collect_files_recursive(gc, sf["id"], group_label=sname, today=today, max_depth=1))
+                if direct_files:
+                    sname = "기타·공통"
+                    _add_cat(store_names, sname)
+                    for f in direct_files:
+                        store_files.append(_enrich_drive_file(f, group_label=sname, today=today))
+            else:
+                # SD_자료실 바로 아래에 '한강', '63빌딩', '인천공항' 폴더를 직접 둔 경우에도 점포 폴더로 자동 인식
+                _add_cat(store_names, clean_top)
+                store_files.extend(_collect_files_recursive(gc, tf["id"], group_label=clean_top, today=today, max_depth=1))
+
+        if top_files:
+            cat = "일반·공통" if bid_categories else ""
+            if cat:
+                _add_cat(bid_categories, cat)
+            for f in top_files:
+                bid_files.append(_enrich_drive_file(f, group_label=cat, today=today))
+
+        return {
+            "ready": True,
+            "error": None,
+            "sa_email": sa_email,
+            "bid_categories": bid_categories,
+            "bid_files": bid_files,
+            "store_names": store_names,
+            "store_files": store_files,
+        }
+    except Exception as e:
+        return {"ready": False, "error": f"구글 드라이브 조회 중 오류가 발생했습니다: {e}", "sa_email": sa_email}
+
+
+@st.cache_data(ttl=600, max_entries=64, show_spinner="파일을 준비하는 중...")
+def _cached_drive_file_bytes(_get_gc, file_id, mime_type, mod_token=""):
+    """개별 파일 바이트 다운로드(10분 메모리 캐시, 드라이브 파일 수정시각이 바뀌면 캐시 키도 즉시 갱신됨)."""
+    gc = _get_gc()
+    if mime_type in GDOC_EXPORT_MAP:
+        export_mime, _ = GDOC_EXPORT_MAP[mime_type]
+        res = gc.http_client.request("get", f"{DRIVE_FILES_API}/{file_id}/export", params={"mimeType": export_mime})
+    else:
+        res = gc.http_client.request(
+            "get", f"{DRIVE_FILES_API}/{file_id}",
+            params={"alt": "media", "supportsAllDrives": "true"},
+        )
+    return res.content
+
+
+def build_drive_zip_bytes(get_gc, file_tuples):
+    """선택한 서류들을 메모리에서 하나의 .zip 바이트로 묶어 반환합니다. 같은 파일명이 여러 개면 자동 번호를 붙입니다."""
+    buf = io.BytesIO()
+    used_names = {}
+    with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for fid, fmime, fmod, dl_name in file_tuples:
+            data = _cached_drive_file_bytes(get_gc, fid, fmime, fmod)
+            arc = dl_name or f"{fid}.bin"
+            if arc in used_names:
+                used_names[arc] += 1
+                if "." in arc:
+                    stem, ext = arc.rsplit(".", 1)
+                    arc = f"{stem} ({used_names[arc]}).{ext}"
+                else:
+                    arc = f"{arc} ({used_names[arc]})"
+            else:
+                used_names[arc] = 1
+            zf.writestr(arc, data)
+    return buf.getvalue()
+
+
+def _freshness_badge_html(days_ago):
+    if days_ago is None:
+        return ""
+    if days_ago == 0:
+        return '<span class="lib-fresh new">오늘 갱신</span>'
+    if days_ago <= 14:
+        return f'<span class="lib-fresh new">D+{days_ago}</span>'
+    if days_ago < 90:
+        return f'<span class="lib-fresh ok">D+{days_ago}</span>'
+    return f'<span class="lib-fresh old">D+{days_ago} · 갱신확인</span>'
+
+
+def _sort_lib_files(files, sort_mode):
+    if sort_mode == "서류명 가나다순":
+        return sorted(files, key=lambda f: f["name"].lower())
+    # 기본: 기준일 최신순 -> 같은 날짜면 가나다순
+    return sorted(
+        files,
+        key=lambda f: (
+            -(int(f["date_str"].replace("-", "")) if re.match(r"^\d{4}-\d{2}-\d{2}$", f["date_str"]) else 0),
+            f["name"].lower(),
+        ),
     )
+
+
+@st.fragment
+def _render_lib_bid_tab(get_gc, categories, files):
+    if not files:
+        st.info("아직 '입찰 필요서류' 폴더에 등록된 파일이 없습니다. 구글 드라이브 `SD_자료실 > 1_입찰 필요서류` 폴더에 최신 서류를 넣어 주세요.")
+        return
+
+    if categories:
+        with st.container(key="lib_pills_bid"):
+            sel_cat = st.radio("소분류", ["전체"] + categories, horizontal=True, key="lib_bid_cat", label_visibility="collapsed")
+    else:
+        sel_cat = "전체"
+
+    fc1, fc2 = st.columns([3, 1.2])
+    with fc1:
+        q = st.text_input("서류명 검색", key="lib_bid_q", placeholder="찾으실 서류명을 입력하세요 (예: 사업자등록증, 등기부등본, 완납증명서)",
+                          label_visibility="collapsed")
+    with fc2:
+        sort_mode = st.selectbox("정렬", ["기준일 최신순", "서류명 가나다순"], key="lib_bid_sort", label_visibility="collapsed")
+
+    kw = q.strip().lower()
+    filtered = [
+        f for f in files
+        if (sel_cat == "전체" or f["group"] == sel_cat or f["group"].startswith(f"{sel_cat} · "))
+        and (not kw or kw in f["name"].lower() or kw in f["group"].lower())
+    ]
+    filtered = _sort_lib_files(filtered, sort_mode)
+
+    visible_ids = [f["id"] for f in filtered]
+    selected_files = [f for f in filtered if st.session_state.get(f"lib_chk_{f['id']}", False)]
+
+    def _set_visible_checks(flag, ids):
+        for i in ids:
+            st.session_state[f"lib_chk_{i}"] = flag
+
+    with st.container(key="lib_bulkbar"):
+        bc1, bc2, bc3, bc4 = st.columns([1.2, 1.2, 2.2, 3.4])
+        with bc1:
+            st.button("전체 선택", key="lib_sel_all", icon=":material/select_all:",
+                      use_container_width=True, disabled=(not visible_ids),
+                      on_click=_set_visible_checks, args=(True, visible_ids))
+        with bc2:
+            st.button("선택 해제", key="lib_sel_none", icon=":material/deselect:",
+                      use_container_width=True, disabled=(not selected_files),
+                      on_click=_set_visible_checks, args=(False, [f["id"] for f in files]))
+        with bc3:
+            st.markdown(
+                f'<div class="lib-sel-badge">선택 서류 <b>{len(selected_files)}</b> / {len(filtered)}건</div>',
+                unsafe_allow_html=True,
+            )
+        with bc4:
+            if selected_files:
+                zip_tuples = tuple((f["id"], f["mimeType"], f["modifiedTime"], f["download_name"]) for f in selected_files)
+                zip_name = f"입찰필요서류_{datetime.now(KST).strftime('%Y%m%d')}_{len(selected_files)}종.zip"
+                st.download_button(
+                    label=f"선택 서류 일괄 다운로드 ({len(selected_files)}건 · .zip)",
+                    data=lambda items=zip_tuples: build_drive_zip_bytes(get_gc, items),
+                    file_name=zip_name,
+                    mime="application/zip",
+                    type="primary",
+                    icon=":material/folder_zip:",
+                    key="lib_zip_dl_btn",
+                    on_click="ignore",
+                    use_container_width=True,
+                )
+            else:
+                st.button("체크박스로 서류 선택 시 ZIP 일괄 다운로드", key="lib_zip_dl_disabled",
+                          icon=":material/folder_zip:", disabled=True, use_container_width=True)
+
+    if not filtered:
+        st.caption("검색 조건에 맞는 서류가 없습니다.")
+        return
+
+    for f in filtered:
+        with st.container(key=f"librow_bid_{f['id']}"):
+            rc1, rc2, rc3, rc4 = st.columns([0.45, 5.15, 2.8, 1.6])
+            with rc1:
+                st.checkbox("선택", key=f"lib_chk_{f['id']}", label_visibility="collapsed")
+            with rc2:
+                cat_chip = f'<span class="lib-cat">{escape(f["group"])}</span>' if f["group"] else ""
+                st.markdown(
+                    f'<div class="lib-item"><span class="lib-ext {f["ext_cls"]}">{escape(f["ext_label"])}</span>'
+                    f'<span class="lib-title">{escape(f["name"])}</span>{cat_chip}</div>',
+                    unsafe_allow_html=True,
+                )
+            with rc3:
+                fresh = _freshness_badge_html(f["days_ago"])
+                st.markdown(
+                    f'<div class="lib-meta"><span class="lib-date">{escape(f["date_str"])}</span>'
+                    f'{fresh}<span class="lib-size">{escape(f["size_text"])}</span></div>',
+                    unsafe_allow_html=True,
+                )
+            with rc4:
+                st.download_button(
+                    label="다운로드",
+                    data=lambda fid=f["id"], fm=f["mimeType"], fmod=f["modifiedTime"]: _cached_drive_file_bytes(get_gc, fid, fm, fmod),
+                    file_name=f["download_name"],
+                    mime=f["download_mime"],
+                    icon=":material/download:",
+                    key=f"lib_dl_bid_{f['id']}",
+                    on_click="ignore",
+                    use_container_width=True,
+                )
+
+
+@st.fragment
+def _render_lib_store_tab(get_gc, store_names, files):
+    if not store_names and not files:
+        st.info("아직 '주요 이슈 점포' 폴더에 등록된 보고서가 없습니다. 구글 드라이브 `SD_자료실 > 2_주요 이슈 점포` 아래에 점포별 폴더(예: 한강, 63빌딩, 인천공항)를 만들고 최종 보고서를 넣어 주세요.")
+        return
+
+    if store_names:
+        with st.container(key="lib_pills_store"):
+            sel_store = st.radio("점포 선택", ["전체"] + store_names, horizontal=True,
+                                 key="lib_store_pick", label_visibility="collapsed")
+    else:
+        sel_store = "전체"
+
+    sc1, sc2 = st.columns([3, 1.2])
+    with sc1:
+        q = st.text_input("보고서 검색", key="lib_store_q", placeholder="점포명 또는 보고서 제목 검색",
+                          label_visibility="collapsed")
+    with sc2:
+        sort_mode = st.selectbox("정렬", ["기준일 최신순", "서류명 가나다순"], key="lib_store_sort", label_visibility="collapsed")
+
+    kw = q.strip().lower()
+    filtered = [
+        f for f in files
+        if (sel_store == "전체" or f["group"] == sel_store or f["group"].startswith(f"{sel_store} · "))
+        and (not kw or kw in f["name"].lower() or kw in f["group"].lower())
+    ]
+    filtered = _sort_lib_files(filtered, sort_mode)
+
+    if not filtered:
+        if sel_store != "전체":
+            st.caption(f"'{sel_store}' 폴더에 등록된 보고서가 아직 없습니다.")
+        else:
+            st.caption("조건에 맞는 보고서가 없습니다.")
+        return
+
+    st.caption(f"총 {len(filtered)}건의 최종 보고서")
+    for f in filtered:
+        with st.container(key=f"librow_st_{f['id']}"):
+            rc1, rc2, rc3 = st.columns([5.8, 2.6, 1.6])
+            with rc1:
+                store_chip = f'<span class="lib-store">{escape(f["group"])}</span>' if f["group"] else ""
+                st.markdown(
+                    f'<div class="lib-item">{store_chip}'
+                    f'<span class="lib-ext {f["ext_cls"]}">{escape(f["ext_label"])}</span>'
+                    f'<span class="lib-title">{escape(f["name"])}</span></div>',
+                    unsafe_allow_html=True,
+                )
+            with rc2:
+                st.markdown(
+                    f'<div class="lib-meta"><span class="lib-date">{escape(f["date_str"])}</span>'
+                    f'<span class="lib-size">{escape(f["size_text"])}</span></div>',
+                    unsafe_allow_html=True,
+                )
+            with rc3:
+                st.download_button(
+                    label="다운로드",
+                    data=lambda fid=f["id"], fm=f["mimeType"], fmod=f["modifiedTime"]: _cached_drive_file_bytes(get_gc, fid, fm, fmod),
+                    file_name=f["download_name"],
+                    mime=f["download_mime"],
+                    icon=":material/download:",
+                    key=f"lib_dl_st_{f['id']}",
+                    on_click="ignore",
+                    use_container_width=True,
+                )
+
+
+def view_file_library(get_gc, is_admin=False):
+    hc1, hc2 = st.columns([5, 1.1])
+    with hc1:
+        st.markdown(sec_heading("folder", "자료실"), unsafe_allow_html=True)
+    with hc2:
+        st.write("")
+        if icon_button("새로고침", ":material/refresh:", key="lib_refresh_btn", use_container_width=True):
+            load_drive_library.clear()
+            _cached_drive_file_bytes.clear()
+            st.rerun()
+
+    lib = load_drive_library(get_gc)
+    if lib.get("error"):
+        st.error(lib["error"])
+        return
+
+    if not lib.get("ready"):
+        if is_admin:
+            sa_email = lib.get("sa_email") or "(서비스 계정 이메일 확인 필요)"
+            st.markdown(
+                '<div class="lib-setup">'
+                '<h4>구글 드라이브 자료실 폴더 연결 안내 (관리자 최초 1회 설정)</h4>'
+                '<p>내 구글 드라이브에 <b>SD_자료실</b> 폴더를 만들고 아래 서비스 계정 이메일에만 <b>뷰어</b> 권한을 부여해 주세요.<br>'
+                '일반 액세스는 <b>제한됨(링크 공유 꺼짐)</b> 상태로 유지하면 팀원들은 드라이브에 직접 접근할 수 없고, '
+                '이 화면에서만 최신 서류를 안전하게 다운로드할 수 있습니다.</p>'
+                '<div class="lib-tree">'
+                'SD_자료실  (서비스 계정 이메일에 "뷰어" 공유)\n'
+                ' ├── 1_입찰 필요서류\n'
+                ' │    ├── 법인·행정서류   (하위 폴더를 만들면 소분류 필터가 자동 생성됩니다)\n'
+                ' │    └── 세무·재무서류\n'
+                ' └── 2_주요 이슈 점포\n'
+                '      ├── 한강            (점포 폴더를 추가하면 메뉴가 자동 생성됩니다)\n'
+                '      ├── 63빌딩\n'
+                '      └── 인천공항'
+                '</div></div>',
+                unsafe_allow_html=True,
+            )
+            st.caption("공유 대상 서비스 계정 이메일 (우측 복사 아이콘 클릭):")
+            st.code(sa_email, language=None)
+        else:
+            st.info("현재 자료실 폴더가 아직 연결되지 않았습니다. 관리자가 폴더 연결을 완료하면 이곳에서 서류를 다운로드할 수 있습니다.")
+        return
+
+    bid_files = lib.get("bid_files", [])
+    store_files = lib.get("store_files", [])
+    st.caption(
+        f":material/lock: 사내 보안 자료실 · 최신 최종본 전용  |  "
+        f"입찰 필요서류 **{len(bid_files)}건** · 주요 이슈 점포 보고서 **{len(store_files)}건** "
+        f"(파일명에 날짜를 적으면 기준일로 자동 표시됩니다)"
+    )
+
+    with st.container(key="lvl2tabs"):
+        t_bid, t_store = st.tabs([
+            f":material/assignment_turned_in: 입찰 필요서류 ({len(bid_files)})",
+            f":material/apartment: 주요 이슈 점포 보고서 ({len(store_files)})",
+        ])
+    with t_bid:
+        _render_lib_bid_tab(get_gc, lib.get("bid_categories", []), bid_files)
+    with t_store:
+        _render_lib_store_tab(get_gc, lib.get("store_names", []), store_files)
 
 
 # ───────────────────────── 진입점 ─────────────────────────
@@ -3953,4 +4579,4 @@ def render_tool(get_gc, user_id="", user_name="", is_admin=False):
     with tab_bid:
         view_bid_tracker()
     with tab_files:
-        view_file_library()
+        view_file_library(get_gc, is_admin=is_admin)
