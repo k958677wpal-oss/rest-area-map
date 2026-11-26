@@ -472,22 +472,22 @@ button[role="tab"][aria-selected="true"], [data-testid="stTab"][aria-selected="t
 button[role="tab"][aria-selected="true"] p, button[role="tab"][aria-selected="true"] div,
 button[role="tab"][aria-selected="true"] span, [data-testid="stTab"][aria-selected="true"] p { color: #ffffff !important; }
 [data-baseweb="tab-highlight"], [data-baseweb="tab-border"] { display: none !important; }
-/* 하위 메뉴(2단계: 내 보고 작성/팀 현황/팀 활동계획) - 큰 메뉴(1단계)와 톤을 구분하기 위해 알약을 버리고
+/* 하위 메뉴(2단계: 내 보고 작성/팀 현황/팀 활동계획, 자료실 등) - 큰 메뉴(1단계)와 톤을 구분하기 위해 알약을 버리고
    '밑줄 탭' 모양으로: 선택 = 밑줄 + 굵은 네이비 글자, 미선택 = 연한 회색 글자, 배경 없음 */
-.st-key-lvl2tabs [data-baseweb="tab-list"], .st-key-lvl2tabs [role="tablist"] {
+div[class*="st-key-lvl2tabs"] [data-baseweb="tab-list"], div[class*="st-key-lvl2tabs"] [role="tablist"] {
     background: transparent !important; padding: 0 !important; border-radius: 0 !important;
     gap: 22px !important; border-bottom: 2px solid #e3e8f2; }
-.st-key-lvl2tabs button[data-baseweb="tab"], .st-key-lvl2tabs button[role="tab"] {
+div[class*="st-key-lvl2tabs"] button[data-baseweb="tab"], div[class*="st-key-lvl2tabs"] button[role="tab"] {
     height: 40px !important; padding: 0 2px !important; border-radius: 0 !important; background: transparent !important;
     border-bottom: 3px solid transparent !important; margin-bottom: -2px; }
-.st-key-lvl2tabs button[role="tab"] p, .st-key-lvl2tabs button[role="tab"] div, .st-key-lvl2tabs button[role="tab"] span {
+div[class*="st-key-lvl2tabs"] button[role="tab"] p, div[class*="st-key-lvl2tabs"] button[role="tab"] div, div[class*="st-key-lvl2tabs"] button[role="tab"] span {
     font-size: 15.5px !important; font-weight: 600 !important; color: #9aa5bd !important; }
-.st-key-lvl2tabs button[role="tab"]:hover { background: transparent !important; }
-.st-key-lvl2tabs button[role="tab"]:hover p { color: #55648a !important; }
-.st-key-lvl2tabs button[role="tab"][aria-selected="true"] { background: transparent !important; box-shadow: none !important;
+div[class*="st-key-lvl2tabs"] button[role="tab"]:hover { background: transparent !important; }
+div[class*="st-key-lvl2tabs"] button[role="tab"]:hover p { color: #55648a !important; }
+div[class*="st-key-lvl2tabs"] button[role="tab"][aria-selected="true"] { background: transparent !important; box-shadow: none !important;
     border-bottom: 3px solid #2c4a8a !important; }
-.st-key-lvl2tabs button[role="tab"][aria-selected="true"] p, .st-key-lvl2tabs button[role="tab"][aria-selected="true"] div,
-.st-key-lvl2tabs button[role="tab"][aria-selected="true"] span { color: #1f3a73 !important; font-weight: 800 !important; }
+div[class*="st-key-lvl2tabs"] button[role="tab"][aria-selected="true"] p, div[class*="st-key-lvl2tabs"] button[role="tab"][aria-selected="true"] div,
+div[class*="st-key-lvl2tabs"] button[role="tab"][aria-selected="true"] span { color: #1f3a73 !important; font-weight: 800 !important; }
 /* 하위 메뉴(3단계: 계약완료·오픈확정 물건/추진 물건, 팀원 화면 전용) - 2단계보다도 더 가볍게,
    탭이라기보단 같은 화면 안의 토글처럼: 배경·알약 없이 글자 + 선택된 것만 얇은 밑줄 */
 .st-key-lvl3tabs [data-baseweb="tab-list"], .st-key-lvl3tabs [role="tablist"] {
@@ -4373,8 +4373,16 @@ def _render_lib_bid_tab(get_gc, categories, files):
         st.caption("검색 조건에 맞는 서류가 없습니다.")
         return
 
+    seen_bid_ids = set()
+    dedup_filtered = []
     for f in filtered:
-        with st.container(key=f"librow_bid_{f['id']}"):
+        if f["id"] not in seen_bid_ids:
+            seen_bid_ids.add(f["id"])
+            dedup_filtered.append(f)
+    filtered = dedup_filtered
+
+    for idx, f in enumerate(filtered):
+        with st.container(key=f"librow_bid_{idx}_{f['id']}"):
             rc1, rc2, rc3, rc4 = st.columns([0.45, 5.15, 2.8, 1.6])
             with rc1:
                 st.checkbox("선택", key=f"lib_chk_{f['id']}", label_visibility="collapsed")
@@ -4399,7 +4407,7 @@ def _render_lib_bid_tab(get_gc, categories, files):
                     file_name=f["download_name"],
                     mime=f["download_mime"],
                     icon=":material/download:",
-                    key=f"lib_dl_bid_{f['id']}",
+                    key=f"lib_dl_bid_{idx}_{f['id']}",
                     on_click="ignore",
                     use_container_width=True,
                 )
@@ -4441,8 +4449,8 @@ def _render_lib_store_tab(get_gc, store_names, files):
         return
 
     st.caption(f"총 {len(filtered)}건의 최종 보고서")
-    for f in filtered:
-        with st.container(key=f"librow_st_{f['id']}"):
+    for idx, f in enumerate(filtered):
+        with st.container(key=f"librow_st_{idx}_{f['id']}"):
             rc1, rc2, rc3 = st.columns([5.8, 2.6, 1.6])
             with rc1:
                 store_chip = f'<span class="lib-store">{escape(f["group"])}</span>' if f["group"] else ""
@@ -4465,7 +4473,7 @@ def _render_lib_store_tab(get_gc, store_names, files):
                     file_name=f["download_name"],
                     mime=f["download_mime"],
                     icon=":material/download:",
-                    key=f"lib_dl_st_{f['id']}",
+                    key=f"lib_dl_st_{idx}_{f['id']}",
                     on_click="ignore",
                     use_container_width=True,
                 )
@@ -4522,7 +4530,7 @@ def view_file_library(get_gc, is_admin=False):
         f"(파일명에 날짜를 적으면 기준일로 자동 표시됩니다)"
     )
 
-    with st.container(key="lvl2tabs"):
+    with st.container(key="lvl2tabs_lib"):
         t_bid, t_store = st.tabs([
             f":material/assignment_turned_in: 입찰 필요서류 ({len(bid_files)})",
             f":material/apartment: 주요 이슈 점포 보고서 ({len(store_files)})",
