@@ -747,6 +747,17 @@ div[class*="st-key-librow_"] [data-testid="stHorizontalBlock"] { align-items: ce
 .lib-setup p { margin: 4px 0 12px; font-size: 13.5px; color: #55648a; line-height: 1.55; }
 .lib-tree { background: #f6f8fc; border: 1px solid #e1e7f3; border-radius: 10px; padding: 12px 16px;
     font-family: Consolas, monospace; font-size: 13px; color: #1f3a73; line-height: 1.6; white-space: pre; overflow-x: auto; }
+/* 입찰 관리 배지 및 추출 바 */
+.wk-badge.win { background: #e3f3ec; color: #0b9a6a; }
+.wk-badge.lose { background: #fde8ec; color: #d0143c; }
+.wk-badge.wait { background: #e8edfb; color: #2c4a8a; }
+.wk-badge.void { background: #fef1df; color: #b25e00; }
+.wk-badge.skip { background: #eef1f6; color: #7d8aa8; }
+.st-key-bid_export_bar { background: linear-gradient(90deg, #eef3fc, #f8faff); border: 1px solid #d5dcea;
+    border-radius: 12px; padding: 10px 16px !important; margin: 4px 0 10px; }
+.st-key-bid_export_bar [data-testid="stHorizontalBlock"] { align-items: center !important; }
+.bid-comp-chip { display: inline-block; font-size: 11px; font-weight: 700; color: #3a4a6b; background: #eef2fa;
+    border-radius: 6px; padding: 1px 6px; margin: 1px 2px; white-space: nowrap; }
 </style>
 """
 
@@ -3941,16 +3952,1046 @@ def view_store_map(get_gc, D):
                     st.error(f"내보내기에 실패했습니다: {e}")
 
 
-def view_bid_tracker():
-    _coming_soon(
-        "badge", "입찰 관리",
-        "입찰 참여 내역과 결과를 누적해서 관리하는 화면이 이 자리에 들어갈 예정입니다.",
-        [
-            "입찰명 / 담당자 / 참여일 / 결과 / 금액 등 입력 및 누적 관리",
-            "담당자가 직접 입력하거나 관리자가 대신 입력",
-            "누적되면 팀 입찰 성공률 등 통계로 확장 가능",
-        ],
+# ───────────────────────── 입찰 관리 (누계 원장 · 자동 수식 · 엑셀 추출) ─────────────────────────
+BID_TRACKER_TAB = "입찰관리"
+BID_TRACKER_HEADERS = [
+    "입찰ID", "등록일시", "수정일시", "수정자", "사번", "담당자",
+    "입찰연월", "공고명", "점포수", "추진타입", "기존운영업체",
+    "당사결과", "참여경쟁사", "낙찰업체", "당사순위", "낙찰조건",
+    "보증금(천원)", "월임차료(천원)", "가맹수수료율(%)",
+    "예상일매출(천원)", "영업일수", "BEP일매출(천원)", "예상매익률(%)", "예상이익(천원)", "비고",
+]
+
+BID_RESULT_OPTS = ["진행중", "낙찰", "패찰", "유찰", "미참여"]
+BID_COMPETITOR_OPTS = ["CU", "7-11", "emart24", "기타"]
+BID_EXISTING_OPTS = ["", "신규", "CU", "7-11", "emart24", "GS25", "기타"]
+BID_WINNER_OPTS = ["", "GS25", "CU", "7-11", "emart24", "기타"]
+BID_TYPE_DEFAULTS = ["GS1", "GS2", "GS3", "직영(용역)", "본부임차", "기타"]
+
+BID_NUM_FIELDS = (
+    "점포수", "보증금(천원)", "월임차료(천원)", "가맹수수료율(%)",
+    "예상일매출(천원)", "영업일수", "BEP일매출(천원)", "예상매익률(%)", "예상이익(천원)",
+)
+
+_BID_RESULT_BADGE = {
+    "낙찰": ("win", "낙찰"),
+    "패찰": ("lose", "패찰"),
+    "진행중": ("wait", "진행중"),
+    "유찰": ("void", "유찰"),
+    "미참여": ("skip", "미참여"),
+}
+
+
+def _bid_result_badge_html(status):
+    cls, lbl = _BID_RESULT_BADGE.get(str(status or "").strip(), ("wait", status or "-"))
+    return f'<span class="wk-badge {cls}">{escape(str(lbl))}</span>'
+
+
+def _norm_bid_ym(val):
+    """어떤 연월 표기('2026-05', '2026년05월', '202611' 등)든 ('202605', '2026년 5월')로 표준화합니다."""
+    ym = _ym(val)
+    if ym:
+        return ym, ym_label(ym)
+    s = str(val or "").strip()
+    return "", s
+
+
+def _bid_month_options(extra_labels=()):
+    """최근 36개월 ~ 향후 12개월 연월 선택지 생성 (최신 연월이 위쪽에 오도록 정렬)."""
+    today = datetime.now(KST).date()
+    y, m = today.year, today.month
+    yms = set()
+    for delta in range(-36, 13):
+        total_m = (y * 12 + (m - 1)) + delta
+        yy, mm = total_m // 12, (total_m % 12) + 1
+        yms.add(f"{yy:04d}{mm:02d}")
+    labels = [ym_label(k) for k in sorted(yms, reverse=True)]
+    for ex in extra_labels:
+        s = str(ex or "").strip()
+        if s and s not in labels:
+            labels.append(s)
+    return labels
+
+
+def _norm_competitors(val):
+    """참여경쟁사 문자열/리스트를 깔끔한 리스트로 정규화합니다 (GS25 본인 제외)."""
+    if val is None:
+        return []
+    if isinstance(val, str):
+        parts = [p.strip() for p in re.split(r"[,·/]", val) if p.strip()]
+    else:
+        try:
+            if isinstance(val, float) and val != val:
+                return []
+            parts = [str(x).strip() for x in val if x is not None and str(x).strip() and str(x).strip() != "<NA>"]
+        except TypeError:
+            return []
+    out = []
+    for p in parts:
+        if p and p.upper() != "GS25" and p not in out:
+            out.append(p)
+    return out
+
+
+def _ensure_bid_ws(get_gc, create=True):
+    """'특수팀_실적관리' 시트 내 '입찰관리' 탭을 반환하며, 없으면 헤더와 함께 자동 생성합니다."""
+    gc = get_gc()
+    doc = gc.open(PERF_SHEET_NAME)
+    try:
+        ws = doc.worksheet(BID_TRACKER_TAB)
+    except gspread.exceptions.WorksheetNotFound:
+        if not create:
+            return None
+        ws = doc.add_worksheet(title=BID_TRACKER_TAB, rows=2000, cols=len(BID_TRACKER_HEADERS))
+        ws.append_row(BID_TRACKER_HEADERS)
+        return ws
+    header = ws.row_values(1)
+    if not header:
+        if ws.col_count < len(BID_TRACKER_HEADERS):
+            ws.add_cols(len(BID_TRACKER_HEADERS) - ws.col_count)
+        ws.update("A1", [BID_TRACKER_HEADERS])
+        return ws
+    missing = [h for h in BID_TRACKER_HEADERS if h not in header]
+    if missing:
+        new_header = header + missing
+        if ws.col_count < len(new_header):
+            ws.add_cols(len(new_header) - ws.col_count)
+        ws.update("A1", [new_header])
+    return ws
+
+
+def _enrich_bid_record(rec):
+    """원본 시트 한 줄에 파생 수식(연간총임차료, 연예상매출액, 매출대비임차료율)과 표준 연월 키를 계산해 붙입니다."""
+    ym_key, ym_disp = _norm_bid_ym(rec.get("입찰연월", ""))
+    stores_num = _item_num(rec.get("점포수"))
+    stores = max(1, int(round(stores_num))) if stores_num is not None and stores_num > 0 else 1
+
+    deposit = _item_num(rec.get("보증금(천원)"))
+    m_rent = _item_num(rec.get("월임차료(천원)"))
+    fee_pct = _item_num(rec.get("가맹수수료율(%)"))
+    daily_sales = _item_num(rec.get("예상일매출(천원)"))
+    op_days = _item_num(rec.get("영업일수"))
+    bep_daily = _item_num(rec.get("BEP일매출(천원)"))
+    margin_pct = _item_num(rec.get("예상매익률(%)"))
+    est_profit = _item_num(rec.get("예상이익(천원)"))
+
+    # 기존 엑셀 수식 100% 자동 계산
+    annual_rent = (m_rent * 12.0) if m_rent is not None else None
+    annual_sales = (daily_sales * op_days) if (daily_sales is not None and op_days and op_days > 0) else None
+    rent_ratio = (annual_rent / annual_sales * 100.0) if (annual_rent is not None and annual_sales and annual_sales > 0) else None
+
+    res_status = str(rec.get("당사결과", "")).strip() or "진행중"
+    if res_status not in BID_RESULT_OPTS:
+        res_status = "진행중"
+    winner = str(rec.get("낙찰업체", "")).strip()
+    if res_status == "낙찰" and not winner:
+        winner = "GS25"
+    comps = _norm_competitors(rec.get("참여경쟁사", ""))
+
+    return {
+        "입찰ID": str(rec.get("입찰ID", "")).strip(),
+        "등록일시": str(rec.get("등록일시", "")).strip(),
+        "수정일시": str(rec.get("수정일시", "")).strip(),
+        "수정자": str(rec.get("수정자", "")).strip(),
+        "사번": str(rec.get("사번", "")).strip(),
+        "담당자": str(rec.get("담당자", "")).strip(),
+        "입찰연월": ym_disp,
+        "ym_key": ym_key,
+        "year": ym_key[:4] if len(ym_key) >= 4 else "",
+        "공고명": str(rec.get("공고명", "")).strip(),
+        "점포수": stores,
+        "추진타입": str(rec.get("추진타입", "")).strip(),
+        "기존운영업체": str(rec.get("기존운영업체", "")).strip(),
+        "당사결과": res_status,
+        "참여경쟁사_list": comps,
+        "참여경쟁사": ", ".join(comps),
+        "낙찰업체": winner,
+        "당사순위": str(rec.get("당사순위", "")).strip(),
+        "낙찰조건": str(rec.get("낙찰조건", "")).strip(),
+        "보증금(천원)": deposit,
+        "월임차료(천원)": m_rent,
+        "가맹수수료율(%)": fee_pct,
+        "연간임차료(천원)": annual_rent,
+        "임차료율(%)": rent_ratio,
+        "예상일매출(천원)": daily_sales,
+        "영업일수": int(round(op_days)) if op_days is not None and op_days > 0 else None,
+        "연예상매출(천원)": annual_sales,
+        "BEP일매출(천원)": bep_daily,
+        "예상매익률(%)": margin_pct,
+        "예상이익(천원)": est_profit,
+        "비고": str(rec.get("비고", "")).strip(),
+    }
+
+
+@st.cache_data(ttl=120, show_spinner="입찰 내역을 불러오는 중...")
+def load_bid_tracker_all(_get_gc):
+    ws = _ensure_bid_ws(_get_gc, create=True)
+    if ws is None:
+        return []
+    raw_rows = _records(ws.get_all_values())
+    out = []
+    for r in raw_rows:
+        if not str(r.get("공고명", "")).strip():
+            continue
+        if not str(r.get("입찰ID", "")).strip():
+            r["입찰ID"] = hashlib.md5(
+                f"{r.get('담당자','')}|{r.get('입찰연월','')}|{r.get('공고명','')}".encode("utf-8")
+            ).hexdigest()[:10]
+        out.append(_enrich_bid_record(r))
+    # 최신 입찰연월 -> 최신 등록순 정렬
+    out.sort(key=lambda x: (x["ym_key"] or "000000", x["등록일시"]), reverse=True)
+    return out
+
+
+def clear_bid_tracker_cache():
+    load_bid_tracker_all.clear()
+
+
+def _bid_row_from_dict(header, d):
+    row = [""] * len(header)
+    for col_name in BID_TRACKER_HEADERS:
+        if col_name not in header:
+            continue
+        idx = header.index(col_name)
+        val = d.get(col_name, "")
+        if val is None or (isinstance(val, float) and pd.isna(val)):
+            row[idx] = ""
+        elif isinstance(val, float) and val.is_integer() and col_name in ("점포수", "영업일수", "보증금(천원)", "월임차료(천원)", "예상일매출(천원)", "BEP일매출(천원)", "예상이익(천원)"):
+            row[idx] = int(val)
+        else:
+            row[idx] = val
+    return row
+
+
+def append_bid_record(get_gc, payload):
+    """새 입찰 건 1건을 시트에 추가합니다."""
+    ws = _ensure_bid_ws(get_gc, create=True)
+    header = ws.row_values(1) or BID_TRACKER_HEADERS
+    now = _weekly_now()
+    rec = dict(payload)
+    rec["입찰ID"] = rec.get("입찰ID") or uuid.uuid4().hex[:10]
+    rec["등록일시"] = now
+    rec["수정일시"] = now
+    ws.append_row(_bid_row_from_dict(header, rec))
+    clear_bid_tracker_cache()
+    return rec["입찰ID"]
+
+
+def apply_bid_changes(get_gc, updates_by_id, delete_ids, editor_name=""):
+    """입찰ID 기준으로 수정된 행 일괄 반영 및 삭제 체크된 행 일괄 삭제 (시트 1회 조회)."""
+    ws = _ensure_bid_ws(get_gc, create=True)
+    values = ws.get_all_values()
+    if not values:
+        return 0, 0
+    header = values[0]
+    if "입찰ID" not in header:
+        return 0, 0
+    id_idx = header.index("입찰ID")
+    now = _weekly_now()
+    del_set = {str(x).strip() for x in (delete_ids or ()) if str(x).strip()}
+
+    batch_updates = []
+    del_rns = []
+    for rn in range(2, len(values) + 1):
+        row = values[rn - 1]
+        bid_id = row[id_idx].strip() if id_idx < len(row) else ""
+        if not bid_id:
+            continue
+        if bid_id in del_set:
+            del_rns.append(rn)
+            continue
+        if bid_id in updates_by_id:
+            old_map = dict(zip(header, list(row) + [""] * max(0, len(header) - len(row))))
+            merged = dict(old_map)
+            merged.update(updates_by_id[bid_id])
+            merged["입찰ID"] = bid_id
+            merged["등록일시"] = old_map.get("등록일시", "") or now
+            merged["수정일시"] = now
+            merged["수정자"] = str(editor_name or "").strip()
+            batch_updates.append({"range": f"A{rn}", "values": [_bid_row_from_dict(header, merged)]})
+
+    if batch_updates:
+        ws.batch_update(batch_updates)
+    for rn in sorted(del_rns, reverse=True):
+        ws.delete_rows(rn)
+    if batch_updates or del_rns:
+        clear_bid_tracker_cache()
+    return len(batch_updates), len(del_rns)
+
+
+BID_EXPORT_COLUMNS = [
+    ("순번", "no", "int"),
+    ("입찰연월", "입찰연월", "str"),
+    ("공고명", "공고명", "str"),
+    ("점포수", "점포수", "int"),
+    ("담당자", "담당자", "str"),
+    ("추진타입", "추진타입", "str"),
+    ("기존운영업체", "기존운영업체", "str"),
+    ("당사결과", "당사결과", "str"),
+    ("참여경쟁사", "참여경쟁사", "str"),
+    ("낙찰업체", "낙찰업체", "str"),
+    ("당사순위", "당사순위", "str"),
+    ("낙찰조건/낙찰가율", "낙찰조건", "str"),
+    ("보증금(천원)", "보증금(천원)", "int"),
+    ("월임차료(천원)", "월임차료(천원)", "int"),
+    ("가맹수수료율(%)", "가맹수수료율(%)", "pct"),
+    ("연간총임차료(천원)", "연간임차료(천원)", "int"),
+    ("매출대비임차료율(%)", "임차료율(%)", "pct"),
+    ("1년차예상일매출(천원)", "예상일매출(천원)", "int"),
+    ("영업일수", "영업일수", "int"),
+    ("연예상매출액(천원)", "연예상매출(천원)", "int"),
+    ("BEP일매출(천원)", "BEP일매출(천원)", "int"),
+    ("예상매익률(%)", "예상매익률(%)", "pct"),
+    ("1년차예상이익(천원)", "예상이익(천원)", "int"),
+    ("비고", "비고", "str"),
+    ("등록일시", "등록일시", "str"),
+    ("수정일시", "수정일시", "str"),
+]
+
+
+def _minimal_xlsx_bytes(headers, rows_matrix):
+    """openpyxl 이 없는 배포 환경에서도 표준 .xlsx 파일을 생성하기 위한 순수 표준 라이브러리 백업 생성기."""
+    def _col_letter(n):
+        s = ""
+        while n > 0:
+            n, r = divmod(n - 1, 26)
+            s = chr(65 + r) + s
+        return s
+
+    sheet_rows = []
+    all_rows = [headers] + rows_matrix
+    for r_idx, r_vals in enumerate(all_rows, start=1):
+        cells = []
+        for c_idx, v in enumerate(r_vals, start=1):
+            ref = f"{_col_letter(c_idx)}{r_idx}"
+            if r_idx > 1 and isinstance(v, (int, float)) and not isinstance(v, bool) and not pd.isna(v):
+                cells.append(f'<c r="{ref}" t="n"><v>{v}</v></c>')
+            else:
+                txt = "" if v is None else escape(str(v))
+                cells.append(f'<c r="{ref}" t="inlineStr"><is><t>{txt}</t></is></c>')
+        sheet_rows.append(f'<row r="{r_idx}">{"".join(cells)}</row>')
+
+    sheet_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        f'<sheetData>{"".join(sheet_rows)}</sheetData></worksheet>'
     )
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("[Content_Types].xml",
+                    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                    '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+                    '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+                    '<Default Extension="xml" ContentType="application/xml"/>'
+                    '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+                    '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+                    '</Types>')
+        zf.writestr("_rels/.rels",
+                    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+                    '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
+                    '</Relationships>')
+        zf.writestr("xl/workbook.xml",
+                    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                    '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+                    'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+                    '<sheets><sheet name="입찰내역" sheetId="1" r:id="rId1"/></sheets></workbook>')
+        zf.writestr("xl/_rels/workbook.xml.rels",
+                    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+                    '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+                    '</Relationships>')
+        zf.writestr("xl/worksheets/sheet1.xml", sheet_xml)
+    return buf.getvalue()
+
+
+def build_bids_xlsx_bytes(enriched_rows):
+    """입찰 내역(자동계산 수식 결과 포함)을 서식이 정리된 엑셀(.xlsx) 바이트로 변환합니다."""
+    headers = [col_title for col_title, _, _ in BID_EXPORT_COLUMNS]
+    matrix = []
+    for idx, r in enumerate(enriched_rows, start=1):
+        row_vals = []
+        for _, key, kind in BID_EXPORT_COLUMNS:
+            if key == "no":
+                row_vals.append(idx)
+                continue
+            v = r.get(key)
+            if v is None or v == "":
+                row_vals.append("")
+            elif kind == "int":
+                try:
+                    row_vals.append(int(round(float(v))))
+                except Exception:
+                    row_vals.append(v)
+            elif kind == "pct":
+                try:
+                    row_vals.append(round(float(v), 2))
+                except Exception:
+                    row_vals.append(v)
+            else:
+                row_vals.append(str(v))
+        matrix.append(row_vals)
+
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        from openpyxl.utils import get_column_letter
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "입찰내역"
+        ws.append(headers)
+
+        head_fill = PatternFill("solid", fgColor="1F3A73")
+        head_font = Font(color="FFFFFF", bold=True, size=10)
+        win_fill = PatternFill("solid", fgColor="F1FAF6")
+        thin = Side(border_style="thin", color="D5DCEA")
+        border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+        for col_i in range(1, len(headers) + 1):
+            c = ws.cell(row=1, column=col_i)
+            c.fill = head_fill
+            c.font = head_font
+            c.alignment = Alignment(horizontal="center", vertical="center")
+            c.border = border
+        ws.row_dimensions[1].height = 24
+
+        for r_i, r_vals in enumerate(matrix, start=2):
+            ws.append(r_vals)
+            is_win = (len(r_vals) > 7 and r_vals[7] == "낙찰")
+            for c_i, (_, _, kind) in enumerate(BID_EXPORT_COLUMNS, start=1):
+                cell = ws.cell(row=r_i, column=c_i)
+                cell.border = border
+                if is_win:
+                    cell.fill = win_fill
+                if kind == "int" and isinstance(cell.value, (int, float)):
+                    cell.number_format = "#,##0"
+                    cell.alignment = Alignment(horizontal="right", vertical="center")
+                elif kind == "pct" and isinstance(cell.value, (int, float)):
+                    cell.number_format = "0.00"
+                    cell.alignment = Alignment(horizontal="right", vertical="center")
+                elif headers[c_i - 1] in ("공고명", "낙찰조건/낙찰가율", "비고"):
+                    cell.alignment = Alignment(horizontal="left", vertical="center")
+                else:
+                    cell.alignment = Alignment(horizontal="center", vertical="center")
+
+        ws.freeze_panes = "A2"
+        ws.auto_filter.ref = ws.dimensions
+        for c_i, h in enumerate(headers, start=1):
+            col_let = get_column_letter(c_i)
+            max_len = max([len(str(h)) * 1.7] + [len(str(r[c_i - 1])) * 1.3 for r in matrix[:200]])
+            ws.column_dimensions[col_let].width = min(max(max_len + 3, 10), 36)
+
+        buf = io.BytesIO()
+        wb.save(buf)
+        return buf.getvalue()
+    except Exception:
+        return _minimal_xlsx_bytes(headers, matrix)
+
+
+def _canonical_bid_payload(rec, uid, uname):
+    """편집기 또는 입력폼 한 줄을 시트 저장용 표준 dict로 정규화합니다."""
+    _, ym_disp = _norm_bid_ym(rec.get("입찰연월", ""))
+    res_status = str(rec.get("당사결과", "") or "진행중").strip()
+    if res_status not in BID_RESULT_OPTS:
+        res_status = "진행중"
+    comps = _norm_competitors(rec.get("참여경쟁사"))
+    winner = str(rec.get("낙찰업체", "") or "").strip()
+    if winner.startswith("자동"):
+        winner = ""
+    if res_status == "낙찰":
+        winner = "GS25"
+    elif res_status in ("진행중", "유찰") and winner == "GS25":
+        winner = ""
+
+    stores_v = _item_num(rec.get("점포수"))
+    stores = max(1, int(round(stores_v))) if stores_v is not None and stores_v > 0 else 1
+    days_v = _item_num(rec.get("영업일수"))
+    days = int(round(days_v)) if days_v is not None and days_v > 0 else None
+
+    return {
+        "사번": str(uid or "").strip(),
+        "담당자": str(uname or "").strip(),
+        "입찰연월": ym_disp,
+        "공고명": str(rec.get("공고명") or "").strip(),
+        "점포수": stores,
+        "추진타입": "" if pd.isna(rec.get("추진타입")) else str(rec.get("추진타입") or "").strip(),
+        "기존운영업체": "" if pd.isna(rec.get("기존운영업체")) else str(rec.get("기존운영업체") or "").strip(),
+        "당사결과": res_status,
+        "참여경쟁사": ", ".join(comps),
+        "낙찰업체": winner,
+        "당사순위": "" if pd.isna(rec.get("당사순위")) else str(rec.get("당사순위") or "").strip(),
+        "낙찰조건": "" if pd.isna(rec.get("낙찰조건")) else str(rec.get("낙찰조건") or "").strip(),
+        "보증금(천원)": _item_num(rec.get("보증금(천원)")),
+        "월임차료(천원)": _item_num(rec.get("월임차료(천원)")),
+        "가맹수수료율(%)": _item_num(rec.get("가맹수수료율(%)")),
+        "예상일매출(천원)": _item_num(rec.get("예상일매출(천원)")),
+        "영업일수": days,
+        "BEP일매출(천원)": _item_num(rec.get("BEP일매출(천원)")),
+        "예상매익률(%)": _item_num(rec.get("예상매익률(%)")),
+        "예상이익(천원)": _item_num(rec.get("예상이익(천원)")),
+        "비고": "" if pd.isna(rec.get("비고")) else str(rec.get("비고") or "").strip(),
+    }
+
+
+def _render_bid_editor_table(get_gc, rows, editor_prefix, type_opts, editor_user_name, show_owner=False):
+    """내 입찰 목록 또는 관리자 전체 수정 모드에서 공통으로 쓰는 엑셀형 편집 표."""
+    seed_key = f"{editor_prefix}_seed"
+    meta_key = f"{editor_prefix}_meta"
+    sig_key = f"{editor_prefix}_sig"
+
+    cur_sig = "|".join(f"{r['입찰ID']}:{r['수정일시']}" for r in rows)
+    ed_cols = (
+        ["삭제"]
+        + (["담당자"] if show_owner else [])
+        + [
+            "입찰연월", "공고명", "점포수", "추진타입", "기존운영업체",
+            "당사결과", "참여경쟁사", "낙찰업체", "당사순위", "낙찰조건",
+            "보증금(천원)", "월임차료(천원)", "가맹수수료율(%)", "연간임차료(천원)", "임차료율(%)",
+            "예상일매출(천원)", "영업일수", "연예상매출(천원)", "BEP일매출(천원)",
+            "예상매익률(%)", "예상이익(천원)", "비고",
+        ]
+    )
+
+    if st.session_state.get(sig_key) != cur_sig or seed_key not in st.session_state:
+        data, meta = [], []
+        for r in rows:
+            orig_payload = _canonical_bid_payload(r, r["사번"], r["담당자"])
+            d_row = {
+                "삭제": False,
+                "담당자": r["담당자"],
+                "입찰연월": r["입찰연월"],
+                "공고명": r["공고명"],
+                "점포수": r["점포수"],
+                "추진타입": r["추진타입"],
+                "기존운영업체": r["기존운영업체"],
+                "당사결과": r["당사결과"],
+                "참여경쟁사": list(r["참여경쟁사_list"]),
+                "낙찰업체": r["낙찰업체"],
+                "당사순위": r["당사순위"],
+                "낙찰조건": r["낙찰조건"],
+                "보증금(천원)": r["보증금(천원)"],
+                "월임차료(천원)": r["월임차료(천원)"],
+                "가맹수수료율(%)": r["가맹수수료율(%)"],
+                "연간임차료(천원)": r["연간임차료(천원)"],
+                "임차료율(%)": round(r["임차료율(%)"], 2) if r["임차료율(%)"] is not None else None,
+                "예상일매출(천원)": r["예상일매출(천원)"],
+                "영업일수": r["영업일수"],
+                "연예상매출(천원)": r["연예상매출(천원)"],
+                "BEP일매출(천원)": r["BEP일매출(천원)"],
+                "예상매익률(%)": r["예상매익률(%)"],
+                "예상이익(천원)": r["예상이익(천원)"],
+                "비고": r["비고"],
+            }
+            data.append({c: d_row.get(c, [] if c == "참여경쟁사" else "") for c in ed_cols})
+            meta.append(dict(bid_id=r["입찰ID"], uid=r["사번"], uname=r["담당자"], orig=orig_payload))
+
+        df = pd.DataFrame(data, columns=ed_cols)
+        num_all = set(BID_NUM_FIELDS) | {"연간임차료(천원)", "임차료율(%)", "연예상매출(천원)"}
+        for c in ed_cols:
+            if c == "삭제":
+                df[c] = df[c].astype(bool)
+            elif c == "참여경쟁사":
+                df[c] = _list_str_series(df[c].tolist() if len(df) else [])
+            elif c in num_all:
+                df[c] = pd.to_numeric(df[c], errors="coerce")
+            else:
+                df[c] = df[c].apply(lambda v: "" if (v is None or (isinstance(v, float) and pd.isna(v))) else str(v))
+        st.session_state[seed_key] = df.reset_index(drop=True)
+        st.session_state[meta_key] = meta
+        st.session_state[sig_key] = cur_sig
+
+    ym_opts = _bid_month_options([r["입찰연월"] for r in rows])
+    merged_types = _merge_opts([""] + type_opts, [r["추진타입"] for r in rows])
+    merged_exist = _merge_opts(BID_EXISTING_OPTS, [r["기존운영업체"] for r in rows])
+    merged_win = _merge_opts(BID_WINNER_OPTS, [r["낙찰업체"] for r in rows])
+    comp_opts = _merge_opts(BID_COMPETITOR_OPTS, [c for r in rows for c in r["참여경쟁사_list"]])
+
+    cfg = {
+        "삭제": st.column_config.CheckboxColumn("삭제", default=False, width="small", help="체크 후 저장하면 해당 입찰 건이 삭제됩니다"),
+        "담당자": st.column_config.TextColumn("담당자", disabled=True, width="small"),
+        "입찰연월": st.column_config.SelectboxColumn("입찰연월", options=ym_opts, width="small"),
+        "공고명": st.column_config.TextColumn("공고명", required=True, width="medium"),
+        "점포수": st.column_config.NumberColumn("점포수", format="%d", min_value=1, width="small"),
+        "추진타입": st.column_config.SelectboxColumn("추진타입", options=merged_types, width="small"),
+        "기존운영업체": st.column_config.SelectboxColumn("기존운영업체", options=merged_exist, width="small"),
+        "당사결과": st.column_config.SelectboxColumn("당사결과", options=BID_RESULT_OPTS, required=True, width="small"),
+        "참여경쟁사": st.column_config.MultiselectColumn("참여경쟁사", options=comp_opts, default=[], width="medium"),
+        "낙찰업체": st.column_config.SelectboxColumn("낙찰업체", options=merged_win, width="small"),
+        "당사순위": st.column_config.TextColumn("당사순위", width="small"),
+        "낙찰조건": st.column_config.TextColumn("낙찰조건/낙찰가율", width="medium"),
+        "보증금(천원)": st.column_config.NumberColumn("보증금(천원)", format="%d", width="small"),
+        "월임차료(천원)": st.column_config.NumberColumn("월임차료(천원)", format="%d", width="small"),
+        "가맹수수료율(%)": st.column_config.NumberColumn("가맹수수료율(%)", format="%.2f", width="small"),
+        "연간임차료(천원)": st.column_config.NumberColumn("연간임차료(자동)", format="%d", disabled=True, width="small"),
+        "임차료율(%)": st.column_config.NumberColumn("임차료율%(자동)", format="%.2f", disabled=True, width="small"),
+        "예상일매출(천원)": st.column_config.NumberColumn("1년차일매출(천원)", format="%d", width="small"),
+        "영업일수": st.column_config.NumberColumn("영업일수", format="%d", width="small"),
+        "연예상매출(천원)": st.column_config.NumberColumn("연매출액(자동)", format="%d", disabled=True, width="small"),
+        "BEP일매출(천원)": st.column_config.NumberColumn("BEP일매출(천원)", format="%d", width="small"),
+        "예상매익률(%)": st.column_config.NumberColumn("예상매익률(%)", format="%.1f", width="small"),
+        "예상이익(천원)": st.column_config.NumberColumn("1년차예상이익(천원)", format="%d", width="small"),
+        "비고": st.column_config.TextColumn("비고", width="medium"),
+    }
+
+    edited_df = st.data_editor(
+        st.session_state[seed_key], column_config=cfg, num_rows="fixed",
+        use_container_width=True, hide_index=True, key=f"{editor_prefix}_widget", column_order=ed_cols,
+    )
+
+    bc1, bc2 = st.columns([2.2, 7.8])
+    with bc1:
+        save_clicked = st.button("변경사항 저장", type="primary", icon=":material/save:",
+                                 key=f"{editor_prefix}_save_btn", use_container_width=True)
+    if save_clicked:
+        updates_by_id = {}
+        delete_ids = []
+        empty_name = False
+        for rec, meta in zip(edited_df.to_dict("records"), st.session_state[meta_key]):
+            if bool(rec.get("삭제")):
+                delete_ids.append(meta["bid_id"])
+                continue
+            new_payload = _canonical_bid_payload(rec, meta["uid"], meta["uname"])
+            if not new_payload["공고명"]:
+                empty_name = True
+                break
+            if new_payload != meta["orig"]:
+                updates_by_id[meta["bid_id"]] = new_payload
+
+        if empty_name:
+            st.warning("공고명은 비워둘 수 없습니다. 삭제하려면 맨 앞 '삭제' 칸에 체크해 주세요.")
+            return False
+        if not updates_by_id and not delete_ids:
+            st.info("변경되거나 삭제 선택된 항목이 없습니다.")
+            return False
+
+        n_up, n_del = apply_bid_changes(get_gc, updates_by_id, delete_ids, editor_name=editor_user_name)
+        for k in (seed_key, meta_key, sig_key):
+            st.session_state.pop(k, None)
+        parts = []
+        if n_up:
+            parts.append(f"수정 {n_up}건")
+        if n_del:
+            parts.append(f"삭제 {n_del}건")
+        st.session_state[f"{editor_prefix}_flash"] = f"입찰 내역({', '.join(parts)})이 반영되었습니다."
+        st.rerun()
+    return False
+
+
+def _render_bid_mine(get_gc, all_rows, uid, uname, is_admin, type_opts, login_records):
+    my_rows = [
+        r for r in all_rows
+        if (uid and r["사번"] == str(uid).strip()) or (uname and r["담당자"] == str(uname).strip())
+    ]
+
+    add_flash = st.session_state.pop("bid_add_flash", None)
+    if add_flash:
+        st.success(f":material/check_circle: {add_flash}")
+    ed_flash = st.session_state.pop(f"bid_my_ed_{uid}_flash", None)
+    if ed_flash:
+        st.success(f":material/check_circle: {ed_flash}")
+
+    with st.expander(":material/add_circle: 새 입찰 참여 내역 등록하기", expanded=(len(my_rows) == 0)):
+        st.caption("연간 총 임차료 · 연 예상매출액 · 매출 대비 임차료율(%)은 입력하신 수치를 바탕으로 자동 계산됩니다.")
+        cur_ym_label = ym_label(datetime.now(KST).strftime("%Y%m"))
+        ym_choices = _bid_month_options([cur_ym_label])
+        cur_ym_idx = ym_choices.index(cur_ym_label) if cur_ym_label in ym_choices else 0
+
+        member_uid_map = {}
+        member_names = []
+        for lr in (login_records or []):
+            nm = str(lr.get("이름", "")).strip()
+            lid = str(lr.get("사번", "")).strip()
+            if nm and nm not in member_names:
+                member_names.append(nm)
+                member_uid_map[nm] = lid
+        if uname and uname not in member_names:
+            member_names = [uname] + member_names
+            member_uid_map[uname] = uid
+
+        with st.form("bid_register_form", clear_on_submit=True):
+            st.markdown("**1) 기본 정보**")
+            if is_admin and member_names:
+                r1c0, r1c1, r1c2, r1c3, r1c4, r1c5 = st.columns([1.2, 2.5, 1.4, 0.9, 1.3, 1.3])
+                with r1c0:
+                    def_idx = member_names.index(uname) if uname in member_names else 0
+                    f_owner = st.selectbox("담당자(관리자 지정)", member_names, index=def_idx)
+            else:
+                f_owner = uname
+                r1c1, r1c2, r1c3, r1c4, r1c5 = st.columns([2.8, 1.5, 1.0, 1.4, 1.4])
+            with r1c1:
+                f_title = st.text_input("공고명 *", placeholder="예: 내트럭부산, 반여농산물시장")
+            with r1c2:
+                f_ym = st.selectbox("입찰연월", ym_choices, index=cur_ym_idx)
+            with r1c3:
+                f_stores = st.number_input("점포수", min_value=1, value=1, step=1)
+            with r1c4:
+                f_type = st.selectbox("추진타입", [""] + type_opts)
+            with r1c5:
+                f_exist = st.selectbox("기존운영업체", BID_EXISTING_OPTS, index=1)
+
+            st.markdown("**2) 입찰 결과 및 경쟁사 현황** *(개찰 전이면 '진행중'으로 등록 후 나중에 아래 표에서 결과만 바꾸시면 됩니다)*")
+            r2c1, r2c2, r2c3, r2c4, r2c5 = st.columns([1.3, 2.4, 1.4, 1.0, 2.2])
+            with r2c1:
+                f_res = st.selectbox("당사 결과", BID_RESULT_OPTS, index=0)
+            with r2c2:
+                f_comps = st.multiselect("참여 경쟁사 (복수 선택)", BID_COMPETITOR_OPTS, placeholder="참여한 경쟁사 선택")
+            with r2c3:
+                f_winner = st.selectbox("낙찰 업체", ["자동(당사 낙찰 시 GS25)", "CU", "7-11", "emart24", "GS25", "기타"])
+            with r2c4:
+                f_rank = st.text_input("당사 순위", placeholder="예: 1, 2, 3")
+            with r2c5:
+                f_cond = st.text_input("낙찰조건 / 낙찰가율", placeholder="예: 20,500천원, 상품할인율 15%")
+
+            st.markdown("**3) 투찰 조건 및 1년차 예상 손익** *(본부임차는 보증금·월임차료, 가맹은 수수료율 입력)*")
+            r3c1, r3c2, r3c3, r3c4 = st.columns(4)
+            with r3c1:
+                f_dep = st.text_input("보증금 (천원)", placeholder="예: 50000")
+            with r3c2:
+                f_rent = st.text_input("월임차료 (천원, 점당)", placeholder="예: 9400")
+            with r3c3:
+                f_fee = st.text_input("당사 가맹수수료율 (%)", placeholder="예: 83 또는 77.5")
+            with r3c4:
+                f_days = st.number_input("연간 영업일수", min_value=1, max_value=366, value=365, step=1)
+
+            r4c1, r4c2, r4c3, r4c4 = st.columns(4)
+            with r4c1:
+                f_daily = st.text_input("1년차 예상 일매출 (천원)", placeholder="예: 2871")
+            with r4c2:
+                f_bep = st.text_input('BEP "0" 일매출 (천원)', placeholder="예: 2596")
+            with r4c3:
+                f_margin = st.text_input("예상 매익률 (%)", placeholder="예: 28.3")
+            with r4c4:
+                f_profit = st.text_input("1년차 예상 이익 (천원)", placeholder="예: 1372")
+
+            f_memo = st.text_input("비고 (특이조건 메모)", placeholder="예: 이행보증증권 대체 등 참고사항")
+            submitted = st.form_submit_button("입찰 내역 등록", type="primary", icon=":material/add_task:")
+
+        if submitted:
+            if not f_title.strip():
+                st.warning("공고명을 입력해 주세요.")
+            else:
+                target_owner = str(f_owner or uname).strip()
+                target_uid = member_uid_map.get(target_owner, uid if target_owner == uname else "")
+                payload = _canonical_bid_payload({
+                    "입찰연월": f_ym,
+                    "공고명": f_title.strip(),
+                    "점포수": f_stores,
+                    "추진타입": f_type,
+                    "기존운영업체": f_exist,
+                    "당사결과": f_res,
+                    "참여경쟁사": f_comps,
+                    "낙찰업체": f_winner,
+                    "당사순위": f_rank,
+                    "낙찰조건": f_cond,
+                    "보증금(천원)": _num(f_dep),
+                    "월임차료(천원)": _num(f_rent),
+                    "가맹수수료율(%)": _num(f_fee),
+                    "예상일매출(천원)": _num(f_daily),
+                    "영업일수": f_days,
+                    "BEP일매출(천원)": _num(f_bep),
+                    "예상매익률(%)": _num(f_margin),
+                    "예상이익(천원)": _num(f_profit),
+                    "비고": f_memo,
+                }, target_uid, target_owner)
+                payload["수정자"] = uname
+                append_bid_record(get_gc, payload)
+                for k in (f"bid_my_ed_{uid}_seed", f"bid_my_ed_{uid}_meta", f"bid_my_ed_{uid}_sig"):
+                    st.session_state.pop(k, None)
+                st.session_state["bid_add_flash"] = f"'{f_title.strip()}' 입찰 내역이 등록되었습니다."
+                st.rerun()
+
+    st.markdown(f"##### :material/list_alt: 내가 등록한 입찰 내역 ({len(my_rows)}건)")
+    if not my_rows:
+        st.info("아직 내가 등록한 입찰 내역이 없습니다. 위 등록 창에서 첫 입찰 건을 입력해 보세요.")
+        return
+    st.caption("셀을 더블클릭해 개찰 결과(`진행중` → `낙찰`/`패찰`)나 수치를 바로 수정하고 **변경사항 저장**을 눌러주세요. 잘못 입력한 줄은 맨 앞 `삭제` 체크 후 저장하면 지워집니다.")
+    _render_bid_editor_table(get_gc, my_rows, f"bid_my_ed_{uid}", type_opts, editor_user_name=uname, show_owner=False)
+
+
+def _bid_summary_kpis_html(rows):
+    """팀 입찰 현황 상단 요약 KPI 4개 카드."""
+    participated = [r for r in rows if r["당사결과"] != "미참여"]
+    part_cnt = len(participated)
+    part_stores = sum(r["점포수"] for r in participated)
+    skip_cnt = len(rows) - part_cnt
+
+    wins = [r for r in participated if r["당사결과"] == "낙찰"]
+    loses = [r for r in participated if r["당사결과"] == "패찰"]
+    voids = [r for r in participated if r["당사결과"] == "유찰"]
+    waits = [r for r in participated if r["당사결과"] == "진행중"]
+
+    decided_cnt = len(wins) + len(loses) + len(voids)
+    win_rate = (len(wins) / decided_cnt * 100.0) if decided_cnt > 0 else None
+    win_stores = sum(r["점포수"] for r in wins)
+
+    comp_stats = []
+    for brand in ("CU", "7-11", "emart24"):
+        with_b = [r for r in participated if brand in r["참여경쟁사_list"]]
+        dec_b = [r for r in with_b if r["당사결과"] in ("낙찰", "패찰", "유찰")]
+        win_b = [r for r in dec_b if r["당사결과"] == "낙찰"]
+        if dec_b:
+            comp_stats.append(f"{brand} {len(with_b)}회(승 {len(win_b)/len(dec_b)*100:.0f}%)")
+        else:
+            comp_stats.append(f"{brand} {len(with_b)}회")
+
+    top_comp = "-"
+    comp_counts = [(b, sum(1 for r in participated if b in r["참여경쟁사_list"])) for b in ("CU", "7-11", "emart24")]
+    comp_counts.sort(key=lambda x: x[1], reverse=True)
+    if comp_counts and comp_counts[0][1] > 0:
+        top_comp = f"{comp_counts[0][0]} ({comp_counts[0][1]}회)"
+
+    items = [
+        dict(
+            label="총 입찰 참여",
+            value=f"{part_cnt:,}",
+            unit="건",
+            sub=f"총 {part_stores:,}점 참여 · 진행중 {len(waits)}건" + (f" (미참여 {skip_cnt}건 별도)" if skip_cnt else ""),
+            accent=COLOR_NAVY,
+            icon="badge",
+        ),
+        dict(
+            label="당사 낙찰 · 낙찰률",
+            value=f"{len(wins):,}",
+            unit=f"건 ({win_rate:.1f}%)" if win_rate is not None else "건 (-)",
+            sub=f"결과 확정 {decided_cnt}건 기준 · 낙찰 점포 {win_stores:,}점",
+            accent=COLOR_GOOD if (win_rate is not None and win_rate >= 50) else COLOR_NAVY,
+            icon="trophy",
+        ),
+        dict(
+            label="입찰 결과 분포",
+            value=f"승 {len(wins)} · 패 {len(loses)}",
+            unit="",
+            sub=f"유찰 {len(voids)}건 · 결과대기(진행중) {len(waits)}건",
+            accent=COLOR_BLUE,
+            icon="bars",
+        ),
+        dict(
+            label="최다 경쟁사 · 상대 전적",
+            value=top_comp,
+            unit="",
+            sub=" · ".join(comp_stats),
+            accent=COLOR_PURPLE,
+            icon="target",
+        ),
+    ]
+    return kpi_html(items)
+
+
+def _bid_team_table_html(rows):
+    """팀 입찰 통합 누계 HTML 표 (자동 계산 수식 열 포함)."""
+    cols = [
+        ("순번", "순번"),
+        ("입찰연월", "입찰<br>연월"),
+        ("공고명", "공고명"),
+        ("점포수", "점포수"),
+        ("담당자", "담당자"),
+        ("추진타입", "추진<br>타입"),
+        ("기존운영업체", "기존<br>운영사"),
+        ("당사결과", "당사결과"),
+        ("참여경쟁사", "참여 경쟁사"),
+        ("낙찰업체", "낙찰<br>업체"),
+        ("당사순위", "순위"),
+        ("낙찰조건", "낙찰조건 / 가율"),
+        ("보증금(천원)", "보증금<br>(천원)"),
+        ("조건요약", "월임차료 /<br>수수료율"),
+        ("연간임차료(천원)", "연간임차료<br>(천원)"),
+        ("임차료율(%)", "매출對<br>임차료율"),
+        ("예상일매출(천원)", "1년차일매출<br>(천원)"),
+        ("연예상매출(천원)", "연예상매출<br>(천원)"),
+        ("BEP일매출(천원)", "BEP일매출<br>(천원)"),
+        ("예상매익률(%)", "매익률"),
+        ("예상이익(천원)", "1년차이익<br>(천원)"),
+        ("비고", "비고"),
+    ]
+    out = ['<div class="wk-tbl-wrap"><table class="wk-tbl"><thead><tr>']
+    out += [f"<th>{lbl}</th>" for _, lbl in cols]
+    out.append("</tr></thead><tbody>")
+    if not rows:
+        out.append(f'<tr><td class="wk-empty" colspan="{len(cols)}">조건에 맞는 입찰 내역이 없습니다.</td></tr>')
+    else:
+        for idx, r in enumerate(rows, start=1):
+            out.append("<tr>")
+            m_rent = r.get("월임차료(천원)")
+            fee_p = r.get("가맹수수료율(%)")
+            if m_rent is not None and fee_p is not None:
+                cond_str = f"{fnum(m_rent)} / {fee_p:g}%"
+            elif m_rent is not None:
+                cond_str = fnum(m_rent)
+            elif fee_p is not None:
+                cond_str = f"{fee_p:g}%"
+            else:
+                cond_str = "-"
+
+            comp_html = (
+                "".join(f'<span class="bid-comp-chip">{escape(c)}</span>' for c in r["참여경쟁사_list"])
+                if r["참여경쟁사_list"] else "-"
+            )
+            for key, _ in cols:
+                if key == "순번":
+                    out.append(f"<td>{idx}</td>")
+                elif key == "당사결과":
+                    out.append(f"<td>{_bid_result_badge_html(r['당사결과'])}</td>")
+                elif key == "참여경쟁사":
+                    out.append(f"<td>{comp_html}</td>")
+                elif key == "조건요약":
+                    out.append(f"<td>{escape(cond_str)}</td>")
+                elif key in ("보증금(천원)", "연간임차료(천원)", "예상일매출(천원)", "연예상매출(천원)", "BEP일매출(천원)", "예상이익(천원)"):
+                    out.append(f"<td>{fnum(r.get(key))}</td>")
+                elif key == "임차료율(%)":
+                    v = r.get(key)
+                    out.append(f"<td>{f'{v:.2f}%' if v is not None else '-'}</td>")
+                elif key == "예상매익률(%)":
+                    v = r.get(key)
+                    out.append(f"<td>{f'{v:g}%' if v is not None else '-'}</td>")
+                elif key in ("공고명", "낙찰조건", "비고"):
+                    v = r.get(key, "")
+                    out.append(f'<td class="wk-prog">{escape(str(v)) if v else "-"}</td>')
+                else:
+                    v = r.get(key, "")
+                    out.append(f"<td>{escape(str(v)) if v not in (None, '') else '-'}</td>")
+            out.append("</tr>")
+    out.append("</tbody></table></div>")
+    return "".join(out)
+
+
+def _render_bid_team(get_gc, all_rows, uname, is_admin, type_opts, all_members):
+    adm_flash = st.session_state.pop("bid_adm_ed_flash", None)
+    if adm_flash:
+        st.success(f":material/check_circle: {adm_flash}")
+
+    years = sorted({r["year"] for r in all_rows if r["year"]}, reverse=True)
+    mgrs_in_data = [m for m in all_members if any(r["담당자"] == m for r in all_rows)]
+    extra_mgrs = sorted({r["담당자"] for r in all_rows if r["담당자"] and r["담당자"] not in mgrs_in_data})
+    mgr_choices = ["전체"] + mgrs_in_data + extra_mgrs
+    types_in_data = sorted({r["추진타입"] for r in all_rows if r["추진타입"]})
+
+    fc1, fc2, fc3, fc4, fc5 = st.columns([1.2, 1.2, 1.2, 1.2, 2.2])
+    with fc1:
+        f_year = st.selectbox("조회 연도", ["전체 누계"] + [f"{y}년" for y in years], key="bid_f_year")
+    with fc2:
+        f_mgr = st.selectbox("담당자", mgr_choices, key="bid_f_mgr")
+    with fc3:
+        f_res = st.selectbox("당사 결과", ["전체"] + BID_RESULT_OPTS, key="bid_f_res")
+    with fc4:
+        f_type = st.selectbox("추진타입", ["전체"] + types_in_data, key="bid_f_type")
+    with fc5:
+        f_q = st.text_input("검색", placeholder="공고명 · 낙찰조건 · 경쟁사 · 비고 검색", key="bid_f_q")
+
+    sel_year = f_year[:-1] if f_year != "전체 누계" else ""
+    kw = f_q.strip().lower()
+    filtered = [
+        r for r in all_rows
+        if (not sel_year or r["year"] == sel_year)
+        and (f_mgr == "전체" or r["담당자"] == f_mgr)
+        and (f_res == "전체" or r["당사결과"] == f_res)
+        and (f_type == "전체" or r["추진타입"] == f_type)
+        and (
+            not kw
+            or kw in r["공고명"].lower()
+            or kw in r["담당자"].lower()
+            or kw in r["낙찰조건"].lower()
+            or kw in r["참여경쟁사"].lower()
+            or kw in r["비고"].lower()
+        )
+    ]
+
+    today_tag = datetime.now(KST).strftime("%Y%m%d")
+    with st.container(key="bid_export_bar"):
+        ec1, ec2, ec3 = st.columns([4.2, 2.9, 2.9])
+        with ec1:
+            st.markdown(
+                f'<div class="lib-sel-badge">조회된 입찰 <b>{len(filtered)}</b>건 / 전체 누계 <b>{len(all_rows)}</b>건</div>',
+                unsafe_allow_html=True,
+            )
+        with ec2:
+            st.download_button(
+                label=f"현재 필터 결과 엑셀 추출 ({len(filtered)}건)",
+                data=lambda rows=list(filtered): build_bids_xlsx_bytes(rows),
+                file_name=f"특수개발팀_입찰내역_필터_{today_tag}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                icon=":material/download:",
+                key="bid_dl_filtered_xlsx",
+                disabled=(len(filtered) == 0),
+                on_click="ignore",
+                use_container_width=True,
+            )
+        with ec3:
+            st.download_button(
+                label=f"전체 누계 원장 엑셀 추출 ({len(all_rows)}건)",
+                data=lambda rows=list(all_rows): build_bids_xlsx_bytes(rows),
+                file_name=f"특수개발팀_입찰내역_전체누계_{today_tag}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                type="primary",
+                icon=":material/table_view:",
+                key="bid_dl_all_xlsx",
+                disabled=(len(all_rows) == 0),
+                on_click="ignore",
+                use_container_width=True,
+            )
+
+    if not all_rows:
+        st.info("아직 등록된 입찰 내역이 없습니다. '내 입찰 등록 · 관리' 탭에서 첫 입찰 건을 등록해 주세요.")
+        return
+
+    st.markdown(_bid_summary_kpis_html(filtered), unsafe_allow_html=True)
+
+    adm_toggle_key = "bid_adm_edit_toggle"
+    admin_editing = False
+    if is_admin and filtered:
+        ac1, ac2 = st.columns([3, 7])
+        with ac1:
+            admin_editing = st.toggle(":material/edit_square: 관리자 수정 모드", key=adm_toggle_key,
+                                      help="팀원들이 입력한 입찰 내역의 오타·수치·결과를 관리자가 표에서 직접 수정하거나 삭제합니다.")
+        with ac2:
+            if admin_editing:
+                st.caption("셀을 더블클릭해 수정한 뒤 아래 **변경사항 저장** 버튼을 눌러주세요. (원본 시트 반영 + 수정자 기록)")
+
+    if admin_editing:
+        _render_bid_editor_table(get_gc, filtered, "bid_adm_ed", type_opts, editor_user_name=uname, show_owner=True)
+    else:
+        for k in ("bid_adm_ed_seed", "bid_adm_ed_meta", "bid_adm_ed_sig"):
+            st.session_state.pop(k, None)
+        st.markdown(_bid_team_table_html(filtered), unsafe_allow_html=True)
+
+
+def view_bid_tracker(get_gc, D=None, user_id="", user_name="", is_admin=False):
+    hc1, hc2 = st.columns([5, 1.1])
+    with hc1:
+        st.markdown(sec_heading("badge", "입찰 관리"), unsafe_allow_html=True)
+    with hc2:
+        st.write("")
+        if icon_button("새로고침", ":material/refresh:", key="bid_refresh_btn", use_container_width=True):
+            clear_bid_tracker_cache()
+            st.rerun()
+
+    try:
+        all_rows = load_bid_tracker_all(get_gc)
+    except Exception as e:
+        st.error(f"입찰 데이터를 불러오는 중 오류가 발생했습니다: {e}")
+        return
+
+    select_lists = load_select_lists(get_gc)
+    type_opts = _merge_opts(select_lists.get("운영형태") or [], BID_TYPE_DEFAULTS)
+    login_records = load_login_records(get_gc)
+    team_display = load_team_display_members(get_gc)
+    login_members = load_login_members(get_gc)
+    all_members = team_display or login_members
+
+    my_cnt = sum(
+        1 for r in all_rows
+        if (user_id and r["사번"] == str(user_id).strip()) or (user_name and r["담당자"] == str(user_name).strip())
+    )
+
+    with st.container(key="lvl2tabs_bid"):
+        t_mine, t_team = st.tabs([
+            f":material/edit_document: 내 입찰 등록 · 관리 ({my_cnt})",
+            f":material/analytics: 팀 입찰 현황 · 통계 ({len(all_rows)})",
+        ])
+    with t_mine:
+        _render_bid_mine(get_gc, all_rows, user_id, user_name, is_admin, type_opts, login_records)
+    with t_team:
+        _render_bid_team(get_gc, all_rows, user_name, is_admin, type_opts, all_members)
 
 
 # ───────────────────────── 자료실 (구글 드라이브 비공개 연동) ─────────────────────────
@@ -4618,6 +5659,6 @@ def render_tool(get_gc, user_id="", user_name="", is_admin=False):
     with tab_map:
         view_store_map(get_gc, D)
     with tab_bid:
-        view_bid_tracker()
+        view_bid_tracker(get_gc, D=D, user_id=user_id, user_name=user_name, is_admin=is_admin)
     with tab_files:
         view_file_library(get_gc, is_admin=is_admin)
