@@ -747,7 +747,9 @@ div[class*="st-key-librow_"] [data-testid="stHorizontalBlock"] { align-items: ce
 .lib-setup p { margin: 4px 0 12px; font-size: 13.5px; color: #55648a; line-height: 1.55; }
 .lib-tree { background: #f6f8fc; border: 1px solid #e1e7f3; border-radius: 10px; padding: 12px 16px;
     font-family: Consolas, monospace; font-size: 13px; color: #1f3a73; line-height: 1.6; white-space: pre; overflow-x: auto; }
-/* 입찰 관리 배지 및 추출 바 */
+/* 입찰 관리 배지 및 추출 바 (+ 폼 기본 제출 버튼 흰색 글씨 보장) */
+div[data-testid="stFormSubmitButton"] > button[kind="primary"] *,
+div[data-testid="stFormSubmitButton"] > button[data-testid="stBaseButton-primary"] * { color: #ffffff !important; }
 .wk-badge.win { background: #e3f3ec; color: #0b9a6a; }
 .wk-badge.lose { background: #fde8ec; color: #d0143c; }
 .wk-badge.wait { background: #e8edfb; color: #2c4a8a; }
@@ -3966,7 +3968,24 @@ BID_RESULT_OPTS = ["진행중", "낙찰", "패찰", "유찰", "미참여"]
 BID_COMPETITOR_OPTS = ["CU", "7-11", "emart24", "기타"]
 BID_EXISTING_OPTS = ["", "신규", "CU", "7-11", "emart24", "GS25", "기타"]
 BID_WINNER_OPTS = ["", "GS25", "CU", "7-11", "emart24", "기타"]
-BID_TYPE_DEFAULTS = ["GS1", "GS2", "GS3", "직영(용역)", "본부임차", "기타"]
+BID_TYPE_DEFAULTS = ["GS1", "GS2", "GS3", "순수직영", "본부임차", "기타"]
+
+
+def _bid_num_clean(v):
+    """입찰 숫자 입력값에서 콤마·공백은 물론 실수로 함께 적은 '%', '천원', '원' 단위도 제거해 숫자로 변환합니다."""
+    if v is None:
+        return None
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        return None if (v != v) else float(v)
+    s = str(v).strip().replace(",", "")
+    s = re.sub(r"(천원|원|%|\s)+$", "", s).strip()
+    if not s:
+        return None
+    try:
+        f = float(s)
+        return None if (f != f) else f
+    except ValueError:
+        return None
 
 BID_NUM_FIELDS = (
     "점포수", "보증금(천원)", "월임차료(천원)", "가맹수수료율(%)",
@@ -4066,14 +4085,15 @@ def _enrich_bid_record(rec):
     stores_num = _item_num(rec.get("점포수"))
     stores = max(1, int(round(stores_num))) if stores_num is not None and stores_num > 0 else 1
 
-    deposit = _item_num(rec.get("보증금(천원)"))
-    m_rent = _item_num(rec.get("월임차료(천원)"))
-    fee_pct = _item_num(rec.get("가맹수수료율(%)"))
-    daily_sales = _item_num(rec.get("예상일매출(천원)"))
-    op_days = _item_num(rec.get("영업일수"))
-    bep_daily = _item_num(rec.get("BEP일매출(천원)"))
-    margin_pct = _item_num(rec.get("예상매익률(%)"))
-    est_profit = _item_num(rec.get("예상이익(천원)"))
+    deposit = _bid_num_clean(rec.get("보증금(천원)"))
+    m_rent = _bid_num_clean(rec.get("월임차료(천원)"))
+    fee_pct = _bid_num_clean(rec.get("가맹수수료율(%)"))
+    daily_sales = _bid_num_clean(rec.get("예상일매출(천원)"))
+    op_days = _bid_num_clean(rec.get("영업일수"))
+    bep_raw = rec.get("BEP일매출(천원)") if rec.get("BEP일매출(천원)", "") != "" else rec.get('"0"일매출(천원)', "")
+    bep_daily = _bid_num_clean(bep_raw)
+    margin_pct = _bid_num_clean(rec.get("예상매익률(%)"))
+    est_profit = _bid_num_clean(rec.get("예상이익(천원)"))
 
     # 기존 엑셀 수식 100% 자동 계산
     annual_rent = (m_rent * 12.0) if m_rent is not None else None
@@ -4236,11 +4256,10 @@ BID_EXPORT_COLUMNS = [
     ("월임차료(천원)", "월임차료(천원)", "int"),
     ("가맹수수료율(%)", "가맹수수료율(%)", "pct"),
     ("연간총임차료(천원)", "연간임차료(천원)", "int"),
-    ("매출대비임차료율(%)", "임차료율(%)", "pct"),
+    ("매출액 比 임차료율(%)", "임차료율(%)", "pct"),
     ("1년차예상일매출(천원)", "예상일매출(천원)", "int"),
     ("영업일수", "영업일수", "int"),
-    ("연예상매출액(천원)", "연예상매출(천원)", "int"),
-    ("BEP일매출(천원)", "BEP일매출(천원)", "int"),
+    ('"0"일매출(천원)', "BEP일매출(천원)", "int"),
     ("예상매익률(%)", "예상매익률(%)", "pct"),
     ("1년차예상이익(천원)", "예상이익(천원)", "int"),
     ("비고", "비고", "str"),
@@ -4422,14 +4441,14 @@ def _canonical_bid_payload(rec, uid, uname):
         "낙찰업체": winner,
         "당사순위": "" if pd.isna(rec.get("당사순위")) else str(rec.get("당사순위") or "").strip(),
         "낙찰조건": "" if pd.isna(rec.get("낙찰조건")) else str(rec.get("낙찰조건") or "").strip(),
-        "보증금(천원)": _item_num(rec.get("보증금(천원)")),
-        "월임차료(천원)": _item_num(rec.get("월임차료(천원)")),
-        "가맹수수료율(%)": _item_num(rec.get("가맹수수료율(%)")),
-        "예상일매출(천원)": _item_num(rec.get("예상일매출(천원)")),
+        "보증금(천원)": _bid_num_clean(rec.get("보증금(천원)")),
+        "월임차료(천원)": _bid_num_clean(rec.get("월임차료(천원)")),
+        "가맹수수료율(%)": _bid_num_clean(rec.get("가맹수수료율(%)")),
+        "예상일매출(천원)": _bid_num_clean(rec.get("예상일매출(천원)")),
         "영업일수": days,
-        "BEP일매출(천원)": _item_num(rec.get("BEP일매출(천원)")),
-        "예상매익률(%)": _item_num(rec.get("예상매익률(%)")),
-        "예상이익(천원)": _item_num(rec.get("예상이익(천원)")),
+        "BEP일매출(천원)": _bid_num_clean(rec.get("BEP일매출(천원)")),
+        "예상매익률(%)": _bid_num_clean(rec.get("예상매익률(%)")),
+        "예상이익(천원)": _bid_num_clean(rec.get("예상이익(천원)")),
         "비고": "" if pd.isna(rec.get("비고")) else str(rec.get("비고") or "").strip(),
     }
 
@@ -4448,7 +4467,7 @@ def _render_bid_editor_table(get_gc, rows, editor_prefix, type_opts, editor_user
             "입찰연월", "공고명", "점포수", "추진타입", "기존운영업체",
             "당사결과", "참여경쟁사", "낙찰업체", "당사순위", "낙찰조건",
             "보증금(천원)", "월임차료(천원)", "가맹수수료율(%)", "연간임차료(천원)", "임차료율(%)",
-            "예상일매출(천원)", "영업일수", "연예상매출(천원)", "BEP일매출(천원)",
+            "예상일매출(천원)", "영업일수", "BEP일매출(천원)",
             "예상매익률(%)", "예상이익(천원)", "비고",
         ]
     )
@@ -4477,7 +4496,6 @@ def _render_bid_editor_table(get_gc, rows, editor_prefix, type_opts, editor_user
                 "임차료율(%)": round(r["임차료율(%)"], 2) if r["임차료율(%)"] is not None else None,
                 "예상일매출(천원)": r["예상일매출(천원)"],
                 "영업일수": r["영업일수"],
-                "연예상매출(천원)": r["연예상매출(천원)"],
                 "BEP일매출(천원)": r["BEP일매출(천원)"],
                 "예상매익률(%)": r["예상매익률(%)"],
                 "예상이익(천원)": r["예상이익(천원)"],
@@ -4487,7 +4505,7 @@ def _render_bid_editor_table(get_gc, rows, editor_prefix, type_opts, editor_user
             meta.append(dict(bid_id=r["입찰ID"], uid=r["사번"], uname=r["담당자"], orig=orig_payload))
 
         df = pd.DataFrame(data, columns=ed_cols)
-        num_all = set(BID_NUM_FIELDS) | {"연간임차료(천원)", "임차료율(%)", "연예상매출(천원)"}
+        num_all = set(BID_NUM_FIELDS) | {"연간임차료(천원)", "임차료율(%)"}
         for c in ed_cols:
             if c == "삭제":
                 df[c] = df[c].astype(bool)
@@ -4524,11 +4542,10 @@ def _render_bid_editor_table(get_gc, rows, editor_prefix, type_opts, editor_user
         "월임차료(천원)": st.column_config.NumberColumn("월임차료(천원)", format="%d", width="small"),
         "가맹수수료율(%)": st.column_config.NumberColumn("가맹수수료율(%)", format="%.2f", width="small"),
         "연간임차료(천원)": st.column_config.NumberColumn("연간임차료(자동)", format="%d", disabled=True, width="small"),
-        "임차료율(%)": st.column_config.NumberColumn("임차료율%(자동)", format="%.2f", disabled=True, width="small"),
+        "임차료율(%)": st.column_config.NumberColumn("매출액 比 임차료율(자동)", format="%.2f", disabled=True, width="small"),
         "예상일매출(천원)": st.column_config.NumberColumn("1년차일매출(천원)", format="%d", width="small"),
         "영업일수": st.column_config.NumberColumn("영업일수", format="%d", width="small"),
-        "연예상매출(천원)": st.column_config.NumberColumn("연매출액(자동)", format="%d", disabled=True, width="small"),
-        "BEP일매출(천원)": st.column_config.NumberColumn("BEP일매출(천원)", format="%d", width="small"),
+        "BEP일매출(천원)": st.column_config.NumberColumn('"0"일매출(천원)', format="%d", width="small"),
         "예상매익률(%)": st.column_config.NumberColumn("예상매익률(%)", format="%.1f", width="small"),
         "예상이익(천원)": st.column_config.NumberColumn("1년차예상이익(천원)", format="%d", width="small"),
         "비고": st.column_config.TextColumn("비고", width="medium"),
@@ -4592,7 +4609,7 @@ def _render_bid_mine(get_gc, all_rows, uid, uname, is_admin, type_opts, login_re
         st.success(f":material/check_circle: {ed_flash}")
 
     with st.expander(":material/add_circle: 새 입찰 참여 내역 등록하기", expanded=(len(my_rows) == 0)):
-        st.caption("연간 총 임차료 · 연 예상매출액 · 매출 대비 임차료율(%)은 입력하신 수치를 바탕으로 자동 계산됩니다.")
+        st.caption("연간 총 임차료 · 매출액 比 임차료율(%)은 입력하신 수치를 바탕으로 자동 계산됩니다.")
         cur_ym_label = ym_label(datetime.now(KST).strftime("%Y%m"))
         ym_choices = _bid_month_options([cur_ym_label])
         cur_ym_idx = ym_choices.index(cur_ym_label) if cur_ym_label in ym_choices else 0
@@ -4658,7 +4675,7 @@ def _render_bid_mine(get_gc, all_rows, uid, uname, is_admin, type_opts, login_re
             with r4c1:
                 f_daily = st.text_input("1년차 예상 일매출 (천원)", placeholder="예: 2871")
             with r4c2:
-                f_bep = st.text_input('BEP "0" 일매출 (천원)', placeholder="예: 2596")
+                f_bep = st.text_input('"0" 일매출 (천원)', placeholder="예: 2596")
             with r4c3:
                 f_margin = st.text_input("예상 매익률 (%)", placeholder="예: 28.3")
             with r4c4:
@@ -4684,14 +4701,14 @@ def _render_bid_mine(get_gc, all_rows, uid, uname, is_admin, type_opts, login_re
                     "낙찰업체": f_winner,
                     "당사순위": f_rank,
                     "낙찰조건": f_cond,
-                    "보증금(천원)": _num(f_dep),
-                    "월임차료(천원)": _num(f_rent),
-                    "가맹수수료율(%)": _num(f_fee),
-                    "예상일매출(천원)": _num(f_daily),
+                    "보증금(천원)": _bid_num_clean(f_dep),
+                    "월임차료(천원)": _bid_num_clean(f_rent),
+                    "가맹수수료율(%)": _bid_num_clean(f_fee),
+                    "예상일매출(천원)": _bid_num_clean(f_daily),
                     "영업일수": f_days,
-                    "BEP일매출(천원)": _num(f_bep),
-                    "예상매익률(%)": _num(f_margin),
-                    "예상이익(천원)": _num(f_profit),
+                    "BEP일매출(천원)": _bid_num_clean(f_bep),
+                    "예상매익률(%)": _bid_num_clean(f_margin),
+                    "예상이익(천원)": _bid_num_clean(f_profit),
                     "비고": f_memo,
                 }, target_uid, target_owner)
                 payload["수정자"] = uname
@@ -4739,7 +4756,9 @@ def _bid_summary_kpis_html(rows):
     comp_counts = [(b, sum(1 for r in participated if b in r["참여경쟁사_list"])) for b in ("CU", "7-11", "emart24")]
     comp_counts.sort(key=lambda x: x[1], reverse=True)
     if comp_counts and comp_counts[0][1] > 0:
-        top_comp = f"{comp_counts[0][0]} ({comp_counts[0][1]}회)"
+        max_c = comp_counts[0][1]
+        tied = [b for b, c in comp_counts if c == max_c]
+        top_comp = f"{' · '.join(tied)} ({max_c}회)"
 
     items = [
         dict(
@@ -4796,10 +4815,9 @@ def _bid_team_table_html(rows):
         ("보증금(천원)", "보증금<br>(천원)"),
         ("조건요약", "월임차료 /<br>수수료율"),
         ("연간임차료(천원)", "연간임차료<br>(천원)"),
-        ("임차료율(%)", "매출對<br>임차료율"),
+        ("임차료율(%)", "매출액 比<br>임차료율"),
         ("예상일매출(천원)", "1년차일매출<br>(천원)"),
-        ("연예상매출(천원)", "연예상매출<br>(천원)"),
-        ("BEP일매출(천원)", "BEP일매출<br>(천원)"),
+        ("BEP일매출(천원)", '"0"일매출<br>(천원)'),
         ("예상매익률(%)", "매익률"),
         ("예상이익(천원)", "1년차이익<br>(천원)"),
         ("비고", "비고"),
@@ -4918,7 +4936,7 @@ def _render_bid_team(get_gc, all_rows, uname, is_admin, type_opts, all_members):
             )
         with ec3:
             st.download_button(
-                label=f"전체 누계 원장 엑셀 추출 ({len(all_rows)}건)",
+                label=f"전체 누계 엑셀 추출 ({len(all_rows)}건)",
                 data=lambda rows=list(all_rows): build_bids_xlsx_bytes(rows),
                 file_name=f"특수개발팀_입찰내역_전체누계_{today_tag}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -4972,7 +4990,8 @@ def view_bid_tracker(get_gc, D=None, user_id="", user_name="", is_admin=False):
         return
 
     select_lists = load_select_lists(get_gc)
-    type_opts = _merge_opts(select_lists.get("운영형태") or [], BID_TYPE_DEFAULTS)
+    raw_types = select_lists.get("운영형태") or BID_TYPE_DEFAULTS
+    type_opts = [o for o in _merge_opts(raw_types, BID_TYPE_DEFAULTS if not select_lists.get("운영형태") else []) if o != "직영(용역)"]
     login_records = load_login_records(get_gc)
     team_display = load_team_display_members(get_gc)
     login_members = load_login_members(get_gc)
