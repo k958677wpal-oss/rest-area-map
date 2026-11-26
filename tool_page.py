@@ -1916,7 +1916,7 @@ WEEKLY_DOC_NAME = "휴게소_통합_데이터"
 WEEKLY_TAB = "주간_활동보고"          # 휴게소 방문 전용(휴게소 데이터허브와 공유)
 WEEKLY_TEAM_TAB = "특수팀_주간보고"    # SD팀 전용(추진물건/일정/특이사항/제출완료) - 새로 분리한 탭
 WEEKLY_HEADERS = ["주차코드", "주차표시", "사번", "이름", "방문휴게소", "활동내용", "추진물건", "특이사항", "작성시각",
-                  "아이템ID", "유형", "상태", "최초등록주차", "수정시각"]
+                  "아이템ID", "유형", "상태", "최초등록주차", "수정시각", "수정자"]
 ITEM_STATUS = ["추진물건", "오픈확정", "계약완료"]
 SCHEDULE_DAYS = ["월", "화", "수", "목", "금"]
 SCHEDULE_HALVES = ["오전", "오후"]
@@ -1924,11 +1924,17 @@ SCHEDULE_SLOTS = [f"{d}{h}" for d in SCHEDULE_DAYS for h in SCHEDULE_HALVES]
 
 # 추진물건 상세 입력 칸(예전 엑셀 양식과 동일). '계약 여부'는 기존의 '상태' 칸을 그대로 쓰고(= 계약여부),
 # 나머지 칸은 시트에 새 열을 추가하지 않고 '추진물건' 칸 하나에 JSON으로 묶어서 저장합니다.
-ITEM_COLS = ["상태", "오픈예상월", "물건명", "부문", "지역", "운영형태", "상권대분류", "세부상권",
+# '공동담당자'는 추진물건 탭 전용 다중선택 칸이며(계약완료·오픈확정 시에는 각자 실적 분배 후 따로 입력), JSON 리스트로 함께 저장됩니다.
+ITEM_BASE_COLS = ["상태", "오픈예상월", "물건명", "부문", "지역", "운영형태", "상권대분류", "세부상권",
+                  "예상매출(천원)", "예상손익(천원)", "추진주체", "진행경과"]
+ITEM_COLS = ["상태", "오픈예상월", "물건명", "공동담당자", "부문", "지역", "운영형태", "상권대분류", "세부상권",
              "예상매출(천원)", "예상손익(천원)", "추진주체", "진행경과"]
 ITEM_NUM_COLS = ("예상매출(천원)", "예상손익(천원)")
-# 화면(표)에 보여줄 순서: '경과(주)'는 저장값이 아니라 자동 계산 칸이라 ITEM_COLS 에는 없고, 맨 뒤 '진행경과' 앞에만 끼워 넣습니다.
-EDITOR_COLS = ITEM_COLS[:-1] + ["경과(주)"] + [ITEM_COLS[-1]]
+# 화면(표)에 보여줄 순서: '경과(주)'는 저장값이 아니라 자동 계산 칸이라 맨 뒤 '진행경과' 앞에 끼워 넣습니다.
+# 계약완료·오픈확정 탭에는 공동담당자 칸을 두지 않고, 추진 물건 탭에만 물건명 바로 다음에 공동담당자 칸을 둡니다.
+DONE_EDITOR_COLS = ITEM_BASE_COLS[:-1] + ["경과(주)"] + [ITEM_BASE_COLS[-1]]
+PROG_EDITOR_COLS = ITEM_COLS[:-1] + ["경과(주)"] + [ITEM_COLS[-1]]
+EDITOR_COLS = DONE_EDITOR_COLS
 # 예전에 저장된 데이터는 칸 이름이 달랐던 적이 있어서(상권세부상권/1년차 예상일매출(천원)/1년차 예상월손익(천원)),
 # 그 이름으로 저장된 JSON을 읽을 때도 새 이름으로 그대로 보이도록 변환해 줍니다.
 _ITEM_OLD_TO_NEW = {"상권세부상권": "세부상권", "1년차 예상일매출(천원)": "예상매출(천원)",
@@ -1981,12 +1987,46 @@ def _month_sort_key(label):
     return (int(m.group(1)), int(m.group(2)))
 
 
+def _norm_co_managers(val, exclude_name=""):
+    """공동담당자 값을 깔끔한 문자열 리스트(공백·중복·본인 이름 제거)로 정규화합니다."""
+    if val is None:
+        return []
+    if isinstance(val, str):
+        s = val.strip()
+        if not s:
+            return []
+        parts = [p.strip() for p in re.split(r"[,·/]", s) if p.strip()]
+    else:
+        try:
+            if isinstance(val, float) and val != val:
+                return []
+            parts = [str(x).strip() for x in val if x is not None and str(x).strip() and str(x).strip() != "<NA>"]
+        except TypeError:
+            return []
+    ex = str(exclude_name or "").strip()
+    out = []
+    for p in parts:
+        if p and p != ex and p not in out:
+            out.append(p)
+    return out
+
+
+def _list_str_series(values):
+    """빈 DataFrame에서도 MultiselectColumn 이 편집 가능하도록 PyArrow list<string> 타입 Series를 만듭니다."""
+    cleaned = [_norm_co_managers(v) for v in values]
+    try:
+        import pyarrow as pa
+        return pd.Series(cleaned, dtype=pd.ArrowDtype(pa.list_(pa.string())))
+    except Exception:
+        return pd.Series(cleaned, dtype="object")
+
+
 def _parse_item_json(raw):
     """'추진물건' 칸 내용을 구조화된 dict로. (도입 전) 예전 데이터는 한 줄 텍스트였으므로,
     JSON으로 못 읽으면 그 글자 전체를 '물건명'으로 봅니다 -> 기존 데이터도 그대로 보입니다."""
     raw = str(raw or "").strip()
     if not raw:
-        return {"물건명": ""}
+        return {"물건명": "", "공동담당자": []}
     try:
         d = json.loads(raw)
         if isinstance(d, dict):
@@ -1994,10 +2034,11 @@ def _parse_item_json(raw):
                 if old in d and new not in d:
                     d[new] = d.pop(old)
             d.setdefault("물건명", "")
+            d["공동담당자"] = _norm_co_managers(d.get("공동담당자"))
             return d
     except Exception:
         pass
-    return {"물건명": raw}
+    return {"물건명": raw, "공동담당자": []}
 
 
 def _item_num(v):
@@ -2035,20 +2076,26 @@ def _dropdown_or_text(label, opts, width="small"):
     return st.column_config.TextColumn(label, width=width)
 
 
-def _build_seed_df(rows, fw_map, cur_code):
+def _build_seed_df(rows, fw_map, cur_code, include_co=False):
     """rows(ITEM_COLS 모양의 dict 리스트)를 data_editor 에 안정적으로 넘길 DataFrame으로 만듭니다.
-    숫자 칸은 빈값이면 NaN(=화면엔 빈 칸), 글자 칸은 빈값이면 빈 문자열로 통일해서 'None' 글자가 보이지 않게 합니다.
+    include_co=True 이면 추진 물건용(공동담당자 다중선택 칸 포함), False 이면 계약완료·오픈확정용입니다.
     이 함수로 만든 결과는 '처음 만들 때'와 '상태가 바뀌어 다른 탭으로 옮길 때'만 새로 호출하고, 그 사이에는
     같은 객체를 data_editor 에 계속 그대로 넘겨야 합니다(매번 새로 만들면 편집 중간에 표가 리셋되는 원인이 됩니다)."""
+    ed_cols = PROG_EDITOR_COLS if include_co else DONE_EDITOR_COLS
+    src_cols = ITEM_COLS if include_co else ITEM_BASE_COLS
     data = []
     for r in rows:
-        row = {c: r.get(c, "") for c in ITEM_COLS}
+        row = {c: r.get(c, [] if c == "공동담당자" else "") for c in src_cols}
+        if include_co:
+            row["공동담당자"] = _norm_co_managers(row.get("공동담당자"))
         name = str(row.get("물건명", "")).strip()
         row["경과(주)"] = _weeks_between(fw_map.get(name, cur_code), cur_code) if name else None
         data.append(row)
-    df = pd.DataFrame(data, columns=EDITOR_COLS) if data else pd.DataFrame(columns=EDITOR_COLS)
-    for c in EDITOR_COLS:
-        if c in ITEM_NUM_COLS or c == "경과(주)":
+    df = pd.DataFrame(data, columns=ed_cols) if data else pd.DataFrame(columns=ed_cols)
+    for c in ed_cols:
+        if c == "공동담당자":
+            df[c] = _list_str_series(df[c].tolist() if len(df) else [])
+        elif c in ITEM_NUM_COLS or c == "경과(주)":
             df[c] = pd.to_numeric(df[c], errors="coerce")
         else:
             df[c] = df[c].apply(lambda v: "" if (v is None or (isinstance(v, float) and pd.isna(v))) else str(v))
@@ -2056,11 +2103,16 @@ def _build_seed_df(rows, fw_map, cur_code):
 
 
 def _item_editor(editor_key, own_seed_key, other_seed_key, allowed_statuses, status_options, default_status,
-                  select_lists, month_opts, fw_map, cur_code):
+                  select_lists, month_opts, fw_map, cur_code, include_co=False, co_options=(), owner_name=""):
     """표 하나(탭 하나)를 그립니다. data_editor 에 넘기는 값은 세션에 저장해 둔 것을 매번 '그대로' 넘겨서
     (새로 만들어서 넘기면 한 칸 편집할 때마다 표가 리셋되는 원인이 됩니다) 편집 중 리셋을 막고,
     상태가 이 탭에 안 맞게 바뀐 줄만 감지해서 다른 탭 쪽으로 옮깁니다."""
+    co_warn_msg = st.session_state.pop(f"{editor_key}_co_warn", None)
+    if co_warn_msg:
+        st.warning(co_warn_msg)
+
     seed_df = st.session_state[own_seed_key]
+    ed_cols = PROG_EDITOR_COLS if include_co else DONE_EDITOR_COLS
     cfg = {
         "상태": st.column_config.SelectboxColumn("상태", options=status_options, required=True, width="small"),
         "오픈예상월": st.column_config.SelectboxColumn("오픈예상월", options=month_opts, width="small"),
@@ -2077,28 +2129,56 @@ def _item_editor(editor_key, own_seed_key, other_seed_key, allowed_statuses, sta
                                                  help="최초 등록 주차부터 몇 주째 이어지는지 (자동 계산)"),
         "진행경과": st.column_config.TextColumn("진행경과", width="large"),
     }
+    if include_co:
+        cfg["공동담당자"] = st.column_config.MultiselectColumn(
+            "공동담당자", options=list(co_options), default=[], width="medium",
+            help="함께 추진 중인 담당자를 선택하세요 (2명 이상 선택 가능, 비워두면 단독 추진)",
+        )
     edited = st.data_editor(seed_df, column_config=cfg, num_rows="dynamic", use_container_width=True,
-                            hide_index=True, key=editor_key, column_order=EDITOR_COLS)
+                            hide_index=True, key=editor_key, column_order=ed_cols)
 
-    keep_rows, moved_rows = [], []
+    keep_rows, moved_rows, blocked_co_names = [], [], []
     for rec in edited.to_dict("records"):
         name = str(rec.get("물건명") or "").strip()
         status = rec.get("상태") if rec.get("상태") in ITEM_STATUS else default_status
         rec["물건명"] = name
         rec["상태"] = status
+        rec["공동담당자"] = _norm_co_managers(rec.get("공동담당자"), owner_name) if include_co else []
         if status in allowed_statuses or not name:
             keep_rows.append(rec)
+        elif include_co and rec["공동담당자"] and status in ("오픈확정", "계약완료"):
+            # 공동 추진 물건은 계약완료·오픈확정 시 담당자별로 실적을 나누어 각자 새로 입력하도록 상태 전환을 차단합니다.
+            rec["상태"] = "추진물건"
+            keep_rows.append(rec)
+            blocked_co_names.append(name)
         else:
             moved_rows.append(rec)
 
+    if blocked_co_names:
+        st.session_state[own_seed_key] = _build_seed_df(
+            [{c: r.get(c, [] if c == "공동담당자" else "") for c in ITEM_COLS} for r in keep_rows],
+            fw_map, cur_code, include_co=include_co)
+        joined = ", ".join(blocked_co_names)
+        msg = (f":material/info: '{joined}' 물건은 공동 추진 물건입니다. 계약완료·오픈확정 단계에서는 "
+               "실적을 반영할 담당자별로 '계약완료·오픈확정 물건' 탭에 각자 새로 입력해 주세요. "
+               "(기존 공동 추진 물건은 주 담당자가 체크박스로 삭제 후 제출하면 정리됩니다)")
+        st.session_state[f"{editor_key}_co_warn"] = msg
+        st.toast("공동 물건은 각자 계약완료·오픈확정 탭에 새로 입력해 주세요.", icon=":material/info:")
+        st.rerun()
+
     if moved_rows:
         # 상태가 이 탭과 안 맞게 바뀐 줄 -> 다른 탭 쪽에 더해 주고, 이 탭에서는 빼서 각각 다시 만듭니다.
+        other_include_co = not include_co
         other_df = st.session_state.get(other_seed_key)
         other_rows = other_df.to_dict("records") if other_df is not None else []
-        other_rows = other_rows + [{c: r.get(c, "") for c in ITEM_COLS} for r in moved_rows]
-        st.session_state[other_seed_key] = _build_seed_df(other_rows, fw_map, cur_code)
+        for r in moved_rows:
+            if not other_include_co:
+                r["공동담당자"] = []
+        other_rows = other_rows + [{c: r.get(c, [] if c == "공동담당자" else "") for c in ITEM_COLS} for r in moved_rows]
+        st.session_state[other_seed_key] = _build_seed_df(other_rows, fw_map, cur_code, include_co=other_include_co)
         st.session_state[own_seed_key] = _build_seed_df(
-            [{c: r.get(c, "") for c in ITEM_COLS} for r in keep_rows], fw_map, cur_code)
+            [{c: r.get(c, [] if c == "공동담당자" else "") for c in ITEM_COLS} for r in keep_rows],
+            fw_map, cur_code, include_co=include_co)
         moved_names = ", ".join(r["물건명"] for r in moved_rows if r["물건명"])
         if moved_names:
             st.toast(f"'{moved_names}' 상태가 바뀌어 다른 탭으로 옮겼습니다.", icon=":material/package_2:")
@@ -2108,7 +2188,8 @@ def _item_editor(editor_key, own_seed_key, other_seed_key, allowed_statuses, sta
     for rec in keep_rows:
         for c in ITEM_NUM_COLS:
             rec[c] = _item_num(rec.get(c))
-        out.append({c: rec.get(c, "") for c in ITEM_COLS})
+        rec["공동담당자"] = _norm_co_managers(rec.get("공동담당자"), owner_name) if include_co else []
+        out.append({c: rec.get(c, [] if c == "공동담당자" else "") for c in ITEM_COLS})
     return out
 
 
@@ -2238,7 +2319,10 @@ def _ensure_ws(doc, tab_name, create=True):
     header = ws.row_values(1)
     missing = [h for h in WEEKLY_HEADERS if h not in header]
     if missing:
-        ws.update("A1", [header + missing])      # 기존 칸은 그대로, 새 칸만 뒤에 추가
+        new_header = header + missing
+        if ws.col_count < len(new_header):
+            ws.add_cols(len(new_header) - ws.col_count)
+        ws.update("A1", [new_header])      # 기존 칸은 그대로, 새 칸만 뒤에 추가
     return ws
 
 
@@ -2364,7 +2448,7 @@ def _cell(header, row, name):
     return row[i].strip() if 0 <= i < len(row) else ""
 
 
-def weekly_upsert_item(get_gc, week_code, week_label, uid, uname, item_id, status, content, first_week):
+def weekly_upsert_item(get_gc, week_code, week_label, uid, uname, item_id, status, content, first_week, editor_name=""):
     now = _weekly_now()
 
     def match(header, row):
@@ -2372,8 +2456,128 @@ def weekly_upsert_item(get_gc, week_code, week_label, uid, uname, item_id, statu
 
     _weekly_upsert(get_gc, match, dict(
         주차코드=week_code, 주차표시=week_label, 사번=uid, 이름=uname, 추진물건=content,
-        작성시각=now, 아이템ID=item_id, 유형="추진물건", 상태=status, 최초등록주차=first_week, 수정시각=now,
+        작성시각=now, 아이템ID=item_id, 유형="추진물건", 상태=status, 최초등록주차=first_week,
+        수정시각=now, 수정자=editor_name,
     ))
+
+
+def weekly_save_user_items(get_gc, week_code, week_label, uid, uname, items_payload):
+    """한 사용자의 해당 주차 물건 목록을 시트 1회 조회로 일괄 반영합니다.
+    - 새로 추가·수정된 물건은 업서트하고(관리자가 수정했던 행을 그대로 둔 경우 수정자 기록 보존),
+    - 이번 주에 이미 제출했다가 표에서 지운 물건은 시트에서도 함께 삭제해 유령 행(특히 삭제한 공동물건 잔류)을 막습니다."""
+    ws = _weekly_team_ws(get_gc)
+    values = ws.get_all_values()
+    header = values[0] if values else WEEKLY_HEADERS
+    now = _weekly_now()
+
+    existing_by_id = {}
+    for rn in range(2, len(values) + 1):
+        row = values[rn - 1]
+        if (_cell(header, row, "주차코드") == week_code
+                and _cell(header, row, "사번") == uid
+                and _cell(header, row, "유형") == "추진물건"):
+            iid = _cell(header, row, "아이템ID")
+            if iid:
+                existing_by_id[iid] = (rn, row)
+
+    keep_ids = set()
+    updates = []
+    appends = []
+    for it in items_payload:
+        iid = it["item_id"]
+        keep_ids.add(iid)
+        status = it["status"]
+        content = it["content"]
+        first_week = it["first_week"]
+        if iid in existing_by_id:
+            rn, old_row = existing_by_id[iid]
+            old_content = _cell(header, old_row, "추진물건")
+            old_status = _cell(header, old_row, "상태")
+            old_editor = _cell(header, old_row, "수정자")
+            old_mtime = _cell(header, old_row, "수정시각") or now
+            old_ctime = _cell(header, old_row, "작성시각") or now
+            # 관리자가 고쳐둔 내용 그대로 다시 제출한 경우 수정자 표시를 유지합니다.
+            unchanged = (old_content == content and old_status == status)
+            editor_val = old_editor if unchanged else ""
+            mtime_val = old_mtime if unchanged else now
+            new_row = _weekly_row(
+                header, 주차코드=week_code, 주차표시=week_label, 사번=uid, 이름=uname,
+                추진물건=content, 작성시각=old_ctime, 아이템ID=iid, 유형="추진물건",
+                상태=status, 최초등록주차=first_week, 수정시각=mtime_val, 수정자=editor_val,
+            )
+            updates.append({"range": f"A{rn}", "values": [new_row]})
+        else:
+            new_row = _weekly_row(
+                header, 주차코드=week_code, 주차표시=week_label, 사번=uid, 이름=uname,
+                추진물건=content, 작성시각=now, 아이템ID=iid, 유형="추진물건",
+                상태=status, 최초등록주차=first_week, 수정시각=now, 수정자="",
+            )
+            appends.append(new_row)
+
+    if updates:
+        ws.batch_update(updates)
+    if appends:
+        ws.append_rows(appends)
+
+    del_rns = [rn for iid, (rn, _) in existing_by_id.items() if iid not in keep_ids]
+    for rn in sorted(del_rns, reverse=True):
+        ws.delete_rows(rn)
+
+    weekly_clear_cache()
+
+
+def weekly_admin_update_items(get_gc, week_code, changes, admin_name=""):
+    """관리자가 팀 현황 수정 모드에서 고친 물건들을 원본 시트에 일괄 덮어쓰고 수정자·수정시각을 남깁니다.
+    changes: list of dict(uid, orig_item_id, new_item_id, content)
+    물건명 오타를 고친 경우 아이템ID도 새 물건명 기준으로 함께 갱신해 이후 담당자 재제출 시 중복 행 생성을 막습니다."""
+    if not changes:
+        return 0
+    ws = _weekly_team_ws(get_gc)
+    values = ws.get_all_values()
+    if not values:
+        return 0
+    header = values[0]
+    now = _weekly_now()
+    editor = str(admin_name or "").strip() or "관리자"
+
+    # 같은 주차 내 이미 존재하는 아이템ID 집합(이름 변경 시 충돌 방지용)
+    week_ids = {
+        _cell(header, values[rn - 1], "아이템ID")
+        for rn in range(2, len(values) + 1)
+        if _cell(header, values[rn - 1], "주차코드") == week_code
+    }
+
+    updates = []
+    for ch in changes:
+        target_uid = str(ch["uid"]).strip()
+        orig_id = str(ch["orig_item_id"]).strip()
+        new_id = str(ch["new_item_id"]).strip() or orig_id
+        new_content = ch["content"]
+        for rn in range(2, len(values) + 1):
+            row = values[rn - 1]
+            if (_cell(header, row, "주차코드") == week_code
+                    and _cell(header, row, "사번") == target_uid
+                    and _cell(header, row, "아이템ID") == orig_id
+                    and _cell(header, row, "유형") == "추진물건"):
+                final_id = new_id if (new_id == orig_id or new_id not in week_ids) else orig_id
+                week_ids.add(final_id)
+                updated_row = list(row) + [""] * max(0, len(header) - len(row))
+                for col_name, col_val in (
+                    ("추진물건", new_content),
+                    ("아이템ID", final_id),
+                    ("수정시각", now),
+                    ("수정자", editor),
+                ):
+                    ci = _header_index(header, col_name)
+                    if 0 <= ci < len(updated_row):
+                        updated_row[ci] = col_val
+                updates.append({"range": f"A{rn}", "values": [updated_row[:len(header)]]})
+                break
+
+    if updates:
+        ws.batch_update(updates)
+        weekly_clear_cache()
+    return len(updates)
 
 
 def weekly_append_note(get_gc, week_code, week_label, uid, uname, note_text):
@@ -2458,6 +2662,32 @@ def weekly_items_of_week(records, uid, week_code):
             and r.get("주차코드", "").strip() == week_code]
 
 
+def weekly_co_items_for_user(records, uid, uname, week_code):
+    """다른 담당자(주 담당)가 작성한 추진물건 중 나를 공동담당자로 지정한 활성 추진물건 목록을 돌려줍니다.
+    주 담당이 이번 주 보고를 이미 제출했으면 이번 주 데이터 기준, 아직 제출 전이면 직전 주차 이월 데이터를 기준으로 합니다."""
+    me = str(uname or "").strip()
+    if not me:
+        return []
+    other_uids = sorted({r.get("사번", "").strip() for r in records
+                         if r.get("유형") == "추진물건" and r.get("사번", "").strip()
+                         and r.get("사번", "").strip() != uid})
+    out = []
+    for ouid in other_uids:
+        cur_items = weekly_items_of_week(records, ouid, week_code)
+        if cur_items or weekly_submitted_at(records, ouid, week_code):
+            src = cur_items
+        else:
+            src = weekly_latest_items_before(records, ouid, week_code)
+        for r in src:
+            if r.get("상태") != "추진물건":
+                continue
+            d = _parse_item_json(r.get("추진물건", ""))
+            co_list = _norm_co_managers(d.get("공동담당자"), r.get("이름", ""))
+            if me in co_list:
+                out.append(r)
+    return out
+
+
 def weekly_note_of_week(records, uid, week_code):
     rows = [r for r in records if r.get("유형") == "특이사항" and r.get("사번", "").strip() == uid
             and r.get("주차코드", "").strip() == week_code]
@@ -2510,7 +2740,8 @@ def _weekly_status_banner(submitted_at):
         st.warning("이번 주 보고를 아직 제출하지 않았습니다.")
 
 
-def _render_weekly_mine(get_gc, records, uid, uname, cur_code, cur_label):
+def _render_weekly_mine(get_gc, records, uid, uname, cur_code, cur_label,
+                        D=None, login_members=None, team_display_members=None):
     st.markdown(f"**작성 주차: {cur_label}**")
     submitted_at = weekly_submitted_at(records, uid, cur_code)
     _weekly_status_banner(submitted_at)
@@ -2518,41 +2749,98 @@ def _render_weekly_mine(get_gc, records, uid, uname, cur_code, cur_label):
     done_seed_key = f"wk_seed_done_{cur_code}_{uid}"
     prog_seed_key = f"wk_seed_prog_{cur_code}_{uid}"
     fw_key = f"wk_fw_{cur_code}_{uid}"
+    seed_sig_key = f"wk_seed_sig_{cur_code}_{uid}"
+
+    cur_week_items = weekly_items_of_week(records, uid, cur_code)
+    # 관리자가 팀 현황에서 내 물건을 수정한 경우, 수정시각 서명이 바뀌면 편집 표에도 최신 내용을 자동 반영합니다.
+    sheet_sig = "|".join(
+        f"{r.get('아이템ID','')}:{r.get('수정시각','')}:{r.get('수정자','')}" for r in cur_week_items
+    )
+    admin_edited_items = [
+        r for r in cur_week_items
+        if r.get("수정자", "").strip() and r.get("수정자", "").strip() != str(uname or "").strip()
+    ]
+    if admin_edited_items and st.session_state.get(seed_sig_key) not in (None, sheet_sig):
+        st.session_state.pop(done_seed_key, None)
+        st.session_state.pop(prog_seed_key, None)
+
     if done_seed_key not in st.session_state or prog_seed_key not in st.session_state:
-        seed = weekly_items_of_week(records, uid, cur_code) or weekly_latest_items_before(records, uid, cur_code)
+        seed = cur_week_items or weekly_latest_items_before(records, uid, cur_code)
         rows, fw_map = [], {}
         for r in seed:
             d = _parse_item_json(r.get("추진물건", ""))
-            row = {c: d.get(c, "") for c in ITEM_COLS}
+            row = {c: d.get(c, [] if c == "공동담당자" else "") for c in ITEM_COLS}
             row["상태"] = r.get("상태") if r.get("상태") in ITEM_STATUS else "추진물건"
             row["물건명"] = str(d.get("물건명", "")).strip()
+            row["공동담당자"] = _norm_co_managers(d.get("공동담당자"), uname) if row["상태"] == "추진물건" else []
             rows.append(row)
             if row["물건명"]:
                 fw_map[row["물건명"]] = r.get("최초등록주차") or r.get("주차코드") or cur_code
         st.session_state[fw_key] = fw_map
+        st.session_state[seed_sig_key] = sheet_sig
         done_rows = [r for r in rows if r["상태"] in ("오픈확정", "계약완료")]
         prog_rows = [r for r in rows if r["상태"] == "추진물건"]
-        st.session_state[done_seed_key] = _build_seed_df(done_rows, fw_map, cur_code)
-        st.session_state[prog_seed_key] = _build_seed_df(prog_rows, fw_map, cur_code)
+        st.session_state[done_seed_key] = _build_seed_df(done_rows, fw_map, cur_code, include_co=False)
+        st.session_state[prog_seed_key] = _build_seed_df(prog_rows, fw_map, cur_code, include_co=True)
+
+    if admin_edited_items:
+        edited_desc = ", ".join(
+            f"**{_parse_item_json(r.get('추진물건', '')).get('물건명') or '-'}** "
+            f"(수정: {r.get('수정자')} · {r.get('수정시각', '')})"
+            for r in admin_edited_items
+        )
+        st.info(f":material/edit_square: 관리자가 수정한 항목이 반영되어 있습니다: {edited_desc}")
 
     st.markdown("##### :material/edit_note: 주간업무보고")
     st.caption("지난주 목록이 그대로 이어집니다. 표를 엑셀처럼 바로 고쳐 쓰고, 빈 줄(가장 아래)에 새 물건을 추가할 수 있습니다. "
                "각 줄 맨 앞의 체크박스는 그 줄을 지울 때 선택하는 용도입니다(선택하면 위에 지우기 버튼이 나타납니다). "
-               "상태를 '오픈확정'이나 '계약완료'로 바꾸면 그 물건이 자동으로 '계약완료·오픈확정 물건' 탭으로 옮겨집니다.")
+               "단독 추진 물건은 상태를 '오픈확정'이나 '계약완료'로 바꾸면 자동으로 옮겨지며, "
+               "공동 추진 물건은 계약 완료 시 실적 반영 담당자별로 '계약완료·오픈확정 물건' 탭에 각자 새로 입력해 주세요.")
     fw_map = st.session_state.get(fw_key, {})
     select_lists = load_select_lists(get_gc)
     month_opts = [""] + _future_month_labels()
+
+    mgr_hidden = D.get("mgr_hidden", set()) if isinstance(D, dict) else set()
+    base_members = team_display_members or login_members or []
+    co_options = [m for m in base_members if m and m != uname and m not in mgr_hidden]
+    prog_seed_df = st.session_state.get(prog_seed_key)
+    if prog_seed_df is not None and "공동담당자" in prog_seed_df.columns:
+        for v in prog_seed_df["공동담당자"].tolist():
+            for cm in _norm_co_managers(v, uname):
+                if cm not in co_options:
+                    co_options.append(cm)
 
     with st.container(key="lvl3tabs"):
         t_done, t_prog = st.tabs([":material/emoji_events: 계약완료·오픈확정 물건", ":material/package_2: 추진 물건"])
     with t_done:
         done_rows = _item_editor(f"wk_ed_done_{cur_code}_{uid}", done_seed_key, prog_seed_key,
                                  ("오픈확정", "계약완료"), ["오픈확정", "계약완료"], "오픈확정",
-                                 select_lists, month_opts, fw_map, cur_code)
+                                 select_lists, month_opts, fw_map, cur_code, include_co=False, owner_name=uname)
     with t_prog:
         prog_rows = _item_editor(f"wk_ed_prog_{cur_code}_{uid}", prog_seed_key, done_seed_key,
                                  ("추진물건",), ITEM_STATUS, "추진물건",
-                                 select_lists, month_opts, fw_map, cur_code)
+                                 select_lists, month_opts, fw_map, cur_code,
+                                 include_co=True, co_options=co_options, owner_name=uname)
+        co_items = weekly_co_items_for_user(records, uid, uname, cur_code)
+        if co_items:
+            st.markdown("###### :material/group: 공동 추진 물건 (읽기 전용 · 주 담당자 관리)")
+            st.caption("다른 담당자(주 담당)가 나를 공동담당자로 지정한 물건입니다. 팀 현황과 인쇄본에 내 이름이 함께 표시되며, "
+                       "내용 수정·삭제는 주 담당자 화면에서만 가능합니다. 계약 완료 시에는 실적 분배 기준에 맞춰 각자 '계약완료·오픈확정 물건' 탭에 새로 입력해 주세요.")
+            co_views = []
+            for r in co_items:
+                v = _item_view_with_weeks(r, cur_code)
+                v["구분"] = "공동"
+                v["주담당"] = r.get("이름", "")
+                co_views.append(v)
+            co_cols = ["구분", "주담당", "이름", "오픈예상월", "물건명", "부문", "지역", "운영형태",
+                       "상권대분류", "세부상권", "예상매출(천원)", "예상손익(천원)", "추진주체", "진행주수", "진행경과"]
+            st.markdown(_wk_table_html(co_views, co_cols, status_col="구분", wrap_cols=("진행경과",)),
+                        unsafe_allow_html=True)
+            my_norm_names = {re.sub(r"\s+", "", str(r.get("물건명", ""))) for r in prog_rows if str(r.get("물건명", "")).strip()}
+            dup_co = [v["물건명"] for v in co_views if re.sub(r"\s+", "", str(v.get("물건명", ""))) in my_norm_names]
+            if dup_co:
+                st.warning(f":material/warning: 공동 추진 물건과 같은 이름의 물건({', '.join(dup_co)})이 위 내 추진 물건 표에도 있습니다. "
+                           "중복 표시되지 않도록 한쪽만 남겨 주세요.")
     draft = done_rows + prog_rows
     for r in draft:
         name = str(r.get("물건명", "")).strip()
@@ -2591,15 +2879,20 @@ def _render_weekly_mine(get_gc, records, uid, uname, cur_code, cur_label):
                                 key=f"wk_submit_{cur_code}_{uid}")
     submit_feedback = st.empty()
     if submit_clicked:
+        items_payload = []
         for it in draft:
             name = str(it.get("물건명", "")).strip()
             if not name:
                 continue
+            status = it.get("상태", "추진물건")
             first_week = fw_map.get(name, cur_code)
             item_id = hashlib.md5(f"{uid}|{name}".encode("utf-8")).hexdigest()[:10]
-            content_json = json.dumps({c: it.get(c, "") for c in ITEM_COLS if c != "상태"}, ensure_ascii=False)
-            weekly_upsert_item(get_gc, cur_code, cur_label, uid, uname, item_id,
-                               it.get("상태", "추진물건"), content_json, first_week)
+            payload_dict = {c: it.get(c, [] if c == "공동담당자" else "") for c in ITEM_COLS if c != "상태"}
+            payload_dict["공동담당자"] = _norm_co_managers(payload_dict.get("공동담당자"), uname) if status == "추진물건" else []
+            content_json = json.dumps(payload_dict, ensure_ascii=False)
+            items_payload.append(dict(item_id=item_id, status=status, content=content_json, first_week=first_week))
+        weekly_save_user_items(get_gc, cur_code, cur_label, uid, uname, items_payload)
+        st.session_state.pop(seed_sig_key, None)
         note_val = st.session_state.get(note_key, "").strip()
         if note_val:
             weekly_append_note(get_gc, cur_code, cur_label, uid, uname, note_val)
@@ -2646,9 +2939,12 @@ def _item_view(r):
     # d.get(key, "") 는 JSON에 그 칸이 'null'로 저장돼 있으면(= 값이 있는데 None) 기본값 ""로 안 바뀌고
     # None을 그대로 돌려줘서 화면/인쇄에 "None" 글자가 찍히는 원인이 됩니다. 그래서 `or ""`로 한 번 더 걸러줍니다.
     d = _parse_item_json(r.get("추진물건", ""))
+    owner = str(r.get("이름", "") or "").strip()
+    co_list = _norm_co_managers(d.get("공동담당자"), owner) if r.get("상태") == "추진물건" else []
+    display_name = " · ".join([owner] + co_list) if (owner and co_list) else (owner or " · ".join(co_list))
     return {
         "상태": r.get("상태", ""),
-        "이름": r.get("이름", ""),
+        "이름": display_name,
         "오픈예상월": d.get("오픈예상월") or "",
         "물건명": d.get("물건명") or "",
         "부문": d.get("부문") or "",
@@ -2691,7 +2987,7 @@ def _th_label(c):
     return HEADER_2LINE.get(c, escape(str(c)))
 
 
-_STATUS_BADGE = {"오픈확정": ("open", "오픈확정"), "계약완료": ("done", "계약완료"), "추진물건": ("prog", "추진물건")}
+_STATUS_BADGE = {"오픈확정": ("open", "오픈확정"), "계약완료": ("done", "계약완료"), "추진물건": ("prog", "추진물건"), "공동": ("done", "공동")}
 
 
 def _status_badge_html(status):
@@ -2914,7 +3210,7 @@ def _weekly_print_html(week_label, section1, section2, notes, opened_year=None, 
     """회의자료용 인쇄 HTML(2페이지 구성). 브라우저 새 탭에서 열어 Ctrl+P → 'PDF로 저장'하면 정리된 PDF가 됩니다.
     (한글 폰트를 직접 심어야 하는 PDF 라이브러리 대신, 브라우저의 한글 글꼴을 그대로 쓰는 방식이라 더 안전합니다)
     - 1페이지: 월별 오픈 예정 현황(격자표) + 계약완료·오픈확정 물건 표
-    - 2페이지: 추진 물건 표 + 특이사항
+    - 2페이지: 추진 물건 표 (특이사항은 인쇄본에서 제외 - notes 인자는 호환을 위해 남겨 둠)
     표 한 줄이 페이지 경계에서 잘리지 않도록 '페이지 나눔 보호' 규칙을 같이 넣었습니다(아래 CSS @media print 부분).
     ※ 실제 인쇄 결과까지 직접 확인하지 못했습니다. 표가 아주 길면(줄이 매우 많으면) 그래도 중간에서
     페이지가 나뉠 수 있는데, 그 경우에도 표 '한 줄' 단위로는 끊기지 않도록만 보장합니다."""
@@ -2928,7 +3224,6 @@ def _weekly_print_html(week_label, section1, section2, notes, opened_year=None, 
                "예상매출(천원)", "예상손익(천원)", "최초등록주차", "진행주수", "진행경과"]
 
     month_grid = _month_cards_html(section1, opened_year=opened_year, confirmed_n=confirmed_n)
-    note_rows = "".join(f"<li><b>{escape(n['이름'])}</b>: {escape(n['특이사항'])}</li>" for n in notes) or "<li>해당 사항 없음</li>"
     s1_head = "".join(f"<th>{_th_label(c)}</th>" for c in s1_cols)
     s2_head = "".join(f"<th>{_th_label(c)}</th>" for c in s2_cols)
     s1_colgroup = _colgroup_html(s1_cols)
@@ -3024,14 +3319,211 @@ def _weekly_print_html(week_label, section1, section2, notes, opened_year=None, 
     <div class="page page2">
       <h2>3) 추진 물건</h2>
       <div class="rpt-wrap"><table class="rpt">{s2_colgroup}<thead><tr>{s2_head}</tr></thead><tbody>{_rows_html(section2, s2_cols)}</tbody></table></div>
-      <h2>4) 특이사항</h2>
-      <ul>{note_rows}</ul>
     </div>
     </body></html>
     """
 
 
-def _render_weekly_team(get_gc, D, login_members, team_display_members, records, cur_code, cur_label):
+def _canonical_item_dict(rec, include_co=False, owner_name=""):
+    """원본과 편집본 비교 및 시트 JSON 직렬화를 위한 표준 dict 생성."""
+    out = {}
+    for c in ITEM_COLS:
+        if c == "상태":
+            continue
+        if c == "공동담당자":
+            out[c] = _norm_co_managers(rec.get(c), owner_name) if include_co else []
+        elif c in ITEM_NUM_COLS:
+            out[c] = _item_num(rec.get(c))
+        else:
+            v = rec.get(c, "")
+            out[c] = "" if (v is None or (isinstance(v, float) and pd.isna(v))) else str(v).strip()
+    return out
+
+
+def _merge_opts(base_opts, extra_vals):
+    out = list(base_opts or [])
+    for v in extra_vals:
+        s = str(v or "").strip()
+        if s and s not in out:
+            out.append(s)
+    return out
+
+
+def _render_admin_team_editor(get_gc, D, sel, section1, section2, all_candidates, admin_name=""):
+    """관리자가 팀 현황에서 1) 오픈확정·계약완료 물건과 2) 추진 물건을 직접 고쳐 저장하는 편집 화면."""
+    s1_key, m1_key = f"wk_adm_s1_{sel}", f"wk_adm_m1_{sel}"
+    s2_key, m2_key = f"wk_adm_s2_{sel}", f"wk_adm_m2_{sel}"
+    sig_key = f"wk_adm_sig_{sel}"
+
+    cur_sig = "|".join(
+        f"{r.get('아이템ID','')}:{r.get('수정시각','')}" for r in (section1 + section2)
+    )
+    s1_cols = ["상태", "이름", "오픈예상월", "물건명", "부문", "지역", "운영형태", "상권대분류",
+               "세부상권", "예상매출(천원)", "예상손익(천원)", "추진주체", "진행경과"]
+    s2_cols = ["상태", "이름", "공동담당자", "오픈예상월", "물건명", "부문", "지역", "운영형태", "상권대분류",
+               "세부상권", "예상매출(천원)", "예상손익(천원)", "추진주체", "최초등록주차", "경과(주)", "진행경과"]
+
+    if st.session_state.get(sig_key) != cur_sig or s1_key not in st.session_state or s2_key not in st.session_state:
+        data1, meta1 = [], []
+        for r in section1:
+            d = _parse_item_json(r.get("추진물건", ""))
+            owner = str(r.get("이름", "")).strip()
+            canon = _canonical_item_dict(d, include_co=False, owner_name=owner)
+            row = {"상태": r.get("상태", ""), "이름": owner, **canon}
+            data1.append({c: row.get(c, "") for c in s1_cols})
+            meta1.append(dict(uid=r.get("사번", "").strip(), owner=owner,
+                              orig_item_id=r.get("아이템ID", "").strip(), orig_canon=canon))
+        df1 = pd.DataFrame(data1, columns=s1_cols) if data1 else pd.DataFrame(columns=s1_cols)
+        for c in s1_cols:
+            if c in ITEM_NUM_COLS:
+                df1[c] = pd.to_numeric(df1[c], errors="coerce")
+            else:
+                df1[c] = df1[c].apply(lambda v: "" if (v is None or (isinstance(v, float) and pd.isna(v))) else str(v))
+
+        data2, meta2 = [], []
+        for r in section2:
+            d = _parse_item_json(r.get("추진물건", ""))
+            owner = str(r.get("이름", "")).strip()
+            canon = _canonical_item_dict(d, include_co=True, owner_name=owner)
+            row = {
+                "상태": r.get("상태", ""),
+                "이름": owner,
+                "최초등록주차": r.get("최초등록주차", ""),
+                "경과(주)": _weeks_between(r.get("최초등록주차") or sel, sel),
+                **canon,
+            }
+            data2.append({c: row.get(c, [] if c == "공동담당자" else "") for c in s2_cols})
+            meta2.append(dict(uid=r.get("사번", "").strip(), owner=owner,
+                              orig_item_id=r.get("아이템ID", "").strip(), orig_canon=canon))
+        df2 = pd.DataFrame(data2, columns=s2_cols) if data2 else pd.DataFrame(columns=s2_cols)
+        for c in s2_cols:
+            if c == "공동담당자":
+                df2[c] = _list_str_series(df2[c].tolist() if len(df2) else [])
+            elif c in ITEM_NUM_COLS or c == "경과(주)":
+                df2[c] = pd.to_numeric(df2[c], errors="coerce")
+            else:
+                df2[c] = df2[c].apply(lambda v: "" if (v is None or (isinstance(v, float) and pd.isna(v))) else str(v))
+
+        st.session_state[s1_key] = df1.reset_index(drop=True)
+        st.session_state[m1_key] = meta1
+        st.session_state[s2_key] = df2.reset_index(drop=True)
+        st.session_state[m2_key] = meta2
+        st.session_state[sig_key] = cur_sig
+
+    select_lists = load_select_lists(get_gc)
+    parsed_all = [_parse_item_json(r.get("추진물건", "")) for r in (section1 + section2)]
+    month_opts = _merge_opts([""] + _future_month_labels(), [d.get("오픈예상월", "") for d in parsed_all])
+
+    def _adm_col_cfg(include_co=False, co_opts=()):
+        cfg = {
+            "상태": st.column_config.TextColumn("상태", disabled=True, width="small"),
+            "이름": st.column_config.TextColumn("주담당" if include_co else "이름", disabled=True, width="small"),
+            "오픈예상월": st.column_config.SelectboxColumn("오픈예상월", options=month_opts, width="small"),
+            "물건명": st.column_config.TextColumn("물건명", required=True, width="medium"),
+            "부문": _dropdown_or_text("부문", _merge_opts(select_lists.get("부문"), [d.get("부문", "") for d in parsed_all]) if select_lists.get("부문") else []),
+            "지역": st.column_config.TextColumn("지역", width="small"),
+            "운영형태": _dropdown_or_text("운영형태", _merge_opts(select_lists.get("운영형태"), [d.get("운영형태", "") for d in parsed_all]) if select_lists.get("운영형태") else []),
+            "상권대분류": _dropdown_or_text("상권대분류", _merge_opts(select_lists.get("상권대분류"), [d.get("상권대분류", "") for d in parsed_all]) if select_lists.get("상권대분류") else []),
+            "세부상권": st.column_config.TextColumn("세부상권", width="small"),
+            "예상매출(천원)": st.column_config.NumberColumn("예상매출(천원)", format="%d", width="small"),
+            "예상손익(천원)": st.column_config.NumberColumn("예상손익(천원)", format="%d", width="small"),
+            "추진주체": _dropdown_or_text("추진주체", _merge_opts(select_lists.get("추진주체"), [d.get("추진주체", "") for d in parsed_all]) if select_lists.get("추진주체") else []),
+            "최초등록주차": st.column_config.TextColumn("최초등록주차", disabled=True, width="small"),
+            "경과(주)": st.column_config.NumberColumn("경과(주)", disabled=True, width="small"),
+            "진행경과": st.column_config.TextColumn("진행경과", width="large"),
+        }
+        if include_co:
+            cfg["공동담당자"] = st.column_config.MultiselectColumn(
+                "공동담당자", options=list(co_opts), default=[], width="medium",
+                help="함께 추진 중인 공동담당자 (주 담당자 본인은 저장 시 자동 제외됩니다)",
+            )
+        return cfg
+
+    mgr_hidden = D.get("mgr_hidden", set()) if isinstance(D, dict) else set()
+    co_opts = [m for m in all_candidates if m and m not in mgr_hidden]
+    for d in parsed_all:
+        for cm in _norm_co_managers(d.get("공동담당자")):
+            if cm not in co_opts:
+                co_opts.append(cm)
+
+    st.markdown("##### 1) 오픈확정 · 계약완료 물건 (수정 중)")
+    if len(st.session_state[s1_key]):
+        ed1 = st.data_editor(
+            st.session_state[s1_key], column_config=_adm_col_cfg(include_co=False),
+            num_rows="fixed", use_container_width=True, hide_index=True,
+            key=f"wk_adm_ed1_{sel}", column_order=s1_cols,
+        )
+    else:
+        ed1 = st.session_state[s1_key]
+        st.caption("해당 사항 없음")
+
+    st.markdown("##### 2) 추진 물건 (수정 중)")
+    if len(st.session_state[s2_key]):
+        ed2 = st.data_editor(
+            st.session_state[s2_key], column_config=_adm_col_cfg(include_co=True, co_opts=co_opts),
+            num_rows="fixed", use_container_width=True, hide_index=True,
+            key=f"wk_adm_ed2_{sel}", column_order=s2_cols,
+        )
+    else:
+        ed2 = st.session_state[s2_key]
+        st.caption("해당 사항 없음")
+
+    bc1, bc2, _ = st.columns([2, 2, 6])
+    with bc1:
+        save_btn = st.button("변경사항 저장", type="primary", icon=":material/save:",
+                             key=f"wk_adm_save_{sel}", use_container_width=True)
+    with bc2:
+        cancel_btn = st.button("취소 (보기 모드)", icon=":material/close:",
+                               key=f"wk_adm_cancel_{sel}", use_container_width=True)
+
+    if cancel_btn:
+        for k in (s1_key, m1_key, s2_key, m2_key, sig_key):
+            st.session_state.pop(k, None)
+        st.session_state[f"_close_adm_edit_{sel}"] = True
+        st.rerun()
+
+    if save_btn:
+        changes = []
+        empty_err = False
+        for recs, metas, inc_co in (
+            (ed1.to_dict("records"), st.session_state[m1_key], False),
+            (ed2.to_dict("records"), st.session_state[m2_key], True),
+        ):
+            for rec, meta in zip(recs, metas):
+                new_canon = _canonical_item_dict(rec, include_co=inc_co, owner_name=meta["owner"])
+                if not new_canon["물건명"]:
+                    empty_err = True
+                    break
+                if new_canon != meta["orig_canon"]:
+                    new_iid = hashlib.md5(f"{meta['uid']}|{new_canon['물건명']}".encode("utf-8")).hexdigest()[:10]
+                    changes.append(dict(
+                        uid=meta["uid"],
+                        orig_item_id=meta["orig_item_id"],
+                        new_item_id=new_iid,
+                        content=json.dumps(new_canon, ensure_ascii=False),
+                    ))
+            if empty_err:
+                break
+
+        if empty_err:
+            st.warning("물건명은 비워둘 수 없습니다. 물건명을 확인해 주세요.")
+        elif not changes:
+            st.info("변경된 내용이 없습니다.")
+        else:
+            n_up = weekly_admin_update_items(get_gc, sel, changes, admin_name=admin_name)
+            for ch in changes:
+                u = ch["uid"]
+                for sk in (f"wk_seed_done_{sel}_{u}", f"wk_seed_prog_{sel}_{u}", f"wk_seed_sig_{sel}_{u}"):
+                    st.session_state.pop(sk, None)
+            for k in (s1_key, m1_key, s2_key, m2_key, sig_key):
+                st.session_state.pop(k, None)
+            st.session_state[f"_close_adm_edit_{sel}"] = True
+            st.session_state[f"_adm_saved_msg_{sel}"] = f"{n_up}건의 수정사항을 원본 시트에 반영했습니다."
+            st.rerun()
+
+
+def _render_weekly_team(get_gc, D, login_members, team_display_members, records, cur_code, cur_label,
+                        is_admin=False, admin_name=""):
     # 담당자 목록: 로그인 시트(현재 실제 팀원) 기준이 기본이지만, 테스트 계정 등
     # 로그인 시트에 아직 없는 이름이 실제로 보고를 제출한 경우에도 누락되지 않도록
     # 실제 보고 데이터에 등장한 이름들을 뒤에 합쳐 둡니다. (제출했는데 목록에 안 보이는 문제 방지)
@@ -3072,36 +3564,73 @@ def _render_weekly_team(get_gc, D, login_members, team_display_members, records,
         st.markdown(_submit_status_html(items), unsafe_allow_html=True)
 
     st.divider()
-    st.markdown("##### 1) 오픈확정 · 계약완료 물건")
+
     section1 = [r for r in records if r.get("유형") == "추진물건" and r.get("주차코드", "").strip() == sel
                 and r.get("상태") in ("오픈확정", "계약완료") and (not managers or r.get("이름", "").strip() in managers)]
-    if section1:
-        rows1 = [_item_view(r) for r in section1]
-        rows1.sort(key=lambda x: _month_sort_key(x.get("오픈예상월")))
-        # 오픈확정·계약완료 물건은 이미 결론이 난 물건이라 '최초등록주차'가 큰 의미가 없어서 표에서 뺍니다
-        # (추진 물건 표에는 진행 기간 관리를 위해 그대로 남겨 둡니다).
-        s1_cols = [c for c in rows1[0].keys() if c != "최초등록주차"]
-        st.markdown(_wk_table_html(rows1, s1_cols, status_col="상태", wrap_cols=("진행경과",)),
-                    unsafe_allow_html=True)
-    else:
-        rows1 = []
-        st.caption("해당 사항 없음")
+    section1.sort(key=lambda r: _month_sort_key(_parse_item_json(r.get("추진물건", "")).get("오픈예상월")))
+    rows1 = [_item_view(r) for r in section1]
 
-    st.markdown("##### 2) 추진 물건")
+    def _in_managers(r):
+        if not managers:
+            return True
+        owner = r.get("이름", "").strip()
+        if owner in managers:
+            return True
+        co = _norm_co_managers(_parse_item_json(r.get("추진물건", "")).get("공동담당자"), owner)
+        return any(m in managers for m in co)
+
     section2 = [r for r in records if r.get("유형") == "추진물건" and r.get("주차코드", "").strip() == sel
-                and r.get("상태") == "추진물건" and (not managers or r.get("이름", "").strip() in managers)]
-    if section2:
-        rows2 = [_item_view_with_weeks(r, sel) for r in section2]
-        rows2.sort(key=lambda x: (_month_sort_key(x.get("오픈예상월")), -x["진행주수"]))
-        s2_cols = list(rows2[0].keys())
-        st.markdown(_wk_table_html(rows2, s2_cols, status_col="상태", wrap_cols=("진행경과",)),
-                    unsafe_allow_html=True)
-        stale = [r for r in rows2 if r["진행주수"] >= 4]
-        if stale:
-            st.warning(":material/warning: 4주 이상 그대로인 물건: " + ", ".join(f"{r['이름']}·{r['물건명']}" for r in stale))
+                and r.get("상태") == "추진물건" and _in_managers(r)]
+    section2.sort(key=lambda r: (
+        _month_sort_key(_parse_item_json(r.get("추진물건", "")).get("오픈예상월")),
+        -_weeks_between(r.get("최초등록주차") or sel, sel),
+    ))
+    rows2 = [_item_view_with_weeks(r, sel) for r in section2]
+
+    edit_toggle_key = f"wk_adm_edit_mode_{sel}"
+    if st.session_state.pop(f"_close_adm_edit_{sel}", False):
+        st.session_state[edit_toggle_key] = False
+
+    saved_msg = st.session_state.pop(f"_adm_saved_msg_{sel}", None)
+    if saved_msg:
+        st.success(f":material/check_circle: {saved_msg}")
+
+    admin_editing = False
+    if is_admin and (section1 or section2):
+        tc1, tc2 = st.columns([3, 7])
+        with tc1:
+            admin_editing = st.toggle(":material/edit_square: 관리자 수정 모드", key=edit_toggle_key,
+                                      help="담당자가 제출한 물건의 오타·매출·진행경과 등을 관리자가 직접 수정해 원본에 반영합니다.")
+        with tc2:
+            if admin_editing:
+                st.caption("셀을 더블클릭해 내용을 고친 뒤 아래 **변경사항 저장** 버튼을 눌러주세요. (원본 덮어쓰기 + 수정자 기록)")
+
+    if admin_editing:
+        _render_admin_team_editor(get_gc, D, sel, section1, section2, all_candidates, admin_name=admin_name)
     else:
-        rows2 = []
-        st.caption("해당 사항 없음")
+        for k in (f"wk_adm_s1_{sel}", f"wk_adm_m1_{sel}", f"wk_adm_s2_{sel}", f"wk_adm_m2_{sel}", f"wk_adm_sig_{sel}"):
+            st.session_state.pop(k, None)
+
+        st.markdown("##### 1) 오픈확정 · 계약완료 물건")
+        if rows1:
+            # 오픈확정·계약완료 물건은 이미 결론이 난 물건이라 '최초등록주차'가 큰 의미가 없어서 표에서 뺍니다
+            # (추진 물건 표에는 진행 기간 관리를 위해 그대로 남겨 둡니다).
+            s1_cols = [c for c in rows1[0].keys() if c != "최초등록주차"]
+            st.markdown(_wk_table_html(rows1, s1_cols, status_col="상태", wrap_cols=("진행경과",)),
+                        unsafe_allow_html=True)
+        else:
+            st.caption("해당 사항 없음")
+
+        st.markdown("##### 2) 추진 물건")
+        if rows2:
+            s2_cols = list(rows2[0].keys())
+            st.markdown(_wk_table_html(rows2, s2_cols, status_col="상태", wrap_cols=("진행경과",)),
+                        unsafe_allow_html=True)
+            stale = [r for r in rows2 if r["진행주수"] >= 4]
+            if stale:
+                st.warning(":material/warning: 4주 이상 그대로인 물건: " + ", ".join(f"{r['이름']}·{r['물건명']}" for r in stale))
+        else:
+            st.caption("해당 사항 없음")
 
     st.markdown("##### 3) 특이사항")
     notes = [r for r in records if r.get("유형") == "특이사항" and r.get("주차코드", "").strip() == sel
@@ -3114,18 +3643,19 @@ def _render_weekly_team(get_gc, D, login_members, team_display_members, records,
 
     st.caption(":material/calendar_month: 담당자별 주간 일정은 옆의 '팀 활동계획' 탭에서 볼 수 있습니다.")
 
-    st.divider()
-    with st.expander(":material/cleaning_services: (관리자) 특이사항 중복 행 정리"):
-        st.caption("업서트 방식을 적용하기 전에 같은 주차·같은 담당자로 여러 번 제출해서 쌓인 '특이사항' 중복 행을 "
-                   "한 번만 정리합니다. 같은 (주차, 담당자) 조합 중 가장 나중 것만 남기고 나머지를 지웁니다. "
-                   "앞으로 제출되는 특이사항은 이미 중복 없이 덮어쓰기 방식으로 저장되므로, 이 정리는 과거에 쌓인 것만 지웁니다.")
-        if st.button("중복 특이사항 정리 실행", icon=":material/cleaning_services:", key="wk_note_dedupe_btn"):
-            n = weekly_dedupe_notes(get_gc)
-            if n:
-                st.success(f":material/check_circle: 중복 {n}건을 정리했습니다.")
-            else:
-                st.info("정리할 중복이 없습니다.")
-            st.rerun()
+    if is_admin:   # 데이터를 지우는 정리 기능이라 관리자에게만 보입니다
+        st.divider()
+        with st.expander(":material/cleaning_services: (관리자) 특이사항 중복 행 정리"):
+            st.caption("업서트 방식을 적용하기 전에 같은 주차·같은 담당자로 여러 번 제출해서 쌓인 '특이사항' 중복 행을 "
+                       "한 번만 정리합니다. 같은 (주차, 담당자) 조합 중 가장 나중 것만 남기고 나머지를 지웁니다. "
+                       "앞으로 제출되는 특이사항은 이미 중복 없이 덮어쓰기 방식으로 저장되므로, 이 정리는 과거에 쌓인 것만 지웁니다.")
+            if st.button("중복 특이사항 정리 실행", icon=":material/cleaning_services:", key="wk_note_dedupe_btn"):
+                n = weekly_dedupe_notes(get_gc)
+                if n:
+                    st.success(f":material/check_circle: 중복 {n}건을 정리했습니다.")
+                else:
+                    st.info("정리할 중복이 없습니다.")
+                st.rerun()
 
     # '월별 오픈 예정 현황' 카드의 맨 끝 요약 카드용 숫자: 실적현황 탭과 숫자가 어긋나지 않도록
     # 별도로 입력받지 않고, 이미 있는 실적 데이터(D)와 이번 주 표에서 바로 계산합니다.
@@ -3226,21 +3756,20 @@ def render_weekly(get_gc, D, uid, uname, is_admin):
     cur_code, cur_label = wk_info()
     records = load_weekly_all(get_gc)
 
-    if is_admin:
-        login_members = load_login_members(get_gc)
-        team_display_members = load_team_display_members(get_gc)
-        with st.container(key="lvl2tabs"):
-            t_mine, t_team, t_plan = st.tabs([":material/edit: 내 보고 작성", ":material/groups: 팀 현황",
-                                              ":material/calendar_month: 팀 활동계획"])
-        with t_mine:
-            _render_weekly_mine(get_gc, records, uid, uname, cur_code, cur_label)
-        with t_team:
-            _render_weekly_team(get_gc, D, login_members, team_display_members, records, cur_code, cur_label)
-        with t_plan:
-            _render_weekly_plan(login_members, team_display_members, records, cur_code, cur_label)
-    else:
-        # 팀 현황은 관리자만 볼 수 있도록 제한 (일반 사용자는 탭 자체가 보이지 않음)
-        _render_weekly_mine(get_gc, records, uid, uname, cur_code, cur_label)
+    # 팀 현황·팀 활동계획·인쇄는 모든 사용자에게 공개합니다. (관리자 전용으로 남기는 것: 중복 행 정리 등 데이터 정리 기능)
+    login_members = load_login_members(get_gc)
+    team_display_members = load_team_display_members(get_gc)
+    with st.container(key="lvl2tabs"):
+        t_mine, t_team, t_plan = st.tabs([":material/edit: 내 보고 작성", ":material/groups: 팀 현황",
+                                          ":material/calendar_month: 팀 활동계획"])
+    with t_mine:
+        _render_weekly_mine(get_gc, records, uid, uname, cur_code, cur_label,
+                            D=D, login_members=login_members, team_display_members=team_display_members)
+    with t_team:
+        _render_weekly_team(get_gc, D, login_members, team_display_members, records, cur_code, cur_label,
+                            is_admin=is_admin, admin_name=uname)
+    with t_plan:
+        _render_weekly_plan(login_members, team_display_members, records, cur_code, cur_label)
 
 
 # ───────────────────────── 준비 중인 메뉴 (자리만 먼저 만들어 둠) ─────────────────────────
