@@ -692,23 +692,20 @@ table.wk-tbl td.wk-empty { color: #aab4ca; padding: 16px; }
 .subm-card .sb-v.no { color: #d0143c; }
 .subm-card .sb-s { font-size: 11px; color: #8591ab; margin-top: 2px; }
 /* 자료실 (구글 드라이브 연동) */
-.st-key-lib_pills_bid [data-testid="stWidgetLabel"], .st-key-lib_pills_store [data-testid="stWidgetLabel"] { display: none !important; }
-.st-key-lib_pills_bid [role="radiogroup"], .st-key-lib_pills_store [role="radiogroup"] {
+div[class*="st-key-lib_pills_"] [data-testid="stWidgetLabel"] { display: none !important; }
+div[class*="st-key-lib_pills_"] [role="radiogroup"] {
     display: flex !important; flex-direction: row !important; flex-wrap: wrap !important; gap: 6px !important;
     align-items: center; background: #eef2fa; padding: 5px; border-radius: 12px; width: fit-content; }
-.st-key-lib_pills_bid [role="radiogroup"] > label, .st-key-lib_pills_store [role="radiogroup"] > label {
+div[class*="st-key-lib_pills_"] [role="radiogroup"] > label {
     margin: 0 !important; height: 34px; padding: 0 16px !important; border-radius: 9px; cursor: pointer;
     display: flex !important; align-items: center; justify-content: center; background: transparent; }
-.st-key-lib_pills_bid [role="radiogroup"] > label > div:first-child,
-.st-key-lib_pills_store [role="radiogroup"] > label > div:first-child { display: none !important; }
-.st-key-lib_pills_bid [role="radiogroup"] > label p, .st-key-lib_pills_store [role="radiogroup"] > label p {
+div[class*="st-key-lib_pills_"] [role="radiogroup"] > label > div:first-child { display: none !important; }
+div[class*="st-key-lib_pills_"] [role="radiogroup"] > label p {
     font-size: 14px !important; font-weight: 700 !important; color: #55648a !important; margin: 0 !important; white-space: nowrap; }
-.st-key-lib_pills_bid [role="radiogroup"] > label:hover, .st-key-lib_pills_store [role="radiogroup"] > label:hover { background: #dfe7f6; }
-.st-key-lib_pills_bid [role="radiogroup"] > label:has(input:checked),
-.st-key-lib_pills_store [role="radiogroup"] > label:has(input:checked) {
+div[class*="st-key-lib_pills_"] [role="radiogroup"] > label:hover { background: #dfe7f6; }
+div[class*="st-key-lib_pills_"] [role="radiogroup"] > label:has(input:checked) {
     background: #2c4a8a !important; box-shadow: 0 2px 6px rgba(31,58,115,.22); }
-.st-key-lib_pills_bid [role="radiogroup"] > label:has(input:checked) p,
-.st-key-lib_pills_store [role="radiogroup"] > label:has(input:checked) p { color: #ffffff !important; }
+div[class*="st-key-lib_pills_"] [role="radiogroup"] > label:has(input:checked) p { color: #ffffff !important; }
 .st-key-lib_bulkbar { background: linear-gradient(90deg, #eef3fc, #f8faff); border: 1px solid #d5dcea;
     border-radius: 12px; padding: 10px 16px !important; margin: 4px 0 8px; }
 .st-key-lib_bulkbar [data-testid="stHorizontalBlock"] { align-items: center !important; }
@@ -4177,6 +4174,8 @@ def load_drive_library(_get_gc):
         bid_files = []
         store_names = []
         store_files = []
+        proposal_categories = []
+        proposal_files = []
 
         def _add_cat(lst, name):
             if name and name not in lst:
@@ -4200,8 +4199,24 @@ def load_drive_library(_get_gc):
                     cat = _clean_folder_label(sf.get("name", ""))
                     _add_cat(bid_categories, cat)
                     bid_files.extend(_collect_files_recursive(gc, sf["id"], group_label=cat, today=today, max_depth=1))
+            elif "제안" in clean_top:
+                # 제안서 폴더: 직속 파일로 바로 올려도 되고, 업종/부문/연도 등 하위 폴더로 나누면 자동 분류 알약 생성
+                sub_items = _drive_list_children(gc, tf["id"])
+                sub_folders = sorted([c for c in sub_items if c.get("mimeType") == DRIVE_FOLDER_MIME],
+                                     key=lambda x: _folder_sort_key(x.get("name", "")))
+                direct_files = [c for c in sub_items if c.get("mimeType") != DRIVE_FOLDER_MIME]
+                for sf in sub_folders:
+                    pcat = _clean_folder_label(sf.get("name", ""))
+                    _add_cat(proposal_categories, pcat)
+                    proposal_files.extend(_collect_files_recursive(gc, sf["id"], group_label=pcat, today=today, max_depth=1))
+                if direct_files:
+                    pcat = "일반·공통" if sub_folders else ""
+                    if pcat:
+                        _add_cat(proposal_categories, pcat)
+                    for f in direct_files:
+                        proposal_files.append(_enrich_drive_file(f, group_label=pcat, today=today))
             elif any(kw in clean_top for kw in ("이슈", "점포", "보고서")):
-                # 주요 이슈 점포 상위 폴더: 하위 폴더 하나하나가 점포명(한강, 63빌딩, 인천공항 등)
+                # 주요 이슈 보고서 상위 폴더: 하위 폴더 하나하나가 점포/이슈명(한강, 63빌딩, 인천공항 등)
                 sub_items = _drive_list_children(gc, tf["id"])
                 sub_folders = sorted([c for c in sub_items if c.get("mimeType") == DRIVE_FOLDER_MIME],
                                      key=lambda x: _folder_sort_key(x.get("name", "")))
@@ -4235,6 +4250,8 @@ def load_drive_library(_get_gc):
             "bid_files": bid_files,
             "store_names": store_names,
             "store_files": store_files,
+            "proposal_categories": proposal_categories,
+            "proposal_files": proposal_files,
         }
     except Exception as e:
         return {"ready": False, "error": f"구글 드라이브 조회 중 오류가 발생했습니다: {e}", "sa_email": sa_email}
@@ -4414,48 +4431,48 @@ def _render_lib_bid_tab(get_gc, categories, files):
 
 
 @st.fragment
-def _render_lib_store_tab(get_gc, store_names, files):
-    if not store_names and not files:
-        st.info("아직 '주요 이슈 점포' 폴더에 등록된 보고서가 없습니다. 구글 드라이브 `SD_자료실 > 2_주요 이슈 점포` 아래에 점포별 폴더(예: 한강, 63빌딩, 인천공항)를 만들고 최종 보고서를 넣어 주세요.")
+def _render_lib_catalog_tab(get_gc, tag, group_names, files, empty_guide, search_placeholder, count_label):
+    if not group_names and not files:
+        st.info(empty_guide)
         return
 
-    if store_names:
-        with st.container(key="lib_pills_store"):
-            sel_store = st.radio("점포 선택", ["전체"] + store_names, horizontal=True,
-                                 key="lib_store_pick", label_visibility="collapsed")
+    if group_names:
+        with st.container(key=f"lib_pills_{tag}"):
+            sel_grp = st.radio("분류 선택", ["전체"] + group_names, horizontal=True,
+                               key=f"lib_{tag}_pick", label_visibility="collapsed")
     else:
-        sel_store = "전체"
+        sel_grp = "전체"
 
     sc1, sc2 = st.columns([3, 1.2])
     with sc1:
-        q = st.text_input("보고서 검색", key="lib_store_q", placeholder="점포명 또는 보고서 제목 검색",
+        q = st.text_input("검색", key=f"lib_{tag}_q", placeholder=search_placeholder,
                           label_visibility="collapsed")
     with sc2:
-        sort_mode = st.selectbox("정렬", ["기준일 최신순", "서류명 가나다순"], key="lib_store_sort", label_visibility="collapsed")
+        sort_mode = st.selectbox("정렬", ["기준일 최신순", "서류명 가나다순"], key=f"lib_{tag}_sort", label_visibility="collapsed")
 
     kw = q.strip().lower()
     filtered = [
         f for f in files
-        if (sel_store == "전체" or f["group"] == sel_store or f["group"].startswith(f"{sel_store} · "))
+        if (sel_grp == "전체" or f["group"] == sel_grp or f["group"].startswith(f"{sel_grp} · "))
         and (not kw or kw in f["name"].lower() or kw in f["group"].lower())
     ]
     filtered = _sort_lib_files(filtered, sort_mode)
 
     if not filtered:
-        if sel_store != "전체":
-            st.caption(f"'{sel_store}' 폴더에 등록된 보고서가 아직 없습니다.")
+        if sel_grp != "전체":
+            st.caption(f"'{sel_grp}' 폴더에 등록된 자료가 아직 없습니다.")
         else:
-            st.caption("조건에 맞는 보고서가 없습니다.")
+            st.caption("조건에 맞는 자료가 없습니다.")
         return
 
-    st.caption(f"총 {len(filtered)}건의 최종 보고서")
+    st.caption(f"총 {len(filtered)}건의 {count_label}")
     for idx, f in enumerate(filtered):
-        with st.container(key=f"librow_st_{idx}_{f['id']}"):
+        with st.container(key=f"librow_{tag}_{idx}_{f['id']}"):
             rc1, rc2, rc3 = st.columns([5.8, 2.6, 1.6])
             with rc1:
-                store_chip = f'<span class="lib-store">{escape(f["group"])}</span>' if f["group"] else ""
+                grp_chip = f'<span class="lib-store">{escape(f["group"])}</span>' if f["group"] else ""
                 st.markdown(
-                    f'<div class="lib-item">{store_chip}'
+                    f'<div class="lib-item">{grp_chip}'
                     f'<span class="lib-ext {f["ext_cls"]}">{escape(f["ext_label"])}</span>'
                     f'<span class="lib-title">{escape(f["name"])}</span></div>',
                     unsafe_allow_html=True,
@@ -4473,7 +4490,7 @@ def _render_lib_store_tab(get_gc, store_names, files):
                     file_name=f["download_name"],
                     mime=f["download_mime"],
                     icon=":material/download:",
-                    key=f"lib_dl_st_{idx}_{f['id']}",
+                    key=f"lib_dl_{tag}_{idx}_{f['id']}",
                     on_click="ignore",
                     use_container_width=True,
                 )
@@ -4509,10 +4526,12 @@ def view_file_library(get_gc, is_admin=False):
                 ' ├── 1_입찰 필요서류\n'
                 ' │    ├── 법인·행정서류   (하위 폴더를 만들면 소분류 필터가 자동 생성됩니다)\n'
                 ' │    └── 세무·재무서류\n'
-                ' └── 2_주요 이슈 점포\n'
-                '      ├── 한강            (점포 폴더를 추가하면 메뉴가 자동 생성됩니다)\n'
-                '      ├── 63빌딩\n'
-                '      └── 인천공항'
+                ' ├── 2_주요 이슈 보고서\n'
+                ' │    ├── 한강            (점포 폴더를 추가하면 메뉴가 자동 생성됩니다)\n'
+                ' │    ├── 63빌딩\n'
+                ' │    └── 인천공항\n'
+                ' └── 3_제안서\n'
+                '      └── (제안서 파일을 바로 넣거나 업종·부문별 하위 폴더로 분류 가능)'
                 '</div></div>',
                 unsafe_allow_html=True,
             )
@@ -4524,21 +4543,35 @@ def view_file_library(get_gc, is_admin=False):
 
     bid_files = lib.get("bid_files", [])
     store_files = lib.get("store_files", [])
+    prop_files = lib.get("proposal_files", [])
     st.caption(
         f":material/lock: 사내 보안 자료실 · 최신 최종본 전용  |  "
-        f"입찰 필요서류 **{len(bid_files)}건** · 주요 이슈 점포 보고서 **{len(store_files)}건** "
+        f"입찰 필요서류 **{len(bid_files)}건** · 주요 이슈 보고서 **{len(store_files)}건** · 제안서 **{len(prop_files)}건** "
         f"(파일명에 날짜를 적으면 기준일로 자동 표시됩니다)"
     )
 
     with st.container(key="lvl2tabs_lib"):
-        t_bid, t_store = st.tabs([
+        t_bid, t_store, t_prop = st.tabs([
             f":material/assignment_turned_in: 입찰 필요서류 ({len(bid_files)})",
-            f":material/apartment: 주요 이슈 점포 보고서 ({len(store_files)})",
+            f":material/apartment: 주요 이슈 보고서 ({len(store_files)})",
+            f":material/co_present: 제안서 ({len(prop_files)})",
         ])
     with t_bid:
         _render_lib_bid_tab(get_gc, lib.get("bid_categories", []), bid_files)
     with t_store:
-        _render_lib_store_tab(get_gc, lib.get("store_names", []), store_files)
+        _render_lib_catalog_tab(
+            get_gc, "store", lib.get("store_names", []), store_files,
+            "아직 '주요 이슈 보고서' 폴더에 등록된 자료가 없습니다. 구글 드라이브 `SD_자료실 > 2_주요 이슈 보고서` 아래에 점포별 폴더(예: 한강, 63빌딩, 인천공항)를 만들고 최종 보고서를 넣어 주세요.",
+            "점포명 또는 보고서 제목 검색",
+            "최종 보고서",
+        )
+    with t_prop:
+        _render_lib_catalog_tab(
+            get_gc, "prop", lib.get("proposal_categories", []), prop_files,
+            "아직 '제안서' 폴더에 등록된 파일이 없습니다. 구글 드라이브 `SD_자료실 > 3_제안서` 폴더를 만들고 제안서 파일을 넣어 주세요. (하위 폴더를 만들면 분류 버튼이 자동 생성됩니다)",
+            "제안서 제목 또는 분류 검색",
+            "제안서",
+        )
 
 
 # ───────────────────────── 진입점 ─────────────────────────
