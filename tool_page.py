@@ -2839,9 +2839,17 @@ def _colgroup_html(cols, pct_map=PRINT_COL_PCT, wide_col="진행경과"):
 
 
 def _month_names_html(items):
+    """물건명 위주 칩 목록. 앞의 작은 점은 상태색(오픈확정=초록, 계약완료=파랑), 담당자는 작게 뒤에 붙임."""
     if not items:
         return '<div class="mo-empty">예정 물건 없음</div>'
-    return "".join(f'<div>{escape(it.get("이름", ""))}·{escape(it.get("물건명", ""))}</div>' for it in items)
+    out = []
+    for it in items:
+        st_cls = "open" if it.get("상태") == "오픈확정" else "done"
+        nm = escape(it.get("물건명", "") or "-")
+        who = escape(it.get("이름", ""))
+        who_html = f'<em>{who}</em>' if who else ""
+        out.append(f'<div class="mo-chip"><i class="dot {st_cls}"></i><span>{nm}</span>{who_html}</div>')
+    return "".join(out)
 
 
 def _month_cards_html(section1, opened_year=None, confirmed_n=None):
@@ -2878,12 +2886,14 @@ def _month_cards_html(section1, opened_year=None, confirmed_n=None):
         items = by_month.get(mk, [])
         label = mk if mk == "월 미정" else _month_short(mk)
         n = len(items)
-        cls = " cur" if i == 0 and mk != "월 미정" else ""
-        tag = '<div class="mo-tag">이번달</div>' if i == 0 and mk != "월 미정" else ""
+        is_cur = (i == 0 and mk != "월 미정")
+        cls = " cur" if is_cur else ""
+        tag = '<div class="mo-tag">이번달</div>' if is_cur else ""
         cards.append(
-            f'<div class="mo-card{cls}">{tag}<div class="mo-m">{escape(label)}</div>'
-            f'<div class="mo-n">{n}<small>점</small></div>'
-            f'<div class="mo-list">{_month_names_html(items)}</div></div>'
+            f'<div class="mo-card{cls}">{tag}'
+            f'<div class="mo-head"><div class="mo-m">{escape(label)}</div></div>'
+            f'<div class="mo-body"><div class="mo-n">{n}<small>점</small></div>'
+            f'<div class="mo-list">{_month_names_html(items)}</div></div></div>'
         )
     if opened_year is not None or confirmed_n is not None:
         cards.append(
@@ -2895,7 +2905,9 @@ def _month_cards_html(section1, opened_year=None, confirmed_n=None):
             f'<div class="mo-stat"><div class="mo-n">{confirmed_n if confirmed_n is not None else "-"}<small>건</small></div>'
             '<div class="mo-sub">오픈확정·계약완료</div></div></div>'
         )
-    return f'<div class="mo-grid">{"".join(cards)}</div>'
+    legend = ('<div class="mo-legend"><span><i class="dot open"></i>오픈확정</span>'
+              '<span><i class="dot done"></i>계약완료</span></div>')
+    return f'<div class="mo-grid">{"".join(cards)}</div>{legend}'
 
 
 def _weekly_print_html(week_label, section1, section2, notes, opened_year=None, confirmed_n=None):
@@ -2955,27 +2967,42 @@ def _weekly_print_html(week_label, section1, section2, notes, opened_year=None, 
     /* 월별 오픈 예정 현황: 월별 카드. 임원 보고용이라 물건이 없는 달도 다른 달과 똑같은 테두리·배경·
        글자색으로 두어서(점선/흐림/비교 그래프 없음) '이 달은 안 좋다'는 신호를 그림으로 주지 않습니다.
        '이번달' 표시만 시점 안내용으로 남겨 둡니다. */
-    .mo-grid {{ display:flex; gap:9px; margin:10px 0 2px; align-items:stretch; }}
-    .mo-card {{ flex:1; min-width:0; border:1px solid #d7deee; border-radius:12px; padding:14px 8px 11px;
-        text-align:center; box-shadow:0 2px 8px rgba(31,58,115,.05); background:#ffffff;
-        position:relative; display:flex; flex-direction:column; }}
-    .mo-card.cur {{ border:1.5px solid #2c4a8a; box-shadow:0 0 0 3px rgba(44,74,138,.10), 0 2px 8px rgba(31,58,115,.08); }}
-    .mo-card .mo-tag {{ position:absolute; top:-9px; left:50%; transform:translateX(-50%); font-size:9px;
-        font-weight:800; color:#fff; background:#2c4a8a; border-radius:999px; padding:2px 10px;
-        white-space:nowrap; box-shadow:0 2px 5px rgba(44,74,138,.3); }}
-    .mo-card .mo-m {{ font-size:12px; font-weight:800; color:#55648a; margin-bottom:8px; }}
-    .mo-card.cur .mo-m {{ color:#1f3a73; }}
-    .mo-card .mo-n {{ font-size:22px; font-weight:800; color:#1f3a73; margin-bottom:8px; }}
+    .mo-grid {{ display:flex; gap:9px; margin:14px 0 2px; align-items:stretch;
+        -webkit-print-color-adjust:exact; print-color-adjust:exact; }}
+    .mo-card {{ flex:1; min-width:0; border:1px solid #d7deee; border-radius:12px; overflow:visible;
+        text-align:center; box-shadow:0 3px 10px rgba(31,58,115,.09); background:#ffffff;
+        position:relative; display:flex; flex-direction:column; break-inside:avoid; page-break-inside:avoid; }}
+    .mo-card .mo-head {{ background:linear-gradient(135deg,#3a5fa8,#2c4a8a); border-radius:11px 11px 0 0;
+        padding:8px 4px 7px; border-bottom:3px solid #1f3a73; }}
+    .mo-card .mo-m {{ font-size:15px; font-weight:800; color:#ffffff; letter-spacing:.5px; }}
+    .mo-card.cur {{ border:1.5px solid #1f3a73; box-shadow:0 0 0 3px rgba(44,74,138,.12), 0 4px 12px rgba(31,58,115,.16); }}
+    .mo-card.cur .mo-head {{ background:linear-gradient(135deg,#2c4a8a,#1a3166); padding-top:11px; }}
+    .mo-card .mo-tag {{ position:absolute; top:-9px; left:50%; transform:translateX(-50%); font-size:9.5px;
+        font-weight:800; letter-spacing:.3px; color:#1f3a73; background:#ffffff; border:1.5px solid #1f3a73;
+        border-radius:999px; padding:1px 9px; white-space:nowrap; }}
+    .mo-card .mo-body {{ padding:9px 6px 10px; display:flex; flex-direction:column; flex:1;
+        background:linear-gradient(180deg,#f5f8fd 0,#ffffff 46px); border-radius:0 0 11px 11px; }}
+    .mo-card .mo-n {{ font-size:25px; font-weight:800; color:#1f3a73; line-height:1.1; margin-bottom:8px; }}
     .mo-card .mo-n small {{ font-size:11px; font-weight:700; color:#8591ab; margin-left:2px; }}
-    .mo-card .mo-list {{ font-size:10px; color:#2c4a8a; font-weight:600; line-height:1.5; margin-top:auto; min-height:14px; }}
-    .mo-card .mo-list div {{ padding:1px 0; }}
-    .mo-card .mo-empty {{ color:#9aa5bd; font-weight:500; }}
-    .mo-card.sum {{ background: linear-gradient(165deg,#1f3a73,#2c4a8a); border:none; justify-content:center; }}
-    .mo-card.sum .mo-m {{ color:#cfdcf4; }}
+    .mo-card .mo-list {{ margin-top:0; border-top:1px dashed #d7deee; padding-top:7px; min-height:16px; }}
+    .mo-chip {{ display:flex; align-items:center; gap:5px; background:#eef2fa; border-radius:7px; padding:3px 6px;
+        margin-bottom:4px; text-align:left; font-size:10px; font-weight:700; color:#1f3a73; line-height:1.3; }}
+    .mo-chip span {{ flex:1; min-width:0; overflow-wrap:anywhere; }}
+    .mo-chip em {{ font-style:normal; font-size:8.5px; font-weight:600; color:#8591ab; white-space:nowrap; }}
+    .dot {{ display:inline-block; width:7px; height:7px; border-radius:50%; flex:none; margin-right:3px; }}
+    .dot.open {{ background:#0b9a6a; }}
+    .dot.done {{ background:#2c4a8a; }}
+    .mo-chip .dot {{ margin-right:0; }}
+    .mo-card .mo-empty {{ color:#9aa5bd; font-weight:500; font-size:10px; padding:2px 0; }}
+    .mo-legend {{ display:flex; justify-content:flex-end; gap:12px; font-size:9.5px; color:#6b7a99; margin:5px 4px 0; }}
+    .mo-card.sum {{ background:linear-gradient(165deg,#1f3a73,#2c4a8a 60%,#3a5fa8); border:none; justify-content:center;
+        padding:10px 6px; box-shadow:0 4px 12px rgba(31,58,115,.25); }}
+    .mo-card.sum .mo-m {{ color:#cfdcf4; font-size:12px; margin-bottom:8px; }}
     .mo-card.sum .mo-stat {{ display:flex; flex-direction:column; align-items:center; margin:2px 0; }}
     .mo-card.sum .mo-n {{ color:#fff; margin-bottom:1px; }}
+    .mo-card.sum .mo-n small {{ color:#cfdcf4; }}
     .mo-card.sum .mo-sub {{ font-size:10px; color:#cfdcf4; margin-bottom:4px; }}
-    .mo-card.sum .mo-sep {{ width:70%; height:1px; background:rgba(255,255,255,.25); margin:4px auto; }}
+    .mo-card.sum .mo-sep {{ width:70%; height:1px; background:rgba(255,255,255,.3); margin:6px auto; }}
     @media print {{
       body {{ padding:0 4mm; }}
       .page2 {{ page-break-before: always; break-before: page; margin-top:0; }}
