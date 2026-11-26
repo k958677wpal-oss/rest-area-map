@@ -472,22 +472,35 @@ button[role="tab"][aria-selected="true"], [data-testid="stTab"][aria-selected="t
 button[role="tab"][aria-selected="true"] p, button[role="tab"][aria-selected="true"] div,
 button[role="tab"][aria-selected="true"] span, [data-testid="stTab"][aria-selected="true"] p { color: #ffffff !important; }
 [data-baseweb="tab-highlight"], [data-baseweb="tab-border"] { display: none !important; }
-/* 하위 메뉴(2단계: 내 보고 작성/팀 현황/팀 활동계획, 자료실 등) - 큰 메뉴(1단계)와 톤을 구분하기 위해 알약을 버리고
+/* 하위 메뉴(2단계: 내 보고 작성/팀 현황/팀 활동계획, 입찰관리, 자료실 등) - 큰 메뉴(1단계)와 톤을 구분하기 위해 알약을 버리고
    '밑줄 탭' 모양으로: 선택 = 밑줄 + 굵은 네이비 글자, 미선택 = 연한 회색 글자, 배경 없음 */
-div[class*="st-key-lvl2tabs"] [data-baseweb="tab-list"], div[class*="st-key-lvl2tabs"] [role="tablist"] {
+div[class*="st-key-lvl2tabs"] [data-baseweb="tab-list"],
+div[class*="st-key-lvl2tabs"] [role="tablist"],
+div[class*="st-key-lvl2tabs"] [data-testid="stTabs"] > div:first-child {
     background: transparent !important; padding: 0 !important; border-radius: 0 !important;
-    gap: 22px !important; border-bottom: 2px solid #e3e8f2; }
-div[class*="st-key-lvl2tabs"] button[data-baseweb="tab"], div[class*="st-key-lvl2tabs"] button[role="tab"] {
+    gap: 22px !important; border-bottom: 2px solid #e3e8f2 !important; }
+div[class*="st-key-lvl2tabs"] button[data-baseweb="tab"],
+div[class*="st-key-lvl2tabs"] button[role="tab"],
+div[class*="st-key-lvl2tabs"] [data-testid="stTab"] {
     height: 40px !important; padding: 0 2px !important; border-radius: 0 !important; background: transparent !important;
-    border-bottom: 3px solid transparent !important; margin-bottom: -2px; }
-div[class*="st-key-lvl2tabs"] button[role="tab"] p, div[class*="st-key-lvl2tabs"] button[role="tab"] div, div[class*="st-key-lvl2tabs"] button[role="tab"] span {
-    font-size: 15.5px !important; font-weight: 600 !important; color: #9aa5bd !important; }
-div[class*="st-key-lvl2tabs"] button[role="tab"]:hover { background: transparent !important; }
-div[class*="st-key-lvl2tabs"] button[role="tab"]:hover p { color: #55648a !important; }
-div[class*="st-key-lvl2tabs"] button[role="tab"][aria-selected="true"] { background: transparent !important; box-shadow: none !important;
-    border-bottom: 3px solid #2c4a8a !important; }
-div[class*="st-key-lvl2tabs"] button[role="tab"][aria-selected="true"] p, div[class*="st-key-lvl2tabs"] button[role="tab"][aria-selected="true"] div,
-div[class*="st-key-lvl2tabs"] button[role="tab"][aria-selected="true"] span { color: #1f3a73 !important; font-weight: 800 !important; }
+    box-shadow: none !important; border-bottom: 3px solid transparent !important; margin-bottom: -2px; }
+div[class*="st-key-lvl2tabs"] button[role="tab"] p,
+div[class*="st-key-lvl2tabs"] button[role="tab"] div,
+div[class*="st-key-lvl2tabs"] button[role="tab"] span,
+div[class*="st-key-lvl2tabs"] [data-testid="stTab"] p {
+    font-size: 15.5px !important; font-weight: 600 !important; color: #8591ab !important; }
+div[class*="st-key-lvl2tabs"] button[role="tab"]:hover,
+div[class*="st-key-lvl2tabs"] [data-testid="stTab"]:hover { background: transparent !important; }
+div[class*="st-key-lvl2tabs"] button[role="tab"]:hover p,
+div[class*="st-key-lvl2tabs"] [data-testid="stTab"]:hover p { color: #55648a !important; }
+div[class*="st-key-lvl2tabs"] button[role="tab"][aria-selected="true"],
+div[class*="st-key-lvl2tabs"] [data-testid="stTab"][aria-selected="true"] {
+    background: transparent !important; box-shadow: none !important; border-bottom: 3px solid #2c4a8a !important; }
+div[class*="st-key-lvl2tabs"] button[role="tab"][aria-selected="true"] p,
+div[class*="st-key-lvl2tabs"] button[role="tab"][aria-selected="true"] div,
+div[class*="st-key-lvl2tabs"] button[role="tab"][aria-selected="true"] span,
+div[class*="st-key-lvl2tabs"] [data-testid="stTab"][aria-selected="true"] p {
+    color: #1f3a73 !important; font-weight: 800 !important; }
 /* 하위 메뉴(3단계: 계약완료·오픈확정 물건/추진 물건, 팀원 화면 전용) - 2단계보다도 더 가볍게,
    탭이라기보단 같은 화면 안의 토글처럼: 배경·알약 없이 글자 + 선택된 것만 얇은 밑줄 */
 .st-key-lvl3tabs [data-baseweb="tab-list"], .st-key-lvl3tabs [role="tablist"] {
@@ -747,9 +760,17 @@ div[class*="st-key-librow_"] [data-testid="stHorizontalBlock"] { align-items: ce
 .lib-setup p { margin: 4px 0 12px; font-size: 13.5px; color: #55648a; line-height: 1.55; }
 .lib-tree { background: #f6f8fc; border: 1px solid #e1e7f3; border-radius: 10px; padding: 12px 16px;
     font-family: Consolas, monospace; font-size: 13px; color: #1f3a73; line-height: 1.6; white-space: pre; overflow-x: auto; }
-/* 입찰 관리 배지 및 추출 바 (+ 폼 기본 제출 버튼 흰색 글씨 보장) */
-div[data-testid="stFormSubmitButton"] > button[kind="primary"] *,
-div[data-testid="stFormSubmitButton"] > button[data-testid="stBaseButton-primary"] * { color: #ffffff !important; }
+/* 입찰 관리 배지 및 추출 바 (+ 폼 기본 제출 버튼 primaryFormSubmit 흰색 글씨 보장) */
+div[data-testid="stFormSubmitButton"] button[kind*="primary"],
+div[data-testid="stFormSubmitButton"] button[data-testid*="primary"] {
+    background-color: #2c4a8a !important; border-color: #2c4a8a !important; color: #ffffff !important; }
+div[data-testid="stFormSubmitButton"] button[kind*="primary"]:hover,
+div[data-testid="stFormSubmitButton"] button[data-testid*="primary"]:hover {
+    background-color: #1f3a73 !important; border-color: #1f3a73 !important; color: #ffffff !important; }
+div[data-testid="stFormSubmitButton"] button[kind*="primary"] *,
+div[data-testid="stFormSubmitButton"] button[data-testid*="primary"] * {
+    color: #ffffff !important; fill: #ffffff !important; }
+table.wk-tbl td.wk-num { white-space: nowrap; }
 .wk-badge.win { background: #e3f3ec; color: #0b9a6a; }
 .wk-badge.lose { background: #fde8ec; color: #d0143c; }
 .wk-badge.wait { background: #e8edfb; color: #2c4a8a; }
@@ -4459,7 +4480,7 @@ def _render_bid_editor_table(get_gc, rows, editor_prefix, type_opts, editor_user
     meta_key = f"{editor_prefix}_meta"
     sig_key = f"{editor_prefix}_sig"
 
-    cur_sig = "|".join(f"{r['입찰ID']}:{r['수정일시']}" for r in rows)
+    cur_sig = f"{int(bool(show_owner))}|" + "|".join(f"{r['입찰ID']}:{r['수정일시']}" for r in rows)
     ed_cols = (
         ["삭제"]
         + (["담당자"] if show_owner else [])
@@ -4595,7 +4616,7 @@ def _render_bid_editor_table(get_gc, rows, editor_prefix, type_opts, editor_user
     return False
 
 
-def _render_bid_mine(get_gc, all_rows, uid, uname, is_admin, type_opts, login_records):
+def _render_bid_mine(get_gc, all_rows, uid, uname, is_admin, type_opts, login_records, active_members=None):
     my_rows = [
         r for r in all_rows
         if (uid and r["사번"] == str(uid).strip()) or (uname and r["담당자"] == str(uname).strip())
@@ -4615,16 +4636,20 @@ def _render_bid_mine(get_gc, all_rows, uid, uname, is_admin, type_opts, login_re
         cur_ym_idx = ym_choices.index(cur_ym_label) if cur_ym_label in ym_choices else 0
 
         member_uid_map = {}
-        member_names = []
+        all_login_names = []
         for lr in (login_records or []):
             nm = str(lr.get("이름", "")).strip()
             lid = str(lr.get("사번", "")).strip()
-            if nm and nm not in member_names:
-                member_names.append(nm)
+            if nm and nm not in all_login_names:
+                all_login_names.append(nm)
                 member_uid_map[nm] = lid
+        # 실제 활동 팀원(팀현황표시 Y) 우선 노출 + 관리자 본인 포함
+        base_pool = list(active_members) if active_members else all_login_names
+        member_names = [m for m in base_pool if m]
         if uname and uname not in member_names:
             member_names = [uname] + member_names
-            member_uid_map[uname] = uid
+        if uname:
+            member_uid_map.setdefault(uname, uid)
 
         with st.form("bid_register_form", clear_on_submit=True):
             st.markdown("**1) 기본 정보**")
@@ -4643,7 +4668,8 @@ def _render_bid_mine(get_gc, all_rows, uid, uname, is_admin, type_opts, login_re
             with r1c3:
                 f_stores = st.number_input("점포수", min_value=1, value=1, step=1)
             with r1c4:
-                f_type = st.selectbox("추진타입", [""] + type_opts)
+                f_type_sel = st.selectbox("추진타입", ["선택 안 함"] + type_opts, index=0)
+                f_type = "" if f_type_sel == "선택 안 함" else f_type_sel
             with r1c5:
                 f_exist = st.selectbox("기존운영업체", BID_EXISTING_OPTS, index=1)
 
@@ -4718,12 +4744,29 @@ def _render_bid_mine(get_gc, all_rows, uid, uname, is_admin, type_opts, login_re
                 st.session_state["bid_add_flash"] = f"'{f_title.strip()}' 입찰 내역이 등록되었습니다."
                 st.rerun()
 
-    st.markdown(f"##### :material/list_alt: 내가 등록한 입찰 내역 ({len(my_rows)}건)")
-    if not my_rows:
+    show_all_for_admin = False
+    if is_admin and len(all_rows) > len(my_rows):
+        mc1, mc2 = st.columns([4, 6])
+        with mc1:
+            st.markdown(f"##### :material/list_alt: 내가 등록한 입찰 내역 ({len(my_rows)}건)")
+        with mc2:
+            show_all_for_admin = st.toggle(
+                f"팀원 대리 등록 포함 전체 보기 ({len(all_rows)}건)",
+                key="bid_mine_show_all_adm",
+                help="관리자가 다른 담당자 명의로 대리 등록한 입찰까지 이 화면에서 바로 확인·수정합니다.",
+            )
+    else:
+        st.markdown(f"##### :material/list_alt: 내가 등록한 입찰 내역 ({len(my_rows)}건)")
+
+    target_rows = all_rows if show_all_for_admin else my_rows
+    if not target_rows:
         st.info("아직 내가 등록한 입찰 내역이 없습니다. 위 등록 창에서 첫 입찰 건을 입력해 보세요.")
         return
     st.caption("셀을 더블클릭해 개찰 결과(`진행중` → `낙찰`/`패찰`)나 수치를 바로 수정하고 **변경사항 저장**을 눌러주세요. 잘못 입력한 줄은 맨 앞 `삭제` 체크 후 저장하면 지워집니다.")
-    _render_bid_editor_table(get_gc, my_rows, f"bid_my_ed_{uid}", type_opts, editor_user_name=uname, show_owner=False)
+    _render_bid_editor_table(
+        get_gc, target_rows, f"bid_my_ed_{uid}", type_opts,
+        editor_user_name=uname, show_owner=show_all_for_admin,
+    )
 
 
 def _bid_summary_kpis_html(rows):
@@ -4753,12 +4796,21 @@ def _bid_summary_kpis_html(rows):
             comp_stats.append(f"{brand} {len(with_b)}회")
 
     top_comp = "-"
+    top_comp_unit = ""
     comp_counts = [(b, sum(1 for r in participated if b in r["참여경쟁사_list"])) for b in ("CU", "7-11", "emart24")]
     comp_counts.sort(key=lambda x: x[1], reverse=True)
     if comp_counts and comp_counts[0][1] > 0:
         max_c = comp_counts[0][1]
         tied = [b for b, c in comp_counts if c == max_c]
-        top_comp = f"{' · '.join(tied)} ({max_c}회)"
+        if len(tied) == 1:
+            top_comp = tied[0]
+            top_comp_unit = f"({max_c}회)"
+        elif len(tied) == 2:
+            top_comp = " · ".join(tied)
+            top_comp_unit = f"(각 {max_c}회)"
+        else:
+            top_comp = f"{len(tied)}개사 동률"
+            top_comp_unit = f"(각 {max_c}회)"
 
     items = [
         dict(
@@ -4781,14 +4833,14 @@ def _bid_summary_kpis_html(rows):
             label="입찰 결과 분포",
             value=f"승 {len(wins)} · 패 {len(loses)}",
             unit="",
-            sub=f"유찰 {len(voids)}건 · 결과대기(진행중) {len(waits)}건",
+            sub=f"유찰 {len(voids)}건 · 진행중 {len(waits)}건",
             accent=COLOR_BLUE,
             icon="bars",
         ),
         dict(
             label="최다 경쟁사 · 상대 전적",
             value=top_comp,
-            unit="",
+            unit=top_comp_unit,
             sub=" · ".join(comp_stats),
             accent=COLOR_PURPLE,
             icon="target",
@@ -4818,7 +4870,7 @@ def _bid_team_table_html(rows):
         ("임차료율(%)", "매출액 比<br>임차료율"),
         ("예상일매출(천원)", "1년차일매출<br>(천원)"),
         ("BEP일매출(천원)", '"0"일매출<br>(천원)'),
-        ("예상매익률(%)", "매익률"),
+        ("예상매익률(%)", "예상<br>매익률"),
         ("예상이익(천원)", "1년차이익<br>(천원)"),
         ("비고", "비고"),
     ]
@@ -4833,9 +4885,9 @@ def _bid_team_table_html(rows):
             m_rent = r.get("월임차료(천원)")
             fee_p = r.get("가맹수수료율(%)")
             if m_rent is not None and fee_p is not None:
-                cond_str = f"{fnum(m_rent)} / {fee_p:g}%"
+                cond_str = f"{fnum(m_rent)}천원 / {fee_p:g}%"
             elif m_rent is not None:
-                cond_str = fnum(m_rent)
+                cond_str = f"{fnum(m_rent)}천원"
             elif fee_p is not None:
                 cond_str = f"{fee_p:g}%"
             else:
@@ -4847,27 +4899,27 @@ def _bid_team_table_html(rows):
             )
             for key, _ in cols:
                 if key == "순번":
-                    out.append(f"<td>{idx}</td>")
+                    out.append(f'<td class="wk-num">{idx}</td>')
                 elif key == "당사결과":
-                    out.append(f"<td>{_bid_result_badge_html(r['당사결과'])}</td>")
+                    out.append(f'<td class="wk-num">{_bid_result_badge_html(r["당사결과"])}</td>')
                 elif key == "참여경쟁사":
                     out.append(f"<td>{comp_html}</td>")
                 elif key == "조건요약":
-                    out.append(f"<td>{escape(cond_str)}</td>")
-                elif key in ("보증금(천원)", "연간임차료(천원)", "예상일매출(천원)", "연예상매출(천원)", "BEP일매출(천원)", "예상이익(천원)"):
-                    out.append(f"<td>{fnum(r.get(key))}</td>")
+                    out.append(f'<td class="wk-num">{escape(cond_str)}</td>')
+                elif key in ("보증금(천원)", "연간임차료(천원)", "예상일매출(천원)", "BEP일매출(천원)", "예상이익(천원)"):
+                    out.append(f'<td class="wk-num">{fnum(r.get(key))}</td>')
                 elif key == "임차료율(%)":
                     v = r.get(key)
-                    out.append(f"<td>{f'{v:.2f}%' if v is not None else '-'}</td>")
+                    out.append(f'<td class="wk-num">{f"{v:.2f}%" if v is not None else "-"}</td>')
                 elif key == "예상매익률(%)":
                     v = r.get(key)
-                    out.append(f"<td>{f'{v:g}%' if v is not None else '-'}</td>")
+                    out.append(f'<td class="wk-num">{f"{v:g}%" if v is not None else "-"}</td>')
                 elif key in ("공고명", "낙찰조건", "비고"):
                     v = r.get(key, "")
                     out.append(f'<td class="wk-prog">{escape(str(v)) if v else "-"}</td>')
                 else:
                     v = r.get(key, "")
-                    out.append(f"<td>{escape(str(v)) if v not in (None, '') else '-'}</td>")
+                    out.append(f'<td class="wk-num">{escape(str(v)) if v not in (None, "") else "-"}</td>')
             out.append("</tr>")
     out.append("</tbody></table></div>")
     return "".join(out)
@@ -4924,11 +4976,12 @@ def _render_bid_team(get_gc, all_rows, uname, is_admin, type_opts, all_members):
             )
         with ec2:
             st.download_button(
-                label=f"현재 필터 결과 엑셀 추출 ({len(filtered)}건)",
+                label=f"현재 필터 시트 추출 ({len(filtered)}건)",
                 data=lambda rows=list(filtered): build_bids_xlsx_bytes(rows),
                 file_name=f"특수개발팀_입찰내역_필터_{today_tag}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 icon=":material/download:",
+                help="구글 드라이브에 올리거나 구글 스프레드시트(파일 → 열기 → 업로드)에서 서식 그대로 바로 열립니다.",
                 key="bid_dl_filtered_xlsx",
                 disabled=(len(filtered) == 0),
                 on_click="ignore",
@@ -4936,12 +4989,13 @@ def _render_bid_team(get_gc, all_rows, uname, is_admin, type_opts, all_members):
             )
         with ec3:
             st.download_button(
-                label=f"전체 누계 엑셀 추출 ({len(all_rows)}건)",
+                label=f"전체 누계 시트 추출 ({len(all_rows)}건)",
                 data=lambda rows=list(all_rows): build_bids_xlsx_bytes(rows),
                 file_name=f"특수개발팀_입찰내역_전체누계_{today_tag}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 type="primary",
                 icon=":material/table_view:",
+                help="구글 드라이브에 올리거나 구글 스프레드시트(파일 → 열기 → 업로드)에서 서식 그대로 바로 열립니다.",
                 key="bid_dl_all_xlsx",
                 disabled=(len(all_rows) == 0),
                 on_click="ignore",
@@ -5008,7 +5062,8 @@ def view_bid_tracker(get_gc, D=None, user_id="", user_name="", is_admin=False):
             f":material/analytics: 팀 입찰 현황 · 통계 ({len(all_rows)})",
         ])
     with t_mine:
-        _render_bid_mine(get_gc, all_rows, user_id, user_name, is_admin, type_opts, login_records)
+        _render_bid_mine(get_gc, all_rows, user_id, user_name, is_admin, type_opts, login_records,
+                         active_members=all_members)
     with t_team:
         _render_bid_team(get_gc, all_rows, user_name, is_admin, type_opts, all_members)
 
