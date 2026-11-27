@@ -28,6 +28,8 @@ TAB_TARGET = "예상목표"
 TAB_GOAL = "목표"          # (선택) MBO 목표: 대상 | 지표 | 기간 | 목표값
 TAB_MGR = "담당자"         # (선택) 담당자 표시 순서: 담당자 | 순서 | 사용여부(N 이면 화면에서 숨김)
 TAB_CORP = "전사특수점"    # (선택, 지도용) 전사 특수점 현황: 위도/경도/업종/일매출 등
+TAB_DAILY_CUM = "일일_누계원시"      # (선택, 일일보고용) 사내 일일(신) 당월 누계 원시 그대로 붙여넣는 탭
+TAB_DAILY_RECENT = "최근점_일별원시"  # (선택, 일일보고용) 최근 오픈점 일자별 매출 원시 그대로 붙여넣는 탭
 MAP_EXPORT_TAB = "지도_추출"     # 지도 화면에서 '필터링된 목록 내보내기' 눌렀을 때 쓸 탭(없으면 새로 만듦)
 MAP_EXPORT_HEADERS = ["구분", "점포명", "브랜드", "업종대분류", "업종세부", "주소", "위도", "경도", "일매출", "추출일시"]
 TEAM_KEYS = ("팀", "팀전체", "전체", "특수개발팀", "특수팀")
@@ -111,7 +113,326 @@ def pct_text(a, b, dec=1):
     return f"{a / b * 100:.{dec}f}%" if b else "-"
 
 
-# ───────────────────────── 데이터 읽기 ─────────────────────────
+# ───────────────────────── 데이터 읽기 및 일일 원시 파서 ─────────────────────────
+def _pct_clean(v):
+    """'26.8%', '26.8', '0.268' 등 퍼센트 입력값을 0~100 기준 float(예: 26.8)로 정규화합니다."""
+    raw_s = str(v or "").strip()
+    if not raw_s:
+        return None
+    has_pct = "%" in raw_s
+    cleaned = raw_s.replace(",", "").replace("%", "").strip()
+    try:
+        f = float(cleaned)
+        if f != f:
+            return None
+    except ValueError:
+        return None
+    if not has_pct and 0 < abs(f) <= 1.0:
+        return round(f * 100.0, 2)
+    return f
+
+
+def _norm_store_code(code):
+    """'VNX78' -> 'NX78', 'mn78' -> 'MN78' 형태로 점포코드를 정규화합니다."""
+    s = str(code or "").strip().upper()
+    if len(s) == 5 and s.startswith("V") and re.match(r"^V[A-Z]{2}\d{2}$", s):
+        return s[1:]
+    return s
+
+
+def _norm_store_name_key(name):
+    return re.sub(r"\s+", "", str(name or "").strip()).lower()
+
+
+def _build_master_lookup(masters):
+    """점포코드·정규화 점포명·'역' 접미사 허용 매칭용 빠른 탐색 사전을 만듭니다."""
+    by_code = {}
+    by_norm = {}
+    by_station_stem = {}
+    stem_ambiguous = set()
+    for m in masters:
+        nm = m["name"]
+        nk = _norm_store_name_key(nm)
+        if nk:
+            by_norm[nk] = nm
+            st_key = nk[:-1] if nk.endswith("역") and len(nk) > 2 else nk
+            if st_key in by_station_stem and by_station_stem[st_key] != nm:
+                stem_ambiguous.add(st_key)
+            else:
+                by_station_stem[st_key] = nm
+        cd = _norm_store_code(m.get("code", ""))
+        if cd:
+            by_code[cd] = nm
+    for amb in stem_ambiguous:
+        by_station_stem.pop(amb, None)
+    return by_code, by_norm, by_station_stem
+
+
+def _match_master_store(raw_name, raw_code, lookup):
+    by_code, by_norm, by_station_stem = lookup
+    cd = _norm_store_code(raw_code)
+    if cd and cd in by_code:
+        return by_code[cd]
+    nk = _norm_store_name_key(raw_name)
+    if not nk:
+        return None
+    if nk in by_norm:
+        return by_norm[nk]
+    st_key = nk[:-1] if nk.endswith("역") and len(nk) > 2 else nk
+    return by_station_stem.get(st_key)
+
+
+def parse_daily_cum_raw(values, masters, fallback_ym=""):
+    """'일일_누계원시' 탭에 붙여넣은 사내 '일일(신)' 추출본에서 우리 팀 점포의 당월 누적 매출·영업일수·매출이익을 추출합니다.
+    - 상단 제목/빈 줄이 있어도 '매출액'·'영업일수'가 있는 헤더 줄을 자동 탐색합니다.
+    - 점포명 열의 헤더가 병합되어 비어 있는 BI 양식(C열 코드, E열 점포명 등)도 행의 속성 칸들을 스캔해 정확히 매칭합니다.
+    - 원 단위 숫자는 자동으로 천원 단위(÷ 1,000)로 변환합니다."""
+    if not values or len(values) < 2 or not masters:
+        return {"has_raw": False, "ym": fallback_ym, "records": {}, "matched_count": 0}
+
+    # 상단 1~2행에 연월(예: 202611, 2026-11)이 적혀 있으면 우선 사용
+    detected_ym = ""
+    for r in values[:3]:
+        for cell in r[:8]:
+            s = str(cell or "").strip()
+            if re.match(r"^20[2-4]\d[-./년\s]*(0?[1-9]|1[0-2])\s*월?$", s):
+                cand = _ym(s)
+                if cand:
+                    detected_ym = cand
+                    break
+        if detected_ym:
+            break
+    target_ym = detected_ym or fallback_ym
+
+    hdr_idx = -1
+    i_sales, i_days, i_pl = -1, -1, -1
+    for idx, row in enumerate(values[:20]):
+        norm_cells = [re.sub(r"\s+", "", str(c or "")) for c in row]
+        s_cols = [i for i, c in enumerate(norm_cells) if c in ("매출액", "총매출액", "누계매출액") or c.startswith("매출액(")]
+        d_cols = [i for i, c in enumerate(norm_cells) if "영업일수" in c]
+        if s_cols and d_cols:
+            hdr_idx = idx
+            i_sales = s_cols[0]
+            i_days = d_cols[0]
+            p_cols = [i for i, c in enumerate(norm_cells) if "매출이익" in c]
+            i_pl = p_cols[0] if p_cols else -1
+            break
+
+    if hdr_idx < 0:
+        return {"has_raw": False, "ym": target_ym, "records": {}, "matched_count": 0}
+
+    lookup = _build_master_lookup(masters)
+    raw_matched = {}
+    sample_dailies = []
+
+    for row in values[hdr_idx + 1:]:
+        if len(row) <= max(i_sales, i_days):
+            continue
+        sales_v = _num(row[i_sales])
+        days_v = _num(row[i_days])
+        if sales_v is None or days_v is None or days_v <= 0:
+            continue
+        pl_v = _num(row[i_pl]) if (0 <= i_pl < len(row)) else None
+
+        # 매출액 앞쪽 속성 열들에서 점포코드 후보와 점포명 후보를 탐색해 점포마스터와 매칭
+        matched_name = None
+        codes_in_row = []
+        texts_in_row = []
+        scan_end = min(i_sales, len(row))
+        for cell in row[:scan_end]:
+            t_str = str(cell or "").strip()
+            if not t_str:
+                continue
+            if re.match(r"^V?[A-Z]{2}\d{2,3}$", t_str.upper()):
+                codes_in_row.append(t_str)
+            else:
+                texts_in_row.append(t_str)
+
+        for cd in codes_in_row:
+            matched_name = _match_master_store("", cd, lookup)
+            if matched_name:
+                break
+        if not matched_name:
+            for tx in texts_in_row:
+                matched_name = _match_master_store(tx, "", lookup)
+                if matched_name:
+                    break
+
+        if matched_name:
+            raw_matched[matched_name] = {"sales": sales_v, "days": days_v, "pl": pl_v}
+            sample_dailies.append(abs(sales_v) / days_v)
+
+    if not raw_matched:
+        return {"has_raw": False, "ym": target_ym, "records": {}, "matched_count": 0}
+
+    # 원 단위 자동 판별: 일매출 중앙값이 50,000 이상이면 원 단위로 보고 1,000으로 나눔
+    sample_dailies.sort()
+    median_daily = sample_dailies[len(sample_dailies) // 2]
+    scale = 1000.0 if median_daily >= 50000.0 else 1.0
+
+    scaled = {}
+    max_days = 0
+    for nm, d in raw_matched.items():
+        max_days = max(max_days, int(round(d["days"])))
+        scaled[nm] = {
+            "sales": d["sales"] / scale,
+            "days": d["days"],
+            "pl": (d["pl"] / scale) if d["pl"] is not None else None,
+        }
+    return {
+        "has_raw": True,
+        "ym": target_ym,
+        "records": scaled,
+        "matched_count": len(scaled),
+        "max_days": max_days,
+    }
+
+
+def _parse_iso_or_kr_date(s, default_year=None):
+    txt = str(s or "").strip()
+    if not txt:
+        return None
+    m = re.match(r"^(\d{4})\s*[-./]\s*(\d{1,2})\s*[-./]\s*(\d{1,2})\.?$", txt)
+    if m:
+        try:
+            return _dt.date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        except ValueError:
+            return None
+    m2 = re.match(r"^(\d{1,2})\s*월\s*(\d{1,2})\s*일", txt)
+    if m2:
+        yr = default_year or datetime.now(KST).year
+        try:
+            return _dt.date(int(yr), int(m2.group(1)), int(m2.group(2)))
+        except ValueError:
+            return None
+    return None
+
+
+def parse_recent_daily_raw(values, masters):
+    """'최근점_일별원시' 탭에 붙여넣은 BI 일자별 매출 리포트(상단 리포트 필터 메타 포함)를 파싱합니다."""
+    if not values or len(values) < 2:
+        return {"has_raw": False, "stores": [], "dates": [], "last_date": None, "report_ym": ""}
+
+    # 리포트 필터 줄에 기간(년월) = 202611 이 있으면 연도 힌트로 추출
+    hint_ym = ""
+    for r in values[:8]:
+        joined = " ".join(str(c or "") for c in r[:5])
+        m = re.search(r"기간\(년월\)[^0-9]*(20[2-4]\d(?:0[1-9]|1[0-2]))", joined)
+        if m:
+            hint_ym = m.group(1)
+            break
+    hint_year = int(hint_ym[:4]) if len(hint_ym) >= 4 else datetime.now(KST).year
+
+    first_date_row = -1
+    for idx, r in enumerate(values):
+        if r and _parse_iso_or_kr_date(r[0], default_year=hint_year) is not None:
+            first_date_row = idx
+            break
+    if first_date_row < 1:
+        return {"has_raw": False, "stores": [], "dates": [], "last_date": None, "report_ym": hint_ym}
+
+    # 날짜 시작 행 위쪽 최대 6줄에서 점포코드·점포명 헤더 추출 ('리포트', '데이터 행', '매출액<' 줄은 제외)
+    hdr_start = max(0, first_date_row - 6)
+    hdr_rows = []
+    for r in values[hdr_start:first_date_row]:
+        c0 = str(r[0] if r else "").strip()
+        if any(skip_kw in c0 for skip_kw in ("리포트", "데이터 행")):
+            continue
+        if "기간" in c0 or "일자" in c0:
+            continue
+        hdr_rows.append(r)
+
+    max_cols = max((len(r) for r in (hdr_rows + values[first_date_row:first_date_row + 5])), default=0)
+    lookup = _build_master_lookup(masters)
+
+    col_defs = []
+    for c_idx in range(1, max_cols):
+        tokens = []
+        for hr in hdr_rows:
+            if c_idx < len(hr):
+                t_val = str(hr[c_idx] or "").strip()
+                if t_val and "매출액" not in t_val and t_val not in tokens:
+                    tokens.append(t_val)
+        if not tokens:
+            continue
+        codes = [tk for tk in tokens if re.match(r"^V?[A-Z]{2}\d{2,3}$", tk.upper())]
+        names = [tk for tk in tokens if tk not in codes]
+        raw_code = codes[0] if codes else ""
+        raw_name = names[-1] if names else (codes[-1] if codes else "")
+        if not raw_name:
+            continue
+        matched = _match_master_store(raw_name, raw_code, lookup)
+        display_name = matched or raw_name
+        col_defs.append({
+            "col_idx": c_idx,
+            "name": display_name,
+            "raw_name": raw_name,
+            "code": _norm_store_code(raw_code),
+            "in_master": bool(matched),
+        })
+
+    if not col_defs:
+        return {"has_raw": False, "stores": [], "dates": [], "last_date": None, "report_ym": hint_ym}
+
+    # 날짜별 값 수집 (같은 날짜가 여러 번 나오면 아래쪽 최신 값 우선)
+    by_date = {}
+    sample_vals = []
+    for r in values[first_date_row:]:
+        if not r:
+            continue
+        d_obj = _parse_iso_or_kr_date(r[0], default_year=hint_year)
+        if d_obj is None:
+            continue
+        d_map = by_date.setdefault(d_obj, {})
+        for cd in col_defs:
+            ci = cd["col_idx"]
+            v = _num(r[ci]) if ci < len(r) else None
+            if v is not None:
+                d_map[cd["name"]] = v
+                if v > 0:
+                    sample_vals.append(v)
+
+    if not by_date:
+        return {"has_raw": False, "stores": [], "dates": [], "last_date": None, "report_ym": hint_ym}
+
+    sample_vals.sort()
+    scale = 1000.0 if (sample_vals and sample_vals[len(sample_vals) // 2] >= 50000.0) else 1.0
+
+    sorted_dates = sorted(by_date.keys())
+    # 실제 매출이 입력된 가장 마지막 영업일
+    dates_with_sales = [d for d in sorted_dates if any((v or 0) > 0 for v in by_date[d].values())]
+    last_active_date = dates_with_sales[-1] if dates_with_sales else sorted_dates[-1]
+    active_dates = [d for d in sorted_dates if d <= last_active_date]
+
+    seen_names = set()
+    stores_out = []
+    for cd in col_defs:
+        sname = cd["name"]
+        if sname in seen_names:
+            continue
+        seen_names.add(sname)
+        daily_map = {}
+        for d_obj in active_dates:
+            raw_v = by_date[d_obj].get(sname)
+            daily_map[d_obj] = (raw_v / scale) if raw_v is not None else None
+        stores_out.append({
+            "name": sname,
+            "raw_name": cd["raw_name"],
+            "code": cd["code"],
+            "in_master": cd["in_master"],
+            "daily_map": daily_map,
+        })
+
+    rep_ym = last_active_date.strftime("%Y%m") if last_active_date else hint_ym
+    return {
+        "has_raw": True,
+        "stores": stores_out,
+        "dates": active_dates,
+        "last_date": last_active_date,
+        "report_ym": rep_ym,
+    }
+
+
 @st.cache_data(ttl=300, show_spinner="실적 데이터를 불러오는 중...")
 def load_perf(_get_gc):
     try:
@@ -120,9 +441,16 @@ def load_perf(_get_gc):
     except Exception as e:
         return {"error": f"'{PERF_SHEET_NAME}' 시트를 열 수 없습니다. 서비스 계정에 공유했는지 확인해 주세요. ({e})"}
 
-    def read_tab(title):
+    def read_tab(title, auto_create=False):
         try:
             return doc.worksheet(title).get_all_values()
+        except gspread.exceptions.WorksheetNotFound:
+            if auto_create:
+                try:
+                    doc.add_worksheet(title=title, rows=1500, cols=26)
+                except Exception:
+                    pass
+            return None
         except Exception:
             return None
 
@@ -139,8 +467,13 @@ def load_perf(_get_gc):
         name = rec.get("점포명", "").strip()
         if not name:
             continue
+        raw_prom = (rec.get("추진주체") or rec.get("구분") or "").strip()
+        promoter = "R&R" if "R&R" in raw_prom.upper().replace(" ", "") else (raw_prom or "특수개발")
+        exp_margin = _pct_clean(rec.get("예상매익률") or rec.get("예상매익율") or _pick(rec, "예상매익"))
+        store_code = _norm_store_code(rec.get("점포코드") or rec.get("코드") or "")
         m = {
             "name": name,
+            "code": store_code,
             "manager": rec.get("담당자", "").strip(),
             "type": rec.get("운영형태", "").strip(),
             "open_date": rec.get("오픈일", "").strip(),
@@ -148,6 +481,8 @@ def load_perf(_get_gc):
             "region": rec.get("지역", "").strip(),
             "address": rec.get("주소", "").strip(),
             "place": rec.get("입지", "").strip(),
+            "promoter": promoter,
+            "exp_margin": exp_margin,
             # 지도용(선택 칸): 아직 좌표/업종을 안 채웠으면 그냥 빈 값으로 둠 -> 지도에서는 핀 없이 목록에만 나옴
             "lat": _num(rec.get("위도", "")),
             "lng": _num(rec.get("경도", "")),
@@ -233,10 +568,31 @@ def load_perf(_get_gc):
         if rec.get("사용여부", "").strip().upper() in ("N", "X", "NO", "FALSE", "0", "미사용", "아니오"):
             mgr_hidden.add(n)
 
+    # 일일보고용 원시 탭 2개(없으면 빈 시트로 자동 생성해 두어 바로 붙여넣기 가능하게 함)
+    recent_raw_v = read_tab(TAB_DAILY_RECENT, auto_create=True)
+    recent_daily = parse_recent_daily_raw(recent_raw_v or [], masters)
+
+    yesterday_ym = (datetime.now(KST).date() - _dt.timedelta(days=1)).strftime("%Y%m")
+    fallback_cum_ym = recent_daily.get("report_ym") or yesterday_ym
+    cum_raw_v = read_tab(TAB_DAILY_CUM, auto_create=True)
+    daily_cum_meta = parse_daily_cum_raw(cum_raw_v or [], masters, fallback_ym=fallback_cum_ym)
+
+    if daily_cum_meta.get("has_raw") and daily_cum_meta.get("ym"):
+        c_ym = daily_cum_meta["ym"]
+        for s_name, c_rec in daily_cum_meta["records"].items():
+            prev_entry = monthly.setdefault(s_name, {}).get(c_ym, {})
+            monthly[s_name][c_ym] = {
+                "sales": c_rec["sales"],
+                "days": c_rec["days"],
+                "pl": c_rec["pl"] if c_rec["pl"] is not None else prev_entry.get("pl"),
+                "op": prev_entry.get("op"),  # 월 마감 본부손익(영업이익)이 이미 있으면 그대로 보존
+            }
+
     months = sorted({ym for per in monthly.values() for ym in per})
     return {"error": None, "masters": masters, "master_by_name": master_by_name,
             "monthly": monthly, "targets": targets, "months": months, "goals": goals, "grades": grades,
-            "mgr_order": mgr_order, "mgr_hidden": mgr_hidden}
+            "mgr_order": mgr_order, "mgr_hidden": mgr_hidden,
+            "daily_cum_meta": daily_cum_meta, "recent_daily": recent_daily}
 
 
 @st.cache_data(ttl=300, show_spinner="전사 특수점 데이터를 불러오는 중...")
@@ -771,6 +1127,33 @@ div[data-testid="stFormSubmitButton"] button[kind*="primary"] *,
 div[data-testid="stFormSubmitButton"] button[data-testid*="primary"] * {
     color: #ffffff !important; fill: #ffffff !important; }
 table.wk-tbl td.wk-num { white-space: nowrap; }
+/* 최근 오픈점 일별 추이 미니 차트 카드 */
+.rc-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin: 10px 0 18px; }
+@media (max-width: 960px) { .rc-grid { grid-template-columns: minmax(0, 1fr); } }
+.rc-card { background: #ffffff; border: 1px solid #d5dcea; border-radius: 14px; padding: 14px 16px 10px;
+    box-shadow: 0 3px 10px rgba(31,58,115,.06); min-width: 0; }
+.rc-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
+.rc-title-wrap { min-width: 0; }
+.rc-name { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 17px; font-weight: 800; color: #1f3a73; }
+.rc-rr { display: inline-block; font-size: 10.5px; font-weight: 800; background: #fff3bf; color: #8a5a00;
+    border: 1px solid #f3d26b; border-radius: 5px; padding: 1px 6px; line-height: 1.3; }
+.rc-sub { font-size: 12px; color: #6b7a99; font-weight: 600; margin-top: 2px; }
+.rc-kpis { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; flex: none; }
+.rc-avg { text-align: right; margin-right: 4px; }
+.rc-avg .v { font-size: 18px; font-weight: 800; color: #1f2d4d; line-height: 1.1; }
+.rc-avg .v small { font-size: 11px; color: #7d8aa8; font-weight: 600; margin-left: 2px; }
+.rc-avg .s { font-size: 11px; color: #8591ab; font-weight: 600; }
+.rc-rate { font-size: 12.5px; font-weight: 800; border-radius: 999px; padding: 3px 10px; white-space: nowrap; }
+.rc-rate.good { background: #e3f3ec; color: #0b9a6a; }
+.rc-rate.warn { background: #fef1df; color: #b25e00; }
+.rc-rate.bad { background: #fde8ec; color: #d0143c; }
+.rc-rate.na { background: #eef2fa; color: #6b7a99; }
+.rc-trend { font-size: 11px; font-weight: 800; border-radius: 6px; padding: 2px 7px; white-space: nowrap; }
+.rc-trend.up { background: #ebfbee; color: #0b9a6a; }
+.rc-trend.dn { background: #fff5f5; color: #d0143c; }
+.rc-trend.flat { background: #f1f3f8; color: #6b7a99; }
+.rc-card svg { width: 100%; height: auto; display: block; margin-top: 2px; }
+
 .wk-badge.win { background: #e3f3ec; color: #0b9a6a; }
 .wk-badge.lose { background: #fde8ec; color: #d0143c; }
 .wk-badge.wait { background: #e8edfb; color: #2c4a8a; }
@@ -1878,7 +2261,737 @@ def render_ranking(D, names, yms, period_text, state_key, qkey="team"):
             render_store_detail(D, sel, yms, period_text)
 
 
-def view_performance(D, yms, period_text, year, myms, mfull, mshort):
+def _store_target_for_ym(D, name, ym):
+    """점포의 특정 연월(ym) 당월 예상일매출을 반환합니다(해당 차수 k가 없으면 M(0차수) 값으로 폴백)."""
+    m = D["master_by_name"].get(name, {})
+    open_ym = m.get("open_ym", "")
+    tgt_map = D["targets"].get(name, {}).get("daily", {})
+    if not tgt_map:
+        return None
+    if open_ym and ym:
+        k = _month_diff(open_ym, ym)
+        if k in tgt_map:
+            return tgt_map[k]
+        if k >= 0 and tgt_map:
+            nearest_k = min(tgt_map.keys(), key=lambda x: abs(x - k))
+            return tgt_map[nearest_k]
+    return tgt_map.get(0)
+
+
+def _enrich_recent_store(D, st_item, all_dates, report_ym):
+    """최근 오픈점 1개의 일자별 시계열, 당월 평균, 예상일매출, 달성률, 최근 추세를 계산합니다."""
+    name = st_item["name"]
+    m = D["master_by_name"].get(name, {})
+    open_date_str = m.get("open_date", "")
+    open_dt = _parse_iso_or_kr_date(open_date_str)
+    target = _store_target_for_ym(D, name, report_ym)
+    daily_map = st_item["daily_map"]
+
+    # 점포 오픈일 이전 빈 날짜는 제외해 오픈 첫날부터의 실제 추이가 선명하게 보이도록 구성
+    start_dt = all_dates[0]
+    if open_dt and open_dt > start_dt:
+        start_dt = open_dt
+    else:
+        first_sale_dates = [d for d in all_dates if (daily_map.get(d) or 0) > 0]
+        if not open_dt and first_sale_dates and (first_sale_dates[0] - start_dt).days >= 5:
+            start_dt = first_sale_dates[0]
+
+    pts = []
+    valid_vals = []
+    for d in all_dates:
+        if d < start_dt:
+            continue
+        v = daily_map.get(d)
+        pts.append({"date": d, "val": v, "is_weekend": d.weekday() >= 5})
+        if v is not None and v > 0:
+            valid_vals.append(v)
+
+    avg_daily = (sum(valid_vals) / len(valid_vals)) if valid_vals else None
+    rate = (avg_daily / target * 100.0) if (avg_daily is not None and target) else None
+
+    # 최근 추세: 유효 영업일이 6일 이상일 때 전반부 평균 vs 최근 절반(최대 7일) 평균 비교
+    trend_dir, trend_pct = "", None
+    if len(valid_vals) >= 6:
+        win = min(7, len(valid_vals) // 2)
+        prev_avg = sum(valid_vals[:-win]) / len(valid_vals[:-win])
+        rec_avg = sum(valid_vals[-win:]) / win
+        if prev_avg > 0:
+            diff_p = (rec_avg - prev_avg) / prev_avg * 100.0
+            trend_pct = diff_p
+            if diff_p >= 5.0:
+                trend_dir = "up"
+            elif diff_p <= -5.0:
+                trend_dir = "dn"
+            else:
+                trend_dir = "flat"
+
+    return {
+        "name": name,
+        "manager": m.get("manager", "") or "-",
+        "type": m.get("type", "") or "-",
+        "place": m.get("place", ""),
+        "promoter": m.get("promoter", "특수개발"),
+        "open_date": open_date_str or (start_dt.strftime("%Y-%m-%d") if start_dt else "-"),
+        "target": target,
+        "avg_daily": avg_daily,
+        "rate": rate,
+        "days_cnt": len(valid_vals),
+        "pts": pts,
+        "trend_dir": trend_dir,
+        "trend_pct": trend_pct,
+    }
+
+
+def recent_daily_chart_svg(pts, target=None, compact=False):
+    """최근 오픈점 일자별 막대 + 주황 예상일매출 기준선 + 주말 음영 띠 벡터(SVG) 그래프."""
+    W = 520
+    H = 146 if compact else 164
+    x0, x1 = 10.0, W - 12.0
+    y_top = 24.0
+    y_base = H - 24.0
+    n = max(len(pts), 1)
+    slot = (x1 - x0) / n
+    bw = max(4.5, min(22.0, slot * 0.66))
+
+    vals = [p["val"] for p in pts if p["val"] is not None and p["val"] > 0]
+    if target:
+        vals.append(target)
+    vmax = max(vals) * 1.14 if vals else 1.0
+    if vmax <= 0:
+        vmax = 1.0
+    scale = (y_base - y_top) / vmax
+
+    out = [f'<svg viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg" font-family="Malgun Gothic, sans-serif">']
+
+    # 1) 주말(토·일) 세로 연회색 음영 띠
+    for i, p in enumerate(pts):
+        if p["is_weekend"]:
+            sx = x0 + slot * i
+            out.append(f'<rect x="{sx:.1f}" y="{y_top - 6:.1f}" width="{slot:.1f}" height="{y_base - y_top + 6:.1f}" fill="#f1f4fb" rx="2"/>')
+
+    # 바닥 기준선
+    out.append(f'<line x1="{x0:.1f}" y1="{y_base:.1f}" x2="{x1:.1f}" y2="{y_base:.1f}" stroke="#cfd8ea" stroke-width="1.2"/>')
+
+    # 표시할 막대 상단 숫자 위치 선정(겹침 방지)
+    non_null_indices = [i for i, p in enumerate(pts) if p["val"] is not None and p["val"] > 0]
+    max_idx = max(non_null_indices, key=lambda i: pts[i]["val"]) if non_null_indices else -1
+    min_idx = min(non_null_indices, key=lambda i: pts[i]["val"]) if non_null_indices else -1
+    last_idx = non_null_indices[-1] if non_null_indices else -1
+    priority_set = {i for i in (max_idx, min_idx, last_idx) if i >= 0}
+
+    # 2) 일자별 막대 및 날짜 라벨
+    placed_xs = []
+    for i, p in enumerate(pts):
+        cx = x0 + slot * (i + 0.5)
+        v = p["val"]
+        d = p["date"]
+        # 날짜 라벨 (일수가 많고 칸이 좁으면 격일/주요 일자, 31일 이하면 일자 숫자 표시)
+        show_date = (n <= 31) or (i == 0) or (i == n - 1) or (d.day in (1, 5, 10, 15, 20, 25))
+        if show_date:
+            d_txt = f"{d.month}/{d.day}" if (i == 0 or d.day == 1) and n <= 20 else str(d.day)
+            d_col = "#d0143c" if p["is_weekend"] else "#6b7a99"
+            d_fw = "700" if (p["is_weekend"] or i == last_idx) else "500"
+            out.append(f'<text x="{cx:.1f}" y="{H - 7}" text-anchor="middle" font-size="9.5" font-weight="{d_fw}" fill="{d_col}">{d_txt}</text>')
+
+        if v is not None and v > 0:
+            bh = max(2.5, v * scale)
+            by = y_base - bh
+            achieved = (target is not None and v >= target)
+            bar_col = "#2c4a8a" if achieved else "#9ab0d9"
+            out.append(
+                f'<rect x="{cx - bw / 2:.1f}" y="{by:.1f}" width="{bw:.1f}" height="{bh:.1f}" rx="2.5" fill="{bar_col}">'
+                f'<title>{d.strftime("%m/%d")}: {fnum(v)}천원</title></rect>'
+            )
+
+    # 값 라벨: 우선순위 점(최고·최저·최신) 먼저 배치 후 여유 공간이 있는 막대 추가 표시
+    cand_order = sorted(priority_set) + [i for i in non_null_indices if i not in priority_set]
+    min_gap = 25.0 if not compact else 28.0
+    for i in cand_order:
+        if n > 12 and i not in priority_set and (i % 2 != 0):
+            continue
+        cx = x0 + slot * (i + 0.5)
+        if any(abs(cx - px) < min_gap for px in placed_xs):
+            continue
+        placed_xs.append(cx)
+        v = pts[i]["val"]
+        by = y_base - max(2.5, v * scale)
+        is_hi = (i == last_idx or i == max_idx)
+        t_col = "#1f3a73" if is_hi else "#6b7a99"
+        t_fw = "800" if is_hi else "600"
+        out.append(f'<text x="{cx:.1f}" y="{max(11.0, by - 4.0):.1f}" text-anchor="middle" font-size="9.2" font-weight="{t_fw}" fill="{t_col}">{fnum(v)}</text>')
+
+    # 3) 주황색 당월 예상일매출 기준선 (막대 위에 선명하게 표시)
+    if target is not None and target > 0:
+        ty = max(y_top - 2.0, min(y_base - 2.0, y_base - target * scale))
+        out.append(f'<line x1="{x0:.1f}" y1="{ty:.1f}" x2="{x1:.1f}" y2="{ty:.1f}" stroke="#f08c00" stroke-width="1.9" stroke-dasharray="5,3"/>')
+        lbl_txt = f"예상 {fnum(target)}"
+        lw = len(lbl_txt) * 6.2 + 10
+        ly = max(12.0, ty - 8.0)
+        out.append(f'<rect x="{x1 - lw:.1f}" y="{ly - 9:.1f}" width="{lw:.1f}" height="13" rx="6.5" fill="#fff4e6" stroke="#f08c00" stroke-width="1"/>')
+        out.append(f'<text x="{x1 - lw / 2:.1f}" y="{ly + 0.5:.1f}" text-anchor="middle" font-size="9" font-weight="800" fill="#c25e00">{lbl_txt}</text>')
+
+    out.append("</svg>")
+    return "".join(out)
+
+
+def _recent_store_card_html(item, compact=False):
+    rr_html = '<span class="rc-rr">R&amp;R</span>' if item["promoter"] == "R&R" else ""
+    rate = item["rate"]
+    if rate is None:
+        r_cls, r_txt = "na", "예상 미입력"
+    elif rate >= 100.0:
+        r_cls, r_txt = "good", f"달성 {rate:.1f}%"
+    elif rate >= 80.0:
+        r_cls, r_txt = "warn", f"달성 {rate:.1f}%"
+    else:
+        r_cls, r_txt = "bad", f"달성 {rate:.1f}%"
+
+    tr_html = ""
+    if item["trend_dir"] == "up":
+        tr_html = f'<span class="rc-trend up">▲ 최근상승 ({item["trend_pct"]:+.0f}%)</span>'
+    elif item["trend_dir"] == "dn":
+        tr_html = f'<span class="rc-trend dn">▼ 최근하락 ({item["trend_pct"]:+.0f}%)</span>'
+    elif item["trend_dir"] == "flat":
+        tr_html = '<span class="rc-trend flat">─ 보합세</span>'
+
+    place_part = f" · {escape(item['place'])}" if item.get("place") else ""
+    tgt_part = f"예상 {fnum(item['target'])}" if item["target"] is not None else "예상 -"
+    svg = recent_daily_chart_svg(item["pts"], target=item["target"], compact=compact)
+    return (
+        f'<div class="rc-card"><div class="rc-head">'
+        f'<div class="rc-title-wrap"><div class="rc-name">{escape(item["name"])}{rr_html}</div>'
+        f'<div class="rc-sub">{escape(item["manager"])} · {escape(item["type"])}{place_part} · 오픈 {escape(item["open_date"])}</div></div>'
+        f'<div class="rc-kpis"><div class="rc-avg"><div class="v">{fnum(item["avg_daily"])}<small>천원/일</small></div>'
+        f'<div class="s">{tgt_part} · {item["days_cnt"]}일 평균</div></div>'
+        f'<span class="rc-rate {r_cls}">{r_txt}</span>{tr_html}</div></div>'
+        f'{svg}</div>'
+    )
+
+
+def _render_recent_open_tab(D):
+    """실적 현황 > 2) 최근 오픈점 일별 추이 탭 (전 사용자 열람 가능)."""
+    rd = D.get("recent_daily") or {}
+    if not rd.get("has_raw") or not rd.get("stores"):
+        st.info(
+            f"아직 `{PERF_SHEET_NAME}` 스프레드시트의 **`{TAB_DAILY_RECENT}`** 탭에 일자별 매출 원시가 없습니다.\n\n"
+            "사내 BI에서 추출한 최근 오픈점 일자별 리포트를 가공 없이 그대로 복사해 `최근점_일별원시` 탭 `A1`에 붙여넣고 상단 **새로고침**을 누르면 "
+            "점포별 일자 추이 그래프와 예상매출 달성 흐름이 자동으로 나타납니다."
+        )
+        return
+
+    all_dates = rd["dates"]
+    last_dt = rd["last_date"]
+    rep_ym = rd["report_ym"]
+    enriched = [_enrich_recent_store(D, s, all_dates, rep_ym) for s in rd["stores"]]
+
+    st.caption(
+        f":material/event: 기준 데이터: **{all_dates[0].strftime('%Y-%m-%d')} ~ {last_dt.strftime('%Y-%m-%d')}** "
+        f"({len(enriched)}점)  |  진한 네이비 막대 = 당월 예상일매출 이상 · 연파랑 = 예상 미달 · 주황 점선 = 당월 예상일매출 · 회색띠/빨간 날짜 = 주말(토·일)"
+    )
+
+    mgrs = []
+    for it in enriched:
+        if it["manager"] and it["manager"] != "-" and it["manager"] not in mgrs:
+            mgrs.append(it["manager"])
+    fc1, fc2 = st.columns([1.4, 3.6])
+    with fc1:
+        f_mgr = st.selectbox("담당자 필터", ["전체"] + mgrs, key="rc_mgr_filter")
+    with fc2:
+        all_st_names = [it["name"] for it in enriched]
+        picked_names = st.multiselect("표시 점포 선택 (빼고 싶은 점포만 X로 제외 가능)", all_st_names,
+                                      default=all_st_names, key="rc_store_pick")
+
+    shown = [
+        it for it in enriched
+        if (f_mgr == "전체" or it["manager"] == f_mgr) and (it["name"] in picked_names)
+    ]
+    if not shown:
+        st.caption("선택된 점포가 없습니다.")
+        return
+
+    cards_html = '<div class="rc-grid">' + "".join(_recent_store_card_html(it) for it in shown) + "</div>"
+    st.markdown(cards_html, unsafe_allow_html=True)
+
+    with st.expander("📋 일자별 상세 매출 숫자 표 보기 (단위: 천원)"):
+        tbl_cols = ["일자"] + [it["name"] for it in shown]
+        t_rows = []
+        by_nm = {s["name"]: s["daily_map"] for s in rd["stores"]}
+        for d in all_dates:
+            wk_kr = ("월", "화", "수", "목", "금", "토", "일")[d.weekday()]
+            r_dict = {"일자": f"{d.month}월 {d.day}일 ({wk_kr})"}
+            for it in shown:
+                v = by_nm.get(it["name"], {}).get(d)
+                r_dict[it["name"]] = fnum(v) if (v is not None and v > 0) else ""
+            t_rows.append(r_dict)
+        st.dataframe(pd.DataFrame(t_rows, columns=tbl_cols), use_container_width=True, hide_index=True)
+
+
+def _all_report_managers(D, names):
+    """일일보고 좌측 요약표용 담당자 목록: 해당 연도 오픈 실적이 있는 모든 담당자를 누락 없이 포함해 합계가 일치하도록 합니다."""
+    order = D.get("mgr_order", {})
+    name_set = set(names)
+    mgrs = {m["manager"] for m in D["masters"] if m["manager"] and m["name"] in name_set}
+    return sorted(mgrs, key=lambda n: (n not in order, order.get(n, 999), n))
+
+
+def _default_month_open_lines(get_gc, D, report_dt):
+    """당월 오픈(예정)점 기본 줄 목록 자동 구성 (점포마스터 당월 오픈점 + 주간보고 당월 오픈확정/계약완료 물건)."""
+    ym_str = report_dt.strftime("%Y%m")
+    ym_kr = f"{report_dt.year}년 {report_dt.month}월"
+    lines = []
+    seen = set()
+
+    for m in sorted(D["masters"], key=lambda x: x.get("open_date", "")):
+        if m.get("open_ym") == ym_str:
+            dt_o = _parse_iso_or_kr_date(m.get("open_date", ""))
+            d_tag = f"{dt_o.month}/{dt_o.day}" if dt_o else ym_kr
+            prom = m.get("promoter", "특수개발")
+            lines.append(f"{m['name']}({d_tag}) {prom}")
+            seen.add(_norm_store_name_key(m["name"]))
+
+    if get_gc is not None:
+        try:
+            w_recs = load_weekly_all(get_gc)
+            cur_code, _ = wk_info()
+            cand_weeks = sorted({r.get("주차코드", "").strip() for r in w_recs if wk_parse(r.get("주차코드", ""))},
+                                key=lambda c: wk_parse(c), reverse=True)
+            latest_wk = cand_weeks[0] if cand_weeks else cur_code
+            for r in w_recs:
+                if r.get("유형") == "추진물건" and r.get("주차코드", "").strip() == latest_wk and r.get("상태") in ("오픈확정", "계약완료"):
+                    d = _parse_item_json(r.get("추진물건", ""))
+                    if str(d.get("오픈예상월") or "").strip() == ym_kr:
+                        nm = str(d.get("물건명") or "").strip()
+                        nk = _norm_store_name_key(nm)
+                        if nm and nk not in seen:
+                            seen.add(nk)
+                            prom = str(d.get("추진주체") or "특수개발").strip()
+                            lines.append(f"{nm}({report_dt.month}/예정) {prom}")
+        except Exception:
+            pass
+    return lines
+
+
+def _daily_report_export_html(report_title_date, year_short, end_month_num, team_summary_rows, store_detail_rows, recent_items):
+    """임원 일일보고용 2페이지 HTML (원클릭 PNG 클립보드 복사 · PNG 파일 저장 · A4 가로 PDF 인쇄 지원)."""
+    # 1) 좌측 요약표 HTML
+    sum_trs = []
+    for sr in team_summary_rows:
+        cls = ' class="tot"' if sr["is_total"] else ""
+        r_col = ""
+        if sr["rate"] is not None:
+            r_col = ' class="bad"' if sr["rate"] < 80 else (' class="good"' if sr["rate"] >= 100 else "")
+        sum_trs.append(
+            f"<tr{cls}>"
+            f"<td>{escape(sr['who'])}</td>"
+            f"<td>{sr['total_n']}</td><td>{sr['sd_n']}</td><td>{sr['rr_n']}</td>"
+            f"<td>{fnum(sr['daily'])}</td><td>{fnum(sr['target'])}</td>"
+            f"<td{r_col}>{f'{sr['rate']:.1f}%' if sr['rate'] is not None else '-'}</td>"
+            f"</tr>"
+        )
+
+    # 2) 우측 신규 오픈점 상세표 HTML
+    det_trs = []
+    for dr in store_detail_rows:
+        rr_badge = '<span class="rr-b">R&amp;R</span>' if dr["promoter"] == "R&R" else ""
+        r_val = dr["rate"]
+        r_cls = ""
+        if r_val is not None:
+            if r_val < 60:
+                r_cls = "bad"
+            elif r_val < 80:
+                r_cls = "warn"
+            elif r_val >= 100:
+                r_cls = "good"
+
+        m_diff = dr["margin_diff"]
+        md_cls = "neg" if (m_diff is not None and m_diff < 0) else ""
+        md_txt = f"{m_diff:+.1f}%" if m_diff is not None else ""
+
+        op_avg, op_sum = dr["op_avg"], dr["op_sum"]
+        oa_cls = "op neg" if (op_avg is not None and op_avg < 0) else "op"
+        os_cls = "op neg" if (op_sum is not None and op_sum < 0) else "op"
+
+        det_trs.append(
+            "<tr>"
+            f"<td>{escape(dr['open_date'])}</td>"
+            f"<td class=\"mgr\">{escape(dr['manager'])}{rr_badge}</td>"
+            f"<td class=\"nm\">{escape(dr['name'])}</td>"
+            f"<td>{escape(dr['type'])}</td>"
+            f"<td>{escape(dr['place'])}</td>"
+            f"<td class=\"num\">{fnum(dr['target']) if dr['target'] is not None else ''}</td>"
+            f"<td class=\"num b\">{fnum(dr['daily']) if dr['daily'] is not None else ''}</td>"
+            f"<td class=\"num {r_cls}\">{f'{r_val:.1f}%' if r_val is not None else ''}</td>"
+            f"<td class=\"num\">{f'{dr['exp_margin']:.1f}%' if dr['exp_margin'] is not None else ''}</td>"
+            f"<td class=\"num\">{f'{dr['act_margin']:.1f}%' if dr['act_margin'] is not None else ''}</td>"
+            f"<td class=\"num {md_cls}\">{md_txt}</td>"
+            f"<td class=\"num {oa_cls}\">{fnum(op_avg) if op_avg is not None else ''}</td>"
+            f"<td class=\"num {os_cls}\">{fnum(op_sum) if op_sum is not None else ''}</td>"
+            "</tr>"
+        )
+
+    # 3) 2페이지 최근 오픈점 미니 차트 그리드 HTML
+    if recent_items:
+        p2_cards = '<div class="rc-grid p2-grid">' + "".join(_recent_store_card_html(it, compact=True) for it in recent_items) + "</div>"
+    else:
+        p2_cards = '<div class="empty-p2">최근점_일별원시 탭에 데이터가 없어 표시할 최근 오픈점 차트가 없습니다.</div>'
+
+    file_tag = datetime.now(KST).strftime("%Y%m%d")
+    return f"""
+    <html><head><meta charset="utf-8">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <style>
+      @page {{ size: A4 landscape; margin: 7mm 8mm; }}
+      * {{ box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
+      body {{ font-family: 'Malgun Gothic','맑은 고딕',sans-serif; color: #1f2d4d; background: #f4f6fb; margin: 0; padding: 12px 14px; }}
+      .toolbar {{ display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+          background: #ffffff; border: 1px solid #d5dcea; border-radius: 12px; padding: 10px 14px; margin-bottom: 12px;
+          box-shadow: 0 2px 8px rgba(31,58,115,.07); }}
+      .tb-btns {{ display: flex; flex-wrap: wrap; gap: 6px; }}
+      .toolbar button {{ height: 34px; padding: 0 13px; border-radius: 8px; border: 1px solid #2c4a8a;
+          background: #ffffff; color: #1f3a73; font-weight: 800; font-size: 12.5px; cursor: pointer; }}
+      .toolbar button.pri {{ background: #2c4a8a; color: #ffffff; }}
+      .toolbar button:hover {{ background: #1f3a73; color: #ffffff; }}
+      #capStatus {{ font-size: 12px; font-weight: 700; color: #0b9a6a; }}
+      .sheet-page {{ background: #ffffff; border: 1px solid #d7deee; border-radius: 12px; padding: 16px 18px;
+          margin-bottom: 16px; box-shadow: 0 3px 12px rgba(31,58,115,.07); }}
+      .p-head {{ display: flex; align-items: baseline; justify-content: space-between; border-bottom: 2.5px solid #1f3a73;
+          padding-bottom: 6px; margin-bottom: 10px; }}
+      .p-title {{ font-size: 17px; font-weight: 900; color: #1f3a73; letter-spacing: -0.3px; }}
+      .p-meta {{ font-size: 11.5px; font-weight: 700; color: #55648a; }}
+      .p1-layout {{ display: flex; gap: 14px; align-items: flex-start; }}
+      .p1-left {{ width: 30%; flex: none; }}
+      .p1-right {{ flex: 1; min-width: 0; }}
+      .sec-cap {{ display: flex; align-items: baseline; justify-content: space-between; font-size: 13px; font-weight: 900;
+          color: #1f3a73; margin: 0 0 5px; }}
+      .sec-cap small {{ font-size: 10px; font-weight: 600; color: #7d8aa8; }}
+      table.dr {{ width: 100%; border-collapse: collapse; font-size: 9.8px; border: 1px solid #c9d4ea; }}
+      table.dr th {{ background: #e9effa; color: #1f3a73; font-weight: 800; padding: 4px 4px; border: 1px solid #c9d4ea;
+          text-align: center; white-space: nowrap; line-height: 1.25; }}
+      table.dr th.op-h {{ background: #f7ecc6; color: #6e4e00; }}
+      table.dr td {{ padding: 2.6px 4px; border: 1px solid #e1e7f3; text-align: center; white-space: nowrap; color: #1f2d4d; }}
+      table.dr tbody tr:nth-child(even) td {{ background: #fafbfe; }}
+      table.dr tr.tot td {{ background: #eef3fc !important; font-weight: 900; color: #1f3a73; border-bottom: 2px solid #9ab0d9; font-size: 10.5px; }}
+      table.dr td.nm {{ text-align: left; font-weight: 700; padding-left: 5px; }}
+      table.dr td.mgr {{ font-weight: 700; }}
+      table.dr td.num {{ text-align: right; padding-right: 5px; font-variant-numeric: tabular-nums; }}
+      table.dr td.b {{ font-weight: 800; }}
+      table.dr td.good {{ color: #0b9a6a; font-weight: 800; }}
+      table.dr td.warn {{ color: #c96a00; font-weight: 800; }}
+      table.dr td.bad {{ color: #d0143c; font-weight: 800; }}
+      table.dr td.neg {{ color: #d0143c; font-weight: 700; }}
+      table.dr td.op {{ background: #fffbe6 !important; font-weight: 700; }}
+      table.dr td.op.neg {{ color: #d0143c; }}
+      .rr-b {{ display: inline-block; margin-left: 3px; padding: 0 4px; border-radius: 3px; background: #ffe066;
+          color: #664400; font-size: 8.2px; font-weight: 900; vertical-align: 1px; }}
+      /* 2페이지 미니 차트 카드 */
+      .rc-grid.p2-grid {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }}
+      .rc-card {{ background: #ffffff; border: 1px solid #d5dcea; border-radius: 10px; padding: 9px 12px 6px; break-inside: avoid; page-break-inside: avoid; }}
+      .rc-head {{ display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 3px; }}
+      .rc-name {{ display: flex; align-items: center; gap: 5px; font-size: 13.5px; font-weight: 900; color: #1f3a73; }}
+      .rc-rr {{ display: inline-block; font-size: 9px; font-weight: 800; background: #fff3bf; color: #8a5a00; border: 1px solid #f3d26b; border-radius: 4px; padding: 0 5px; }}
+      .rc-sub {{ font-size: 10px; color: #6b7a99; font-weight: 600; margin-top: 1px; }}
+      .rc-kpis {{ display: flex; align-items: center; gap: 5px; flex: none; }}
+      .rc-avg {{ text-align: right; margin-right: 2px; }}
+      .rc-avg .v {{ font-size: 14px; font-weight: 900; color: #1f2d4d; line-height: 1.1; }}
+      .rc-avg .v small {{ font-size: 9.5px; color: #7d8aa8; font-weight: 600; margin-left: 1px; }}
+      .rc-avg .s {{ font-size: 9.5px; color: #8591ab; font-weight: 600; }}
+      .rc-rate {{ font-size: 10.5px; font-weight: 800; border-radius: 999px; padding: 2px 8px; }}
+      .rc-rate.good {{ background: #e3f3ec; color: #0b9a6a; }}
+      .rc-rate.warn {{ background: #fef1df; color: #b25e00; }}
+      .rc-rate.bad {{ background: #fde8ec; color: #d0143c; }}
+      .rc-rate.na {{ background: #eef2fa; color: #6b7a99; }}
+      .rc-trend {{ font-size: 9.5px; font-weight: 800; border-radius: 5px; padding: 2px 6px; }}
+      .rc-trend.up {{ background: #ebfbee; color: #0b9a6a; }}
+      .rc-trend.dn {{ background: #fff5f5; color: #d0143c; }}
+      .rc-trend.flat {{ background: #f1f3f8; color: #6b7a99; }}
+      .rc-card svg {{ width: 100%; height: auto; display: block; }}
+      .empty-p2 {{ padding: 30px; text-align: center; color: #8591ab; font-size: 13px; }}
+      @media print {{
+        body {{ background: #ffffff; padding: 0; }}
+        .no-print {{ display: none !important; }}
+        .sheet-page {{ border: none; box-shadow: none; padding: 0; margin: 0; }}
+        #page2 {{ page-break-before: always; break-before: page; }}
+      }}
+    </style></head><body>
+      <div class="toolbar no-print">
+        <div class="tb-btns">
+          <button class="pri" onclick="capturePage('page1', 'copy', '일일보고_1_오픈점현황_{file_tag}.png')">📋 1페이지 이미지 복사</button>
+          <button onclick="capturePage('page1', 'save', '일일보고_1_오픈점현황_{file_tag}.png')">💾 1페이지 PNG 저장</button>
+          <button class="pri" onclick="capturePage('page2', 'copy', '일일보고_2_최근오픈점추이_{file_tag}.png')">📋 2페이지 이미지 복사</button>
+          <button onclick="capturePage('page2', 'save', '일일보고_2_최근오픈점추이_{file_tag}.png')">💾 2페이지 PNG 저장</button>
+          <button onclick="window.print()">🖨️ 전체 PDF 인쇄</button>
+        </div>
+        <div id="capStatus">버튼을 누르면 여백이 정리된 고해상도 이미지로 바로 복사·저장됩니다.</div>
+      </div>
+
+      <div id="page1" class="sheet-page">
+        <div class="p-head">
+          <div class="p-title">특수개발 오픈점 일일 현황 ({escape(report_title_date)})</div>
+          <div class="p-meta">단위: 천원, %</div>
+        </div>
+        <div class="p1-layout">
+          <div class="p1-left">
+            <div class="sec-cap"><span>■ 특수개발 오픈점 현황</span><small>'{escape(year_short)}년 1월~{end_month_num}월(누계)</small></div>
+            <table class="dr">
+              <thead>
+                <tr>
+                  <th rowspan="2">구분</th>
+                  <th colspan="3">출점수</th>
+                  <th rowspan="2">일매출</th>
+                  <th rowspan="2">예상매출</th>
+                  <th rowspan="2">달성률</th>
+                </tr>
+                <tr><th>계</th><th>특수개발</th><th>R&amp;R</th></tr>
+              </thead>
+              <tbody>{"".join(sum_trs)}</tbody>
+            </table>
+          </div>
+          <div class="p1-right">
+            <div class="sec-cap"><span>■ 신규 오픈점 현황 ({len(store_detail_rows)}점)</span><small>개점일 순 · 노란 칸 = 월 마감 본부손익</small></div>
+            <table class="dr">
+              <thead>
+                <tr>
+                  <th rowspan="2">개점일</th>
+                  <th rowspan="2">담당자</th>
+                  <th rowspan="2">점포명</th>
+                  <th rowspan="2">타입</th>
+                  <th rowspan="2">입지</th>
+                  <th colspan="3">예상매출 달성률</th>
+                  <th colspan="3">예상 매익률 차이</th>
+                  <th colspan="2" class="op-h">본부손익</th>
+                </tr>
+                <tr>
+                  <th>예상</th><th>실적</th><th>달성률</th>
+                  <th>예상</th><th>실적</th><th>차이</th>
+                  <th class="op-h">월 평균</th><th class="op-h">누계</th>
+                </tr>
+              </thead>
+              <tbody>{"".join(det_trs)}</tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div id="page2" class="sheet-page">
+        <div class="p-head">
+          <div class="p-title">■ 최근 오픈점 일자별 매출 현황 ({escape(report_title_date)})</div>
+          <div class="p-meta">네이비 = 예상 달성일 · 연파랑 = 예상 미달일 · 주황 점선 = 당월 예상일매출 · 회색띠/적색일 = 주말(토·일) · 단위: 천원</div>
+        </div>
+        {p2_cards}
+      </div>
+
+      <script>
+      async function capturePage(elId, mode, filename) {{
+        var st = document.getElementById('capStatus');
+        if (typeof html2canvas === 'undefined') {{
+          st.style.color = '#d0143c';
+          st.textContent = '사내망에서 이미지 변환 스크립트가 차단되었습니다. 우측 PDF 인쇄 버튼을 이용해 주세요.';
+          return;
+        }}
+        st.style.color = '#2c4a8a';
+        st.textContent = '고해상도 이미지를 생성 중입니다...';
+        try {{
+          var el = document.getElementById(elId);
+          var canvas = await html2canvas(el, {{ scale: 2, backgroundColor: '#ffffff', useCORS: true }});
+          if (mode === 'copy' && navigator.clipboard && window.ClipboardItem) {{
+            canvas.toBlob(async function(blob) {{
+              try {{
+                await navigator.clipboard.write([new ClipboardItem({{ 'image/png': blob }})]);
+                st.style.color = '#0b9a6a';
+                st.textContent = '클립보드에 복사되었습니다! 메신저/메일 창에서 바로 Ctrl+V 로 붙여넣으세요.';
+              }} catch (err) {{
+                var a = document.createElement('a');
+                a.href = canvas.toDataURL('image/png');
+                a.download = filename;
+                a.click();
+                st.style.color = '#0b9a6a';
+                st.textContent = '브라우저 보안 정책으로 클립보드 대신 PNG 파일로 바로 다운로드했습니다.';
+              }}
+            }}, 'image/png');
+          }} else {{
+            var a = document.createElement('a');
+            a.href = canvas.toDataURL('image/png');
+            a.download = filename;
+            a.click();
+            st.style.color = '#0b9a6a';
+            st.textContent = filename + ' 파일이 저장되었습니다.';
+          }}
+        }} catch (e) {{
+          st.style.color = '#d0143c';
+          st.textContent = '이미지 생성 실패: ' + e;
+        }}
+      }}
+      </script>
+    </body></html>
+    """
+
+
+def _render_daily_report_tab(get_gc, D, year, myms):
+    """실적 현황 > 3) 일일보고 출력 탭 (문구 자동 완성 + 1·2페이지 이미지 복사/저장 및 PDF 인쇄)."""
+    cum_meta = D.get("daily_cum_meta") or {}
+    rd = D.get("recent_daily") or {}
+
+    default_dt = rd.get("last_date") or (datetime.now(KST).date() - _dt.timedelta(days=1))
+    all_names = [m["name"] for m in D["masters"] if m.get("open_ym", "")[:4] == year]
+    if not all_names:
+        st.info(f"{year}년 오픈 점포 데이터가 없습니다.")
+        return
+
+    # 원시 연동 상태 배너
+    cum_status = (
+        f"당월 누계원시(`{TAB_DAILY_CUM}`): **{ym_label(cum_meta['ym'])} · {cum_meta['matched_count']}점 반영됨**"
+        if cum_meta.get("has_raw") else f"당월 누계원시(`{TAB_DAILY_CUM}`): 미입력 (`월실적` 탭 기준으로 계산 중)"
+    )
+    rec_status = (
+        f"최근점 일별원시(`{TAB_DAILY_RECENT}`): **{len(rd.get('stores', []))}점 · {rd['last_date'].strftime('%m/%d')}까지 반영됨**"
+        if rd.get("has_raw") and rd.get("last_date") else f"최근점 일별원시(`{TAB_DAILY_RECENT}`): 미입력"
+    )
+    st.caption(f":material/sync: {cum_status}  |  {rec_status}")
+
+    open_full = [f"{year}{mo:02d}" for mo in range(1, 13)]
+    team_g = calc_group(D, all_names, myms, open_yms=open_full)
+
+    # ── 1) 메신저/메일 보고 문구 생성기 ──
+    st.markdown("##### :material/chat_paste_go: 1) 일일보고 본문 문구 (자동 완성)")
+    mc1, mc2 = st.columns([1.3, 2.7])
+    with mc1:
+        rep_dt = st.date_input("보고 기준일 (누계 기준)", value=default_dt, key="dr_report_date")
+        def_open_lines = _default_month_open_lines(get_gc, D, rep_dt)
+        open_txt_key = f"dr_open_lines_{rep_dt.strftime('%Y%m')}"
+        if open_txt_key not in st.session_state:
+            st.session_state[open_txt_key] = "\n".join(def_open_lines)
+        sched_raw = st.text_area(
+            f"{rep_dt.month}월 오픈(예정)점 목록 (한 줄에 1점씩 자유 수정 가능)",
+            key=open_txt_key, height=115,
+            placeholder="예:\n담양매화마루(11/19) 특수개발\n영도해양박물관(11/29) R&R",
+        )
+    sched_lines = [ln.strip() for ln in str(sched_raw or "").splitlines() if ln.strip()]
+    msg_lines = [
+        f"{rep_dt.month}월 {rep_dt.day}일 누계",
+        "오픈점 매출 보고 드립니다.",
+        "",
+        f"오픈점 {len(all_names)}점,",
+        f"누계 일매출은 {fnum(team_g['daily'])}천원으로",
+        f"예상매출 比 {fnum(team_g['rate'], 1)}% 달성중입니다.",
+    ]
+    if sched_lines:
+        msg_lines += [
+            "",
+            f"당월 오픈 예정점은 {len(sched_lines)}점 입니다.",
+            "",
+            *sched_lines,
+        ]
+    full_msg = "\n".join(msg_lines)
+
+    with mc2:
+        st.text_area("완성된 보고 문구 미리보기", value=full_msg, height=205, key="dr_msg_preview")
+        escaped_js_msg = json.dumps(full_msg, ensure_ascii=False)
+        components.html(
+            f"""
+            <button id="cpBtn" style="height:36px;padding:0 18px;border:none;border-radius:9px;background:#2c4a8a;
+              color:#fff;font-weight:800;font-size:13.5px;cursor:pointer;font-family:'Malgun Gothic',sans-serif;">
+              📋 보고 문구 클립보드 복사
+            </button>
+            <span id="cpMsg" style="margin-left:10px;font-size:12.5px;font-weight:700;color:#0b9a6a;font-family:'Malgun Gothic',sans-serif;"></span>
+            <script>
+            document.getElementById('cpBtn').onclick = async function() {{
+              var txt = {escaped_js_msg};
+              try {{
+                await navigator.clipboard.writeText(txt);
+                document.getElementById('cpMsg').textContent = '복사 완료! 메신저/메일에 Ctrl+V 로 붙여넣으세요.';
+              }} catch (e) {{
+                var ta = document.createElement('textarea');
+                ta.value = txt; document.body.appendChild(ta); ta.select();
+                document.execCommand('copy'); document.body.removeChild(ta);
+                document.getElementById('cpMsg').textContent = '복사 완료!';
+              }}
+            }};
+            </script>
+            """,
+            height=46,
+        )
+
+    st.divider()
+
+    # ── 2) 1페이지(팀 요약 + 전 점포 현황) & 2페이지(최근 오픈점 그래프) 시트 생성 ──
+    st.markdown("##### :material/print: 2) 일일보고 리포트 시트 (이미지 바로 복사·저장 / PDF 인쇄)")
+    st.caption(
+        "좌측 **특수개발/R&R 구분**과 우측 **예상 매익률 차이**를 채우시려면 `점포마스터` 탭에 `추진주체`(`특수개발`/`R&R`), "
+        "`예상매익률` 열을 추가해 값을 넣어주시면 자동으로 계산됩니다."
+    )
+
+    # 좌측 요약표 데이터 계산
+    def _summary_row(label, store_names, is_total=False):
+        g = calc_group(D, store_names, myms, open_yms=open_full)
+        rr_n = sum(1 for n in store_names if D["master_by_name"].get(n, {}).get("promoter") == "R&R")
+        total_n = len(store_names)
+        return {
+            "who": label,
+            "is_total": is_total,
+            "total_n": total_n,
+            "sd_n": total_n - rr_n,
+            "rr_n": rr_n,
+            "daily": g["daily"],
+            "target": g["target"],
+            "rate": g["rate"],
+        }
+
+    mgr_list = _all_report_managers(D, all_names)
+    summary_rows = [_summary_row("특수개발팀", all_names, is_total=True)]
+    for mgr in mgr_list:
+        m_names = [n for n in all_names if D["master_by_name"].get(n, {}).get("manager") == mgr]
+        summary_rows.append(_summary_row(mgr, m_names, is_total=False))
+
+    # 우측 전 점포 상세표 데이터 계산 (개점일 오름차순)
+    sorted_masters = sorted(
+        [D["master_by_name"][n] for n in all_names if n in D["master_by_name"]],
+        key=lambda m: (m.get("open_date", ""), m["name"]),
+    )
+    detail_rows = []
+    for m in sorted_masters:
+        nm = m["name"]
+        c = calc_store(D, nm, myms)
+        per = D["monthly"].get(nm, {})
+        op_vals = [per[ym]["op"] for ym in myms if ym in per and per[ym]["op"] is not None]
+        op_sum = sum(op_vals) if op_vals else None
+        op_avg = (op_sum / len(op_vals)) if op_vals else None
+        exp_m = m.get("exp_margin")
+        act_m = c["margin"]
+        m_diff = (act_m - exp_m) if (act_m is not None and exp_m is not None) else None
+        detail_rows.append({
+            "open_date": m.get("open_date", ""),
+            "manager": m.get("manager", ""),
+            "promoter": m.get("promoter", "특수개발"),
+            "name": nm,
+            "type": m.get("type", ""),
+            "place": m.get("place", ""),
+            "target": c["target"],
+            "daily": c["daily"],
+            "rate": c["rate"],
+            "exp_margin": exp_m,
+            "act_margin": act_m,
+            "margin_diff": m_diff,
+            "op_avg": op_avg,
+            "op_sum": op_sum,
+        })
+
+    recent_items = []
+    if rd.get("has_raw") and rd.get("stores"):
+        recent_items = [_enrich_recent_store(D, s, rd["dates"], rd["report_ym"]) for s in rd["stores"]]
+
+    end_m = int(myms[-1][4:]) if myms else rep_dt.month
+    report_html = _daily_report_export_html(
+        f"{rep_dt.month}월 {rep_dt.day}일 누계",
+        year[2:],
+        end_m,
+        summary_rows,
+        detail_rows,
+        recent_items,
+    )
+    components.html(report_html, height=920, scrolling=True)
+
+
+def _render_perf_overview(D, yms, period_text, year, myms, mfull, mshort):
     """yms/period_text/year: 조회 연도(어떤 점포가 보이는지, 오픈연도 기준) / myms/mfull/mshort: 그 점포들의
     매출·영업이익·매익율을 실제로 어느 해 걸로 보여줄지(기준연도 = 오늘 날짜 기준 올해, metric_period 로 계산)"""
     mode = "누계"      # 이제 연도 선택만 있고 항상 누계로 봄 (전월 대비 비교는 더 이상 쓰지 않음)
@@ -1957,6 +3070,25 @@ def view_performance(D, yms, period_text, year, myms, mfull, mshort):
     for mi, mgr in enumerate(managers):
         if pick == mgr:
             _mgr_box(mgr, mi)
+
+
+def view_performance(D, yms, period_text, year, myms, mfull, mshort, get_gc=None):
+    rd = D.get("recent_daily") or {}
+    rec_cnt = len(rd.get("stores", [])) if rd.get("has_raw") else 0
+    rec_tab_lbl = f":material/trending_up: 최근 오픈점 일별 추이 ({rec_cnt})" if rec_cnt else ":material/trending_up: 최근 오픈점 일별 추이"
+
+    with st.container(key="lvl2tabs_perf"):
+        t_annual, t_recent, t_daily_rpt = st.tabs([
+            ":material/leaderboard: 연간 · 누계 실적",
+            rec_tab_lbl,
+            ":material/newspaper: 일일보고 출력",
+        ])
+    with t_annual:
+        _render_perf_overview(D, yms, period_text, year, myms, mfull, mshort)
+    with t_recent:
+        _render_recent_open_tab(D)
+    with t_daily_rpt:
+        _render_daily_report_tab(get_gc, D, year, myms)
 
 
 def view_stores(D, yms, period_text):
@@ -5722,7 +6854,7 @@ def render_tool(get_gc, user_id="", user_name="", is_admin=False):
         ":material/folder: 자료실",
     ])
     with tab_perf:
-        view_performance(D, yms, period_text, period_year, myms, mfull, mshort)
+        view_performance(D, yms, period_text, period_year, myms, mfull, mshort, get_gc=get_gc)
     with tab_store:
         # 점포 현황의 상세 매출/영업이익은 조회 연도와 무관하게 항상 '기준연도(오늘 날짜 기준 올해)'
         # 실적을 보여줍니다(= 지금 얼마 팔고 있는지 확인용). 목록 필터(오픈연도 등)는 view_stores 안에서
