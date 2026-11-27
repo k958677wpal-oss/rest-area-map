@@ -2380,12 +2380,10 @@ def recent_daily_chart_svg(pts, target=None, compact=False):
     priority_set = {i for i in (max_idx, min_idx, last_idx) if i >= 0}
 
     # 2) 일자별 막대 및 날짜 라벨
-    placed_xs = []
     for i, p in enumerate(pts):
         cx = x0 + slot * (i + 0.5)
         v = p["val"]
         d = p["date"]
-        # 날짜 라벨 (일수가 많고 칸이 좁으면 격일/주요 일자, 31일 이하면 일자 숫자 표시)
         show_date = (n <= 31) or (i == 0) or (i == n - 1) or (d.day in (1, 5, 10, 15, 20, 25))
         if show_date:
             d_txt = f"{d.month}/{d.day}" if (i == 0 or d.day == 1) and n <= 20 else str(d.day)
@@ -2403,9 +2401,16 @@ def recent_daily_chart_svg(pts, target=None, compact=False):
                 f'<title>{d.strftime("%m/%d")}: {fnum(v)}천원</title></rect>'
             )
 
-    # 값 라벨: 우선순위 점(최고·최저·최신) 먼저 배치 후 여유 공간이 있는 막대 추가 표시
+    # 3) 주황색 당월 예상일매출 기준선 (숫자보다 먼저 그려서 숫자를 가리지 않음, 카드 상단에 예상 금액이 있으므로 우측 알약 박스는 생략)
+    if target is not None and target > 0:
+        ty = max(y_top - 2.0, min(y_base - 2.0, y_base - target * scale))
+        out.append(f'<line x1="{x0:.1f}" y1="{ty:.1f}" x2="{x1:.1f}" y2="{ty:.1f}" stroke="#f08c00" stroke-width="1.9" stroke-dasharray="5,3"/>')
+
+    # 4) 값 라벨: 흰색 외곽선(halo)을 입혀 주황 점선과 겹쳐도 또렷하게 읽히도록 맨 위에 배치
+    placed_xs = []
     cand_order = sorted(priority_set) + [i for i in non_null_indices if i not in priority_set]
     min_gap = 25.0 if not compact else 28.0
+    halo = 'style="paint-order:stroke;stroke:#ffffff;stroke-width:3px;stroke-linejoin:round;"'
     for i in cand_order:
         if n > 12 and i not in priority_set and (i % 2 != 0):
             continue
@@ -2416,19 +2421,9 @@ def recent_daily_chart_svg(pts, target=None, compact=False):
         v = pts[i]["val"]
         by = y_base - max(2.5, v * scale)
         is_hi = (i == last_idx or i == max_idx)
-        t_col = "#1f3a73" if is_hi else "#6b7a99"
-        t_fw = "800" if is_hi else "600"
-        out.append(f'<text x="{cx:.1f}" y="{max(11.0, by - 4.0):.1f}" text-anchor="middle" font-size="9.2" font-weight="{t_fw}" fill="{t_col}">{fnum(v)}</text>')
-
-    # 3) 주황색 당월 예상일매출 기준선 (막대 위에 선명하게 표시)
-    if target is not None and target > 0:
-        ty = max(y_top - 2.0, min(y_base - 2.0, y_base - target * scale))
-        out.append(f'<line x1="{x0:.1f}" y1="{ty:.1f}" x2="{x1:.1f}" y2="{ty:.1f}" stroke="#f08c00" stroke-width="1.9" stroke-dasharray="5,3"/>')
-        lbl_txt = f"예상 {fnum(target)}"
-        lw = len(lbl_txt) * 6.2 + 10
-        ly = max(12.0, ty - 8.0)
-        out.append(f'<rect x="{x1 - lw:.1f}" y="{ly - 9:.1f}" width="{lw:.1f}" height="13" rx="6.5" fill="#fff4e6" stroke="#f08c00" stroke-width="1"/>')
-        out.append(f'<text x="{x1 - lw / 2:.1f}" y="{ly + 0.5:.1f}" text-anchor="middle" font-size="9" font-weight="800" fill="#c25e00">{lbl_txt}</text>')
+        t_col = "#1f3a73" if is_hi else "#55648a"
+        t_fw = "800" if is_hi else "700"
+        out.append(f'<text x="{cx:.1f}" y="{max(11.0, by - 4.0):.1f}" text-anchor="middle" font-size="9.3" font-weight="{t_fw}" fill="{t_col}" {halo}>{fnum(v)}</text>')
 
     out.append("</svg>")
     return "".join(out)
@@ -2446,14 +2441,6 @@ def _recent_store_card_html(item, compact=False):
     else:
         r_cls, r_txt = "bad", f"달성 {rate:.1f}%"
 
-    tr_html = ""
-    if item["trend_dir"] == "up":
-        tr_html = f'<span class="rc-trend up">▲ 최근상승 ({item["trend_pct"]:+.0f}%)</span>'
-    elif item["trend_dir"] == "dn":
-        tr_html = f'<span class="rc-trend dn">▼ 최근하락 ({item["trend_pct"]:+.0f}%)</span>'
-    elif item["trend_dir"] == "flat":
-        tr_html = '<span class="rc-trend flat">─ 보합세</span>'
-
     place_part = f" · {escape(item['place'])}" if item.get("place") else ""
     tgt_part = f"예상 {fnum(item['target'])}" if item["target"] is not None else "예상 -"
     svg = recent_daily_chart_svg(item["pts"], target=item["target"], compact=compact)
@@ -2463,7 +2450,7 @@ def _recent_store_card_html(item, compact=False):
         f'<div class="rc-sub">{escape(item["manager"])} · {escape(item["type"])}{place_part} · 오픈 {escape(item["open_date"])}</div></div>'
         f'<div class="rc-kpis"><div class="rc-avg"><div class="v">{fnum(item["avg_daily"])}<small>천원/일</small></div>'
         f'<div class="s">{tgt_part} · {item["days_cnt"]}일 평균</div></div>'
-        f'<span class="rc-rate {r_cls}">{r_txt}</span>{tr_html}</div></div>'
+        f'<span class="rc-rate {r_cls}">{r_txt}</span></div></div>'
         f'{svg}</div>'
     )
 
@@ -2483,6 +2470,13 @@ def _render_recent_open_tab(D):
     last_dt = rd["last_date"]
     rep_ym = rd["report_ym"]
     enriched = [_enrich_recent_store(D, s, all_dates, rep_ym) for s in rd["stores"]]
+
+    unmatched_stores = [s["raw_name"] for s in rd["stores"] if not s.get("in_master")]
+    if unmatched_stores:
+        st.warning(
+            f":material/warning: `최근점_일별원시` 점포 중 아직 `점포마스터` 탭에 등록되지 않은 점포가 있습니다: "
+            f"**{', '.join(unmatched_stores)}** (`점포마스터`와 `예상목표` 탭에 추가하시면 담당자·타입·예상일매출 기준선이 자동 반영됩니다)"
+        )
 
     st.caption(
         f":material/event: 기준 데이터: **{all_dates[0].strftime('%Y-%m-%d')} ~ {last_dt.strftime('%Y-%m-%d')}** "
@@ -2589,17 +2583,15 @@ def _daily_report_export_html(report_title_date, year_short, end_month_num, team
             f"</tr>"
         )
 
-    # 2) 우측 신규 오픈점 상세표 HTML
+    # 2) 하단 신규 오픈점 상세표 HTML (달성률 색상 기준을 요약표와 통일: 100%↑ 초록 / 80~99.9% 기본 / 80% 미만 빨강)
     det_trs = []
     for dr in store_detail_rows:
         rr_badge = '<span class="rr-b">R&amp;R</span>' if dr["promoter"] == "R&R" else ""
         r_val = dr["rate"]
         r_cls = ""
         if r_val is not None:
-            if r_val < 60:
+            if r_val < 80:
                 r_cls = "bad"
-            elif r_val < 80:
-                r_cls = "warn"
             elif r_val >= 100:
                 r_cls = "good"
 
@@ -2655,25 +2647,26 @@ def _daily_report_export_html(report_title_date, year_short, end_month_num, team
       .sheet-page {{ background: #ffffff; border: 1px solid #d7deee; border-radius: 12px; padding: 16px 18px;
           margin-bottom: 16px; box-shadow: 0 3px 12px rgba(31,58,115,.07); }}
       .p-head {{ display: flex; align-items: baseline; justify-content: space-between; border-bottom: 2.5px solid #1f3a73;
-          padding-bottom: 6px; margin-bottom: 10px; }}
-      .p-title {{ font-size: 17px; font-weight: 900; color: #1f3a73; letter-spacing: -0.3px; }}
-      .p-meta {{ font-size: 11.5px; font-weight: 700; color: #55648a; }}
-      .p1-layout {{ display: flex; gap: 14px; align-items: flex-start; }}
-      .p1-left {{ width: 30%; flex: none; }}
-      .p1-right {{ flex: 1; min-width: 0; }}
-      .sec-cap {{ display: flex; align-items: baseline; justify-content: space-between; font-size: 13px; font-weight: 900;
-          color: #1f3a73; margin: 0 0 5px; }}
-      .sec-cap small {{ font-size: 10px; font-weight: 600; color: #7d8aa8; }}
-      table.dr {{ width: 100%; border-collapse: collapse; font-size: 9.8px; border: 1px solid #c9d4ea; }}
-      table.dr th {{ background: #e9effa; color: #1f3a73; font-weight: 800; padding: 4px 4px; border: 1px solid #c9d4ea;
-          text-align: center; white-space: nowrap; line-height: 1.25; }}
+          padding-bottom: 7px; margin-bottom: 12px; }}
+      .p-title {{ font-size: 18.5px; font-weight: 900; color: #1f3a73; letter-spacing: -0.3px; }}
+      .p-meta {{ font-size: 12px; font-weight: 700; color: #55648a; }}
+      .p1-top {{ margin-bottom: 16px; }}
+      .p1-bottom {{ width: 100%; }}
+      .sec-cap {{ display: flex; align-items: baseline; justify-content: space-between; font-size: 14px; font-weight: 900;
+          color: #1f3a73; margin: 0 0 6px; }}
+      .sec-cap small {{ font-size: 11px; font-weight: 600; color: #7d8aa8; }}
+      table.dr {{ width: 100%; border-collapse: collapse; font-size: 11.4px; border: 1px solid #c9d4ea; }}
+      table.dr.sum-tbl {{ font-size: 12px; }}
+      table.dr th {{ background: #e9effa; color: #1f3a73; font-weight: 800; padding: 5px 6px; border: 1px solid #c9d4ea;
+          text-align: center; white-space: nowrap; line-height: 1.3; }}
       table.dr th.op-h {{ background: #f7ecc6; color: #6e4e00; }}
-      table.dr td {{ padding: 2.6px 4px; border: 1px solid #e1e7f3; text-align: center; white-space: nowrap; color: #1f2d4d; }}
+      table.dr td {{ padding: 4px 6px; border: 1px solid #e1e7f3; text-align: center; white-space: nowrap; color: #1f2d4d; }}
+      table.dr.sum-tbl td {{ padding: 5px 8px; }}
       table.dr tbody tr:nth-child(even) td {{ background: #fafbfe; }}
-      table.dr tr.tot td {{ background: #eef3fc !important; font-weight: 900; color: #1f3a73; border-bottom: 2px solid #9ab0d9; font-size: 10.5px; }}
-      table.dr td.nm {{ text-align: left; font-weight: 700; padding-left: 5px; }}
+      table.dr tr.tot td {{ background: #eef3fc !important; font-weight: 900; color: #1f3a73; border-bottom: 2px solid #9ab0d9; font-size: 12.6px; }}
+      table.dr td.nm {{ text-align: left; font-weight: 700; padding-left: 8px; }}
       table.dr td.mgr {{ font-weight: 700; }}
-      table.dr td.num {{ text-align: right; padding-right: 5px; font-variant-numeric: tabular-nums; }}
+      table.dr td.num {{ text-align: right; padding-right: 7px; font-variant-numeric: tabular-nums; }}
       table.dr td.b {{ font-weight: 800; }}
       table.dr td.good {{ color: #0b9a6a; font-weight: 800; }}
       table.dr td.warn {{ color: #c96a00; font-weight: 800; }}
@@ -2681,8 +2674,8 @@ def _daily_report_export_html(report_title_date, year_short, end_month_num, team
       table.dr td.neg {{ color: #d0143c; font-weight: 700; }}
       table.dr td.op {{ background: #fffbe6 !important; font-weight: 700; }}
       table.dr td.op.neg {{ color: #d0143c; }}
-      .rr-b {{ display: inline-block; margin-left: 3px; padding: 0 4px; border-radius: 3px; background: #ffe066;
-          color: #664400; font-size: 8.2px; font-weight: 900; vertical-align: 1px; }}
+      .rr-b {{ display: inline-block; margin-left: 4px; padding: 1px 5px; border-radius: 4px; background: #ffe066;
+          color: #664400; font-size: 9.5px; font-weight: 900; vertical-align: 1px; }}
       /* 2페이지 미니 차트 카드 */
       .rc-grid.p2-grid {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }}
       .rc-card {{ background: #ffffff; border: 1px solid #d5dcea; border-radius: 10px; padding: 9px 12px 6px; break-inside: avoid; page-break-inside: avoid; }}
@@ -2729,46 +2722,44 @@ def _daily_report_export_html(report_title_date, year_short, end_month_num, team
           <div class="p-title">특수개발 오픈점 일일 현황 ({escape(report_title_date)})</div>
           <div class="p-meta">단위: 천원, %</div>
         </div>
-        <div class="p1-layout">
-          <div class="p1-left">
-            <div class="sec-cap"><span>■ 특수개발 오픈점 현황</span><small>'{escape(year_short)}년 1월~{end_month_num}월(누계)</small></div>
-            <table class="dr">
-              <thead>
-                <tr>
-                  <th rowspan="2">구분</th>
-                  <th colspan="3">출점수</th>
-                  <th rowspan="2">일매출</th>
-                  <th rowspan="2">예상매출</th>
-                  <th rowspan="2">달성률</th>
-                </tr>
-                <tr><th>계</th><th>특수개발</th><th>R&amp;R</th></tr>
-              </thead>
-              <tbody>{"".join(sum_trs)}</tbody>
-            </table>
-          </div>
-          <div class="p1-right">
-            <div class="sec-cap"><span>■ 신규 오픈점 현황 ({len(store_detail_rows)}점)</span><small>개점일 순 · 노란 칸 = 월 마감 본부손익</small></div>
-            <table class="dr">
-              <thead>
-                <tr>
-                  <th rowspan="2">개점일</th>
-                  <th rowspan="2">담당자</th>
-                  <th rowspan="2">점포명</th>
-                  <th rowspan="2">타입</th>
-                  <th rowspan="2">입지</th>
-                  <th colspan="3">예상매출 달성률</th>
-                  <th colspan="3">예상 매익률 차이</th>
-                  <th colspan="2" class="op-h">본부손익</th>
-                </tr>
-                <tr>
-                  <th>예상</th><th>실적</th><th>달성률</th>
-                  <th>예상</th><th>실적</th><th>차이</th>
-                  <th class="op-h">월 평균</th><th class="op-h">누계</th>
-                </tr>
-              </thead>
-              <tbody>{"".join(det_trs)}</tbody>
-            </table>
-          </div>
+        <div class="p1-top">
+          <div class="sec-cap"><span>■ 특수개발 오픈점 현황</span><small>'{escape(year_short)}년 1월~{end_month_num}월(누계) · {escape(report_title_date)}</small></div>
+          <table class="dr sum-tbl">
+            <thead>
+              <tr>
+                <th rowspan="2">구분</th>
+                <th colspan="3">출점수</th>
+                <th rowspan="2">일매출</th>
+                <th rowspan="2">예상매출</th>
+                <th rowspan="2">달성률</th>
+              </tr>
+              <tr><th>계</th><th>특수개발</th><th>R&amp;R</th></tr>
+            </thead>
+            <tbody>{"".join(sum_trs)}</tbody>
+          </table>
+        </div>
+        <div class="p1-bottom">
+          <div class="sec-cap"><span>■ 신규 오픈점 현황 ({len(store_detail_rows)}점)</span><small>개점일 순 · 노란 칸 = 월 마감 본부손익 (정산 전 신규점 공란)</small></div>
+          <table class="dr">
+            <thead>
+              <tr>
+                <th rowspan="2">개점일</th>
+                <th rowspan="2">담당자</th>
+                <th rowspan="2">점포명</th>
+                <th rowspan="2">타입</th>
+                <th rowspan="2">입지</th>
+                <th colspan="3">예상매출 달성률</th>
+                <th colspan="3">예상 매익률 차이</th>
+                <th colspan="2" class="op-h">본부손익</th>
+              </tr>
+              <tr>
+                <th>예상</th><th>실적</th><th>달성률</th>
+                <th>예상</th><th>실적</th><th>차이</th>
+                <th class="op-h">월 평균</th><th class="op-h">누계</th>
+              </tr>
+            </thead>
+            <tbody>{"".join(det_trs)}</tbody>
+          </table>
         </div>
       </div>
 
@@ -2847,6 +2838,12 @@ def _render_daily_report_tab(get_gc, D, year, myms):
         if rd.get("has_raw") and rd.get("last_date") else f"최근점 일별원시(`{TAB_DAILY_RECENT}`): 미입력"
     )
     st.caption(f":material/sync: {cum_status}  |  {rec_status}")
+    unmatched_in_rpt = [s["raw_name"] for s in rd.get("stores", []) if not s.get("in_master")]
+    if unmatched_in_rpt:
+        st.warning(
+            f":material/warning: `최근점_일별원시` 점포 중 아직 `점포마스터` 탭에 등록되지 않은 점포가 있습니다: "
+            f"**{', '.join(unmatched_in_rpt)}** (`점포마스터`와 `예상목표` 탭에 추가하시면 1페이지 출점수 합계 및 2페이지 예상일매출 기준선에 자동 반영됩니다)"
+        )
 
     open_full = [f"{year}{mo:02d}" for mo in range(1, 13)]
     team_g = calc_group(D, all_names, myms, open_yms=open_full)
